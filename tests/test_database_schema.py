@@ -21,6 +21,7 @@ def test_core_mvp_tables_are_declared() -> None:
     assert {
         "market_daily",
         "sector_daily",
+        "candidate_stock",
         "trade_plan",
         "trade_review",
     }.issubset(metadata.tables.keys())
@@ -63,6 +64,31 @@ def test_sector_daily_has_required_columns_and_duplicate_guards() -> None:
     }.issubset(columns)
     assert ("trade_date", "sector_name") in _unique_columns("sector_daily")
     assert ("trade_date", "rank_no") in _unique_columns("sector_daily")
+
+
+def test_candidate_stock_has_required_columns_indexes_and_duplicate_guards() -> None:
+    columns = set(metadata.tables["candidate_stock"].columns.keys())
+
+    assert {
+        "id",
+        "trade_date",
+        "stock_code",
+        "stock_name",
+        "sector_name",
+        "sector_rank",
+        "strategy_type",
+        "stock_score",
+        "sector_score",
+        "close_price",
+        "amount",
+        "reason",
+        "risk_note",
+        "created_at",
+    }.issubset(columns)
+    assert ("trade_date", "stock_code", "strategy_type") in _unique_columns("candidate_stock")
+    assert ("trade_date",) in _index_columns("candidate_stock")
+    assert ("stock_code",) in _index_columns("candidate_stock")
+    assert ("strategy_type",) in _index_columns("candidate_stock")
 
 
 def test_trade_plan_has_required_columns_indexes_and_duplicate_guards() -> None:

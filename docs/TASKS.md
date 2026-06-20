@@ -11,7 +11,8 @@
 - [x] 已完成 TuShare 真实拉取映射和全市场数据初始化
 - [x] 已完成市场环境评分、入库命令和最新结果 API
 - [x] 已完成强势板块排序、入库命令和最新结果 API
-- [ ] 尚未完成候选股票筛选
+- [x] 已完成候选股票筛选、入库命令和最新结果 API
+- [ ] 尚未完成交易计划生成
 
 ## 开发原则
 
@@ -202,6 +203,45 @@ TuShare 全市场初始化验证：
 
 验收：真实交易日能输出候选股票，且每条候选都有策略命中和解释。
 
+状态：已完成。
+
+已完成：
+
+- 新增候选股票表：`candidate_stock`。
+- 新增候选股票迁移：`0003_candidate_stock_table`。
+- 新增候选筛选服务：`backend/app/candidate/service.py`。
+- 新增 TuShare 东方财富板块成分 provider：`backend/app/candidate/providers.py`。
+- 新增生成命令：`scripts/generate-candidates.sh --trade-date YYYY-MM-DD` / `make generate-candidates`。
+- 新增候选查询 API：`GET /api/candidates/latest`。
+- 基础过滤已覆盖 ST/退市风险、非 active、新股、低成交额、低价股、一字涨停和历史窗口不足。
+- 策略已覆盖趋势强势、放量突破、强势回踩，所有候选都带中文入选理由和风险提示。
+
+验证：
+
+- `.venv/bin/pytest`
+- `cd frontend && npm test -- --run`
+- `cd frontend && npm run build`
+- `scripts/db-upgrade.sh` -> `0003_candidate_stock_table (head)`
+- 已回补 `2026-05-20` 到 `2026-06-18` 的 22 个交易日个股日线，共 `121182` 条。
+- `scripts/generate-candidates.sh --trade-date 2026-06-18 --limit 50`
+- PostgreSQL `candidate_stock`：`trade_date=2026-06-18` 生成 `42` 条候选，分数范围 `91-100`。
+- 策略分布：`趋势强势=34`、`强势回踩=6`、`放量突破=2`。
+- API `GET /api/candidates/latest` 返回 200，最新结果与数据库一致。
+
+真实 Top 候选样例：
+
+- `300308 中际旭创`：`科技风格`，`趋势强势`，评分 `100`。
+- `603986 兆易创新`：`科技风格`，`趋势强势`，评分 `100`。
+- `600487 亨通光电`：`科技风格`，`趋势强势`，评分 `100`。
+- `002384 东山精密`：`科技风格`，`趋势强势`，评分 `100`。
+- `688525 佰维存储`：`科技风格`，`趋势强势`，评分 `100`。
+
+说明：
+
+- 本任务只输出候选股票，不生成买入区间、止损价、止盈价和建议仓位。
+- 同一股票可以因多个策略重复入选；后续交易计划生成时需要合并或择优处理。
+- 候选必须有板块 Top 10 共振；弱板块孤立强股不进入当前候选池。
+
 ### 7. 交易计划生成
 
 - 生成买入条件、买入区间、止损价、止盈价、建议仓位和风险提示。
@@ -246,4 +286,4 @@ TuShare 全市场初始化验证：
 
 ## 下一步
 
-下一次开发进入任务 6：候选股票筛选。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次开发进入任务 7：交易计划生成。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

@@ -77,6 +77,38 @@ class SectorDaily(Base):
     )
 
 
+class CandidateStock(Base):
+    __tablename__ = "candidate_stock"
+    __table_args__ = (
+        UniqueConstraint(
+            "trade_date",
+            "stock_code",
+            "strategy_type",
+            name="uq_candidate_stock_trade_date_stock_strategy",
+        ),
+        Index("ix_candidate_stock_trade_date", "trade_date"),
+        Index("ix_candidate_stock_stock_code", "stock_code"),
+        Index("ix_candidate_stock_strategy_type", "strategy_type"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trade_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    stock_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    sector_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    sector_rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    strategy_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    stock_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    sector_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    close_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(24, 4), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    risk_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class TradePlan(Base):
     __tablename__ = "trade_plan"
     __table_args__ = (

@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.engine import Engine
 
+from backend.app.candidate.service import load_latest_candidates
 from backend.app.core.config import get_settings
 from backend.app.db.session import create_database_engine
 from backend.app.market.service import load_latest_market_environment
@@ -79,6 +80,32 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
                     "limit_up_count": item.limit_up_count,
                     "strong_stock_count": item.strong_stock_count,
                     "sector_score": item.sector_score,
+                }
+                for item in items
+            ],
+        }
+
+    @app.get("/api/candidates/latest", tags=["candidate"])
+    def latest_candidates() -> dict:
+        result = load_latest_candidates(database_engine)
+        if result is None:
+            raise HTTPException(status_code=404, detail="candidates are not generated")
+        trade_date, items = result
+        return {
+            "trade_date": trade_date.isoformat(),
+            "items": [
+                {
+                    "stock_code": item.stock_code,
+                    "stock_name": item.stock_name,
+                    "sector_name": item.sector_name,
+                    "sector_rank": item.sector_rank,
+                    "strategy_type": item.strategy_type,
+                    "stock_score": item.stock_score,
+                    "sector_score": item.sector_score,
+                    "close_price": item.close_price,
+                    "amount": item.amount,
+                    "reason": item.reason,
+                    "risk_note": item.risk_note,
                 }
                 for item in items
             ],
