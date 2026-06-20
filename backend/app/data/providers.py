@@ -232,3 +232,26 @@ class AkShareSinaMarketDataProvider:
         if eligible.empty:
             return None
         return int(eligible.index[-1])
+
+
+class MissingTushareTokenError(RuntimeError):
+    pass
+
+
+class TushareMarketDataProvider:
+    name = "tushare"
+
+    def __init__(self, token: str):
+        self.token = token.strip()
+
+    def fetch_snapshot(
+        self,
+        trade_date: Optional[date] = None,
+        sample_size: int = 30,
+        stock_codes: Optional[Iterable[str]] = None,
+    ) -> MarketDataSnapshot:
+        if not self.token:
+            raise MissingTushareTokenError("TUSHARE_TOKEN is required for provider=tushare")
+        raise NotImplementedError(
+            "TuShare provider is configured but full fetch mapping is not implemented yet"
+        )

@@ -1,10 +1,16 @@
 import argparse
 import json
+import os
 from datetime import date
 from typing import Optional
 
+from backend.app.data.audit import audit_market_data_coverage
 from backend.app.data.ingest import ingest_market_snapshot
-from backend.app.data.providers import AkShareSinaMarketDataProvider
+from backend.app.data.providers import (
+    AkShareSinaMarketDataProvider,
+    MissingTushareTokenError,
+    TushareMarketDataProvider,
+)
 from backend.app.db.session import create_database_engine
 
 
@@ -19,11 +25,27 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     ingest = subparsers.add_parser("ingest", help="Fetch and store a market data snapshot")
-    ingest.add_argument("--provider", choices=["akshare"], default="akshare")
+    ingest.add_argument("--provider", choices=["auto", "tushare", "akshare"], default="auto")
     ingest.add_argument("--trade-date", help="Target trade date in YYYY-MM-DD format")
     ingest.add_argument("--sample-size", type=int, default=30)
     ingest.add_argument("--stock-code", action="append", dest="stock_codes")
+
+    audit = subparsers.add_parser("audit", help="Report market data coverage")
+    audit.add_argument("--trade-date", required=True, help="Target trade date in YYYY-MM-DD format")
     return parser
+
+
+def load_provider(provider_name: str, tushare_token: Optional[str] = None):
+    token = tushare_token if tushare_token is not None else os.environ.get("TUSHARE_TOKEN", "")
+    if provider_name == "tushare":
+        return TushareMarketDataProvider(token=token or "")
+    if provider_name == "akshare":
+        return AkShareSinaMarketDataProvider()
+    if provider_name == "auto":
+        if token:
+            return TushareMarketDataProvider(token=token)
+        return AkShareSinaMarketDataProvider()
+    raise ValueError(f"Unsupported provider: {provider_name}")
 
 
 def main() -> None:
@@ -31,14 +53,22 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "ingest":
-        provider = AkShareSinaMarketDataProvider()
-        snapshot = provider.fetch_snapshot(
-            trade_date=parse_date(args.trade_date),
-            sample_size=args.sample_size,
-            stock_codes=args.stock_codes,
-        )
+        provider = load_provider(args.provider)
+        try:
+            snapshot = provider.fetch_snapshot(
+                trade_date=parse_date(args.trade_date),
+                sample_size=args.sample_size,
+                stock_codes=args.stock_codes,
+            )
+        except MissingTushareTokenError as exc:
+            parser.error(str(exc))
         summary = ingest_market_snapshot(create_database_engine(), snapshot)
         print(json.dumps(summary.__dict__, ensure_ascii=False, default=str, sort_keys=True))
+        return
+
+    if args.command == "audit":
+        audit = audit_market_data_coverage(create_database_engine(), parse_date(args.trade_date))
+        print(json.dumps(audit.__dict__, ensure_ascii=False, default=str, sort_keys=True))
         return
 
     parser.error(f"Unsupported command: {args.command}")
@@ -46,4 +76,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

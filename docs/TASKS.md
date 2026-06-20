@@ -7,7 +7,8 @@
 - [x] 已创建任务 1 的项目骨架与健康检查
 - [x] 已创建任务 2 的业务数据库模型与迁移
 - [x] 已打通任务 3 的真实数据采集基础链路
-- [ ] 尚未完成 TuShare 主源接入和全市场数据初始化
+- [x] 已增加 TuShare 主源选择入口和数据覆盖审计
+- [ ] 尚未完成 TuShare 真实拉取映射和全市场数据初始化
 
 ## 开发原则
 
@@ -80,9 +81,20 @@
 
 未完成：
 
-- 尚未使用 TuShare token 跑主数据源。
+- 尚未使用 TuShare token 跑通真实 TuShare 拉取映射；当前 `--provider tushare` 在缺少 `TUSHARE_TOKEN` 时会明确失败。
 - 尚未执行全市场全量股票日线初始化。
 - 当前 AkShare/Eastmoney 全市场实时快照接口在本机代理环境下会断连，已改用可用的 Sina 日线和涨跌停池组合。
+
+补充进展：
+
+- 已新增 provider 选择：`--provider auto|tushare|akshare`；`auto` 在存在 `TUSHARE_TOKEN` 时选择 TuShare，否则选择 AkShare/Sina。
+- 已新增覆盖审计命令：`scripts/audit-market-data.sh --trade-date YYYY-MM-DD` / `make audit-market-data`。
+- 缺少 `TUSHARE_TOKEN` 时执行 `--provider tushare` 会以清晰错误退出，不会静默伪装为 TuShare 数据。
+
+覆盖审计验证：
+
+- `scripts/audit-market-data.sh --trade-date 2026-06-18`
+- 输出：`open_trading_days=109`、`stock_basic_rows=5`、`stock_daily_rows=5`、`missing_stock_daily_rows=0`、`index_daily_rows=3`、`limit_up_rows=91`、`limit_down_rows=12`、`latest_stock_daily_date=2026-06-18`
 
 ### 4. 市场环境评分
 
@@ -151,4 +163,4 @@
 
 ## 下一步
 
-下一次开发继续补齐任务 3：TuShare 主源接入、全市场数据初始化和数据覆盖审计。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次开发继续补齐任务 3：TuShare 真实拉取映射、全市场数据初始化和覆盖审计扩展。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

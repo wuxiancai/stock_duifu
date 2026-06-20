@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」，并打通任务 3 的真实数据采集基础链路。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」，并打通任务 3 的真实数据采集基础链路、provider 选择入口和覆盖审计。
 
 ## 已完成
 
@@ -51,11 +51,19 @@
 - 已新增真实数据采集命令：
   - `scripts/ingest-market-data.sh`
   - `make ingest-market-data`
+- 已新增数据覆盖审计命令：
+  - `scripts/audit-market-data.sh`
+  - `make audit-market-data`
 - 已用 AkShare/Sina 日线和 AkShare/Eastmoney 涨跌停池写入真实 PostgreSQL。
+- 已新增 provider 选择：
+  - `--provider auto`
+  - `--provider akshare`
+  - `--provider tushare`
+- 缺少 `TUSHARE_TOKEN` 时，`--provider tushare` 会明确报错，不会静默伪装为 TuShare 数据。
 
 ## 未完成
 
-- 未接入 TuShare token 主数据源。
+- 未完成 TuShare 真实拉取映射；当前只完成 provider 选择和缺 token 保护。
 - 未执行全市场全量股票日线初始化。
 - 未创建交易业务 API。
 - 未创建 P0 交易业务页面。
@@ -63,7 +71,7 @@
 
 ## 本轮验证
 
-- `.venv/bin/pytest`：13 passed。
+- `.venv/bin/pytest`：18 passed。
 - `cd frontend && npm test -- --run`：1 passed。
 - `cd frontend && npm run build`：通过。当前 Element Plus 全量引入触发 chunk size warning，属于后续优化项，不影响任务 1 验收。
 - `docker compose up -d postgres`：PostgreSQL 容器 healthy。
@@ -84,6 +92,20 @@
   - `limit_up=91`
   - `limit_down=12`
 - 样本日线均为目标交易日 `2026-06-18`：`000001`、`000002`、`000063`、`300750`、`600519`。
+- 覆盖审计命令：
+  - `scripts/audit-market-data.sh --trade-date 2026-06-18`
+- 覆盖审计输出：
+  - `open_trading_days=109`
+  - `stock_basic_rows=5`
+  - `stock_daily_rows=5`
+  - `missing_stock_daily_rows=0`
+  - `index_daily_rows=3`
+  - `limit_up_rows=91`
+  - `limit_down_rows=12`
+  - `latest_stock_daily_date=2026-06-18`
+- TuShare 缺 token 验证：
+  - `scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-18 --sample-size 5`
+  - 结果：退出码 2，错误为 `TUSHARE_TOKEN is required for provider=tushare`
 
 ## 验收口径
 
@@ -100,9 +122,9 @@
 
 继续补齐 `docs/TASKS.md` 的任务 3：
 
-1. 接入 TuShare token 主数据源，环境变量为 `TUSHARE_TOKEN`。
+1. 完成 TuShare 真实拉取映射，环境变量为 `TUSHARE_TOKEN`。
 2. 建立全市场股票日线初始化命令，避免只停留在 5 只样本。
-3. 增加数据覆盖审计：交易日、股票数、最新交易日、缺失日线、涨跌停行数。
+3. 扩展数据覆盖审计：目标交易日全市场股票数、最新交易日、缺失日线清单、涨跌停行数。
 4. 明确 AkShare/Eastmoney 全市场实时快照当前在本机代理环境下会断连；可用路径是 Sina 日线和 Eastmoney 涨跌停池。
 5. 更新 `docs/HANDOFF.md`。
 6. 提交 git commit。

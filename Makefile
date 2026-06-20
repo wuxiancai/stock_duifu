@@ -1,4 +1,4 @@
-.PHONY: install test test-backend test-frontend db-upgrade db-current ingest-market-data dev-api dev-web
+.PHONY: install test test-backend test-frontend db-upgrade db-current ingest-market-data audit-market-data dev-api dev-web
 
 install:
 	python3 -m venv .venv
@@ -22,6 +22,9 @@ db-current:
 
 ingest-market-data:
 	bash scripts/ingest-market-data.sh
+
+audit-market-data:
+	bash scripts/audit-market-data.sh
 
 dev-api:
 	bash scripts/dev-api.sh
