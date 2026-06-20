@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」和任务 4「市场环境评分」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」和任务 5「强势板块排序」。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 
 ## 已完成
@@ -78,14 +78,27 @@
   - `GET /api/market/latest`
 - TuShare 采集已为三大指数写入近 45 个自然日历史日线，用于计算 MA20。
 - 已修复真实 PostgreSQL 下重复采集多日交易日历时的幂等写入顺序问题。
+- 已新增强势板块评分服务：
+  - `backend/app/sector/service.py`
+- 已新增 TuShare 东方财富板块 provider：
+  - `backend/app/sector/providers.py`
+- 已新增强势板块生成命令：
+  - `scripts/generate-sector-ranking.sh --trade-date YYYY-MM-DD`
+  - `make generate-sector-ranking`
+- 已新增强势板块 API：
+  - `GET /api/sectors/top`
+- 强势板块真实数据路径使用 TuShare `dc_index`、`dc_member` 和本地 `limit_snapshot`。
 
 ## 未完成
 
 - 未创建交易业务 API。
 - 未创建 P0 交易业务页面。
-- 未完成任务 5「强势板块排序」。
+- 未完成任务 6「候选股票筛选」。
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股，后续需要在任务 6 基础过滤中分类处理。
 - 连板高度暂无结构化数据，任务 4 中未计入市场评分；后续需要补连板高度数据源后再纳入评分。
+- AkShare/Eastmoney 板块接口在本机网络环境下仍断连；任务 5 已采用 TuShare `dc_index` 作为真实可运行路径。
+- `sector_daily.five_day_return` 字段当前保存近 3 日累计涨幅；后续如改为 5 日，应同步迁移字段命名或 API 展示。
+- `amount_change` 当前使用 TuShare `dc_index.total_mv * turnover_rate / 100` 作为成交额代理值；后续若取得板块真实成交额字段，应替换为真实成交额。
 
 ## 本轮验证
 
@@ -179,6 +192,23 @@
   - PostgreSQL 最新 `market_daily`：`trade_date=2026-06-18`、`market_score=55`、`market_status=中性`、`up_count=2023`、`down_count=3395`、`limit_up_count=91`、`limit_down_count=12`、`total_amount=3331719013167.0800`。
   - `GET /api/market/latest`：返回 200，最新结果与数据库一致。
   - 评分解释：上证指数站上 MA20 `+15`、创业板指站上 MA20 `+15`、上涨家数未超过下跌家数 `+0`、涨停家数不少于 40 `+15`、跌停家数超过 10 `+0`、成交额较上一交易日放大 `+10`、连板高度暂无结构化数据未计分。
+- 任务 5 真实数据验证：
+  - AkShare/Eastmoney 板块接口在当前网络下报 `RemoteDisconnected` / `ProxyError`，未作为验收路径。
+  - TuShare `dc_index(trade_date=20260618)`：返回 `1021` 条板块数据。
+  - `scripts/generate-sector-ranking.sh --trade-date 2026-06-18 --member-fetch-limit 80`：成功生成 Top 10 并写入 `sector_daily`。
+  - PostgreSQL `sector_daily`：`count=10`、`rank_no=1..10`、`sector_score=100..100`。
+  - `GET /api/sectors/top`：返回 200，最新结果与数据库一致。
+  - 真实 Top 10：
+    1. `非金属材料Ⅲ`：日涨幅 `5.96`，3 日涨幅 `12.49`，涨停 `3`，强势股 `8`，评分 `100`。
+    2. `非金属材料Ⅱ`：日涨幅 `5.96`，3 日涨幅 `12.49`，涨停 `5`，强势股 `8`，评分 `100`。
+    3. `蓝宝石`：日涨幅 `3.99`，3 日涨幅 `9.34`，涨停 `2`，强势股 `13`，评分 `100`。
+    4. `半导体设备`：日涨幅 `3.16`，3 日涨幅 `11.12`，涨停 `2`，强势股 `17`，评分 `100`。
+    5. `金属新材料`：日涨幅 `3.07`，3 日涨幅 `5.49`，涨停 `2`，强势股 `27`，评分 `100`。
+    6. `Kimi概念`：日涨幅 `3.03`，3 日涨幅 `2.55`，涨停 `2`，强势股 `14`，评分 `100`。
+    7. `科技风格`：日涨幅 `2.83`，3 日涨幅 `8.70`，涨停 `3`，强势股 `79`，评分 `100`。
+    8. `先进封装`：日涨幅 `2.81`，3 日涨幅 `9.84`，涨停 `4`，强势股 `30`，评分 `100`。
+    9. `CPO概念`：日涨幅 `2.74`，3 日涨幅 `8.58`，涨停 `2`，强势股 `46`，评分 `100`。
+    10. `小金属`：日涨幅 `2.73`，3 日涨幅 `3.32`，涨停 `6`，强势股 `17`，评分 `100`。
 
 ## 验收口径
 
@@ -193,12 +223,12 @@
 
 ## 下一步
 
-继续 `docs/TASKS.md` 的任务 5：强势板块排序。
+继续 `docs/TASKS.md` 的任务 6：候选股票筛选。
 
-1. 先确定板块数据源字段，优先 TuShare 可用接口；若 TuShare 权限不足，再使用 AkShare/Eastmoney 板块行情补充。
-2. 建立板块日线/成分股所需表或复用 `sector_daily`。
-3. 计算 Top 10 强势板块并写入 `sector_daily`。
-4. 提供 API 查询强势板块排序。
+1. 实现基础过滤：ST、退市风险、停牌、新股、成交额不足、低价股、一字涨停。
+2. 基于真实 `stock_daily`、`stock_basic`、`sector_daily` 和板块成分股实现候选股票筛选。
+3. 先落地趋势强势、放量突破、强势回踩三类策略的可解释命中原因。
+4. 输出候选股票 API，为后续交易计划生成做准备。
 5. 更新 `docs/HANDOFF.md`。
 6. 提交 git commit。
 

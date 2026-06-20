@@ -8,6 +8,7 @@ from sqlalchemy.engine import Engine
 from backend.app.core.config import get_settings
 from backend.app.db.session import create_database_engine
 from backend.app.market.service import load_latest_market_environment
+from backend.app.sector.service import load_latest_sector_rankings
 
 
 def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = None) -> FastAPI:
@@ -58,6 +59,29 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
             "limit_down_count": result.limit_down_count,
             "total_amount": result.total_amount,
             "suggestion": result.suggestion,
+        }
+
+    @app.get("/api/sectors/top", tags=["sector"])
+    def top_sectors() -> dict:
+        result = load_latest_sector_rankings(database_engine)
+        if result is None:
+            raise HTTPException(status_code=404, detail="sector rankings are not generated")
+        trade_date, items = result
+        return {
+            "trade_date": trade_date.isoformat(),
+            "items": [
+                {
+                    "rank_no": item.rank_no,
+                    "sector_name": item.sector_name,
+                    "daily_return": item.daily_return,
+                    "three_day_return": item.three_day_return,
+                    "amount_change": item.amount_change,
+                    "limit_up_count": item.limit_up_count,
+                    "strong_stock_count": item.strong_stock_count,
+                    "sector_score": item.sector_score,
+                }
+                for item in items
+            ],
         }
 
     return app
