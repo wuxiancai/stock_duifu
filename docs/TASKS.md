@@ -6,8 +6,8 @@
 - [x] 已明确本仓库为全新系统，旧 `stock` 项目作废
 - [x] 已创建任务 1 的项目骨架与健康检查
 - [x] 已创建任务 2 的业务数据库模型与迁移
-- [ ] 尚未接入真实数据源
-- [ ] 尚未完成任何真实数据验收
+- [x] 已打通任务 3 的真实数据采集基础链路
+- [ ] 尚未完成 TuShare 主源接入和全市场数据初始化
 
 ## 开发原则
 
@@ -61,6 +61,28 @@
 - 落地交易日历、指数行情、个股日线、基础信息、涨跌停和成交额数据。
 
 验收：能拉取最近可用交易日真实数据并写入数据库，失败时有清晰错误。
+
+状态：基础链路已完成，全量覆盖未完成。
+
+已完成：
+
+- 新增原始行情表：`trading_calendar`、`stock_basic`、`index_daily`、`stock_daily`、`limit_snapshot`、`data_ingest_run`。
+- 新增采集命令：`scripts/ingest-market-data.sh` / `make ingest-market-data`。
+- 使用 AkShare/Sina 真实日线和 AkShare/Eastmoney 涨跌停池写入 PostgreSQL。
+- 指定股票样本 `000001`、`600519`、`300750`、`000002`、`000063` 均写入目标交易日 `2026-06-18` 的真实日线。
+
+验证：
+
+- `scripts/db-upgrade.sh` -> `0002_market_data_tables (head)`
+- `scripts/ingest-market-data.sh --stock-code 000001 --stock-code 600519 --stock-code 300750 --stock-code 000002 --stock-code 000063`
+- PostgreSQL 行数：`trading_calendar=109`、`stock_basic=5`、`index_daily=3`、`stock_daily=5`、`limit_snapshot=103`、`data_ingest_run=1`
+- 涨跌停拆分：`limit_up=91`、`limit_down=12`
+
+未完成：
+
+- 尚未使用 TuShare token 跑主数据源。
+- 尚未执行全市场全量股票日线初始化。
+- 当前 AkShare/Eastmoney 全市场实时快照接口在本机代理环境下会断连，已改用可用的 Sina 日线和涨跌停池组合。
 
 ### 4. 市场环境评分
 
@@ -129,4 +151,4 @@
 
 ## 下一步
 
-下一次开发从任务 3「数据采集与交易日历」开始。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次开发继续补齐任务 3：TuShare 主源接入、全市场数据初始化和数据覆盖审计。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

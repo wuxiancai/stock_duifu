@@ -154,4 +154,132 @@ class TradeReview(Base):
     )
 
 
+class TradingCalendar(Base):
+    __tablename__ = "trading_calendar"
+    __table_args__ = (
+        UniqueConstraint("trade_date", name="uq_trading_calendar_trade_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trade_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    is_open: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class StockBasic(Base):
+    __tablename__ = "stock_basic"
+    __table_args__ = (
+        UniqueConstraint("stock_code", name="uq_stock_basic_stock_code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    stock_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    market: Mapped[str] = mapped_column(String(20), nullable=False)
+    list_date: Mapped[Optional[datetime]] = mapped_column(Date)
+    is_st: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class IndexDaily(Base):
+    __tablename__ = "index_daily"
+    __table_args__ = (
+        UniqueConstraint("index_code", "trade_date", name="uq_index_daily_index_code_trade_date"),
+        Index("ix_index_daily_trade_date", "trade_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    index_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    trade_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    open: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    high: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    low: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    close: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    volume: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    amount: Mapped[Optional[float]] = mapped_column(Numeric(24, 4))
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class StockDaily(Base):
+    __tablename__ = "stock_daily"
+    __table_args__ = (
+        UniqueConstraint("stock_code", "trade_date", name="uq_stock_daily_stock_code_trade_date"),
+        Index("ix_stock_daily_trade_date", "trade_date"),
+        Index("ix_stock_daily_stock_code", "stock_code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    trade_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    open: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    high: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    low: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    close: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    pre_close: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    change: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    pct_chg: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False)
+    volume: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(24, 4), nullable=False)
+    turnover_rate: Mapped[Optional[float]] = mapped_column(Numeric(10, 4))
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class LimitSnapshot(Base):
+    __tablename__ = "limit_snapshot"
+    __table_args__ = (
+        UniqueConstraint(
+            "trade_date",
+            "stock_code",
+            "limit_status",
+            name="uq_limit_snapshot_trade_date_stock_code_limit_status",
+        ),
+        Index("ix_limit_snapshot_trade_date", "trade_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trade_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    stock_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    close_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    pct_chg: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False)
+    limit_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(24, 4), nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class DataIngestRun(Base):
+    __tablename__ = "data_ingest_run"
+    __table_args__ = (Index("ix_data_ingest_run_trade_date", "trade_date"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    trade_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    trading_calendar_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stock_basic_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    index_daily_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stock_daily_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    limit_snapshot_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 metadata = Base.metadata

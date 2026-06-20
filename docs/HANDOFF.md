@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」和任务 2「数据库模型与迁移」，尚未接入真实行情数据。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」，并打通任务 3 的真实数据采集基础链路。
 
 ## 已完成
 
@@ -41,17 +41,29 @@
   - `trade_plan`
   - `trade_review`
   - `alembic_version`
+- 已新增原始行情表并迁移到 `0002_market_data_tables (head)`：
+  - `trading_calendar`
+  - `stock_basic`
+  - `index_daily`
+  - `stock_daily`
+  - `limit_snapshot`
+  - `data_ingest_run`
+- 已新增真实数据采集命令：
+  - `scripts/ingest-market-data.sh`
+  - `make ingest-market-data`
+- 已用 AkShare/Sina 日线和 AkShare/Eastmoney 涨跌停池写入真实 PostgreSQL。
 
 ## 未完成
 
-- 未接入 TuShare、AkShare 或其他真实行情数据源。
+- 未接入 TuShare token 主数据源。
+- 未执行全市场全量股票日线初始化。
 - 未创建交易业务 API。
 - 未创建 P0 交易业务页面。
-- 未完成行情数据采集验收。
+- 未完成全市场数据覆盖审计。
 
 ## 本轮验证
 
-- `.venv/bin/pytest`：6 passed。
+- `.venv/bin/pytest`：13 passed。
 - `cd frontend && npm test -- --run`：1 passed。
 - `cd frontend && npm run build`：通过。当前 Element Plus 全量引入触发 chunk size warning，属于后续优化项，不影响任务 1 验收。
 - `docker compose up -d postgres`：PostgreSQL 容器 healthy。
@@ -59,26 +71,39 @@
 - `scripts/db-current.sh`：`0001_core_mvp_tables (head)`。
 - PostgreSQL 查询确认存在 `alembic_version`、`market_daily`、`sector_daily`、`trade_plan`、`trade_review`。
 - 重复执行 `scripts/db-upgrade.sh` 成功，说明初始化命令可重复调用。
+- `scripts/db-upgrade.sh` 已迁移到 `0002_market_data_tables (head)`。
+- 真实采集命令：
+  - `scripts/ingest-market-data.sh --stock-code 000001 --stock-code 600519 --stock-code 300750 --stock-code 000002 --stock-code 000063`
+- 采集结果：
+  - `trade_date=2026-06-18`
+  - `trading_calendar=109`
+  - `stock_basic=5`
+  - `index_daily=3`
+  - `stock_daily=5`
+  - `limit_snapshot=103`
+  - `limit_up=91`
+  - `limit_down=12`
+- 样本日线均为目标交易日 `2026-06-18`：`000001`、`000002`、`000063`、`300750`、`600519`。
 
 ## 验收口径
 
-当前阶段只完成文档初始化、工程骨架、配置、健康检查和数据库表初始化，不代表 MVP 完成。
+当前阶段只完成文档初始化、工程骨架、配置、健康检查、数据库表初始化和真实数据采集基础链路，不代表 MVP 完成。
 
 在以下事项完成前，不得宣称系统可用于每日交易准备：
 
-- 真实行情数据可拉取并入库。
+- TuShare 主源和全市场真实行情数据可拉取并入库。
 - 市场环境、强势板块和交易计划可由真实数据生成。
 - P0 Web 页面可展示真实数据库结果。
 - 交易计划可跟踪触发并生成复盘。
 
 ## 下一步
 
-从 `docs/TASKS.md` 的任务 3「数据采集与交易日历」开始：
+继续补齐 `docs/TASKS.md` 的任务 3：
 
-1. 接入 TuShare 作为主数据源。
-2. 补充 AkShare 或公开数据源作为后备读取路径。
-3. 落地交易日历、指数行情、个股日线、基础信息、涨跌停和成交额数据。
-4. 使用真实行情数据写入 PostgreSQL。
+1. 接入 TuShare token 主数据源，环境变量为 `TUSHARE_TOKEN`。
+2. 建立全市场股票日线初始化命令，避免只停留在 5 只样本。
+3. 增加数据覆盖审计：交易日、股票数、最新交易日、缺失日线、涨跌停行数。
+4. 明确 AkShare/Eastmoney 全市场实时快照当前在本机代理环境下会断连；可用路径是 Sina 日线和 Eastmoney 涨跌停池。
 5. 更新 `docs/HANDOFF.md`。
 6. 提交 git commit。
 
