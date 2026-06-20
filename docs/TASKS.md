@@ -5,7 +5,7 @@
 - [x] 已创建 MVP PRD：`PRD_MVP.md`
 - [x] 已明确本仓库为全新系统，旧 `stock` 项目作废
 - [x] 已创建任务 1 的项目骨架与健康检查
-- [ ] 尚未创建业务数据库模型
+- [x] 已创建任务 2 的业务数据库模型与迁移
 - [ ] 尚未接入真实数据源
 - [ ] 尚未完成任何真实数据验收
 
@@ -42,6 +42,17 @@
 - 增加唯一约束和日期索引，避免重复写入。
 
 验收：真实 PostgreSQL 可初始化，表结构可查询，重复初始化可控。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest`
+- `docker compose up -d postgres`
+- `scripts/db-upgrade.sh`
+- `scripts/db-current.sh` -> `0001_core_mvp_tables (head)`
+- PostgreSQL 已查询到 `market_daily`、`sector_daily`、`trade_plan`、`trade_review`、`alembic_version`
+- 重复执行 `scripts/db-upgrade.sh` 成功，无重复建表错误
 
 ### 3. 数据采集与交易日历
 
@@ -118,4 +129,4 @@
 
 ## 下一步
 
-下一次开发从任务 1「项目骨架与配置」开始。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次开发从任务 3「数据采集与交易日历」开始。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

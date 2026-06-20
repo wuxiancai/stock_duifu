@@ -1,4 +1,4 @@
-.PHONY: install test test-backend test-frontend dev-api dev-web
+.PHONY: install test test-backend test-frontend db-upgrade db-current dev-api dev-web
 
 install:
 	python3 -m venv .venv
@@ -14,9 +14,14 @@ test-backend:
 test-frontend:
 	cd frontend && npm test -- --run
 
+db-upgrade:
+	bash scripts/db-upgrade.sh
+
+db-current:
+	bash scripts/db-current.sh
+
 dev-api:
 	bash scripts/dev-api.sh
 
 dev-web:
 	bash scripts/dev-web.sh
-
