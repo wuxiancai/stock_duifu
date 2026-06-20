@@ -1,6 +1,6 @@
 import os
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 from typing import Iterable, Optional
 
 import akshare as ak
@@ -335,28 +335,28 @@ class TushareMarketDataProvider:
 
     def _fetch_index_daily(self, pro, trade_date_text: str) -> list[IndexDailyRecord]:
         records: list[IndexDailyRecord] = []
+        end_date = pd.to_datetime(trade_date_text).date()
+        start_date_text = (end_date - timedelta(days=45)).strftime("%Y%m%d")
         for index_code in INDEX_SYMBOLS.values():
             frame = pro.index_daily(
                 ts_code=index_code,
-                start_date=trade_date_text,
+                start_date=start_date_text,
                 end_date=trade_date_text,
             )
-            if frame.empty:
-                continue
-            row = frame.iloc[0]
-            records.append(
-                IndexDailyRecord(
-                    index_code=str(row["ts_code"]),
-                    trade_date=pd.to_datetime(row["trade_date"]).date(),
-                    open=as_float(row["open"]),
-                    high=as_float(row["high"]),
-                    low=as_float(row["low"]),
-                    close=as_float(row["close"]),
-                    volume=as_float(row["vol"]),
-                    amount=as_float(row.get("amount"), default=None),
-                    source=self.name,
+            for _, row in frame.iterrows():
+                records.append(
+                    IndexDailyRecord(
+                        index_code=str(row["ts_code"]),
+                        trade_date=pd.to_datetime(row["trade_date"]).date(),
+                        open=as_float(row["open"]),
+                        high=as_float(row["high"]),
+                        low=as_float(row["low"]),
+                        close=as_float(row["close"]),
+                        volume=as_float(row["vol"]),
+                        amount=as_float(row.get("amount"), default=None),
+                        source=self.name,
+                    )
                 )
-            )
         return records
 
     def _fetch_stock_daily(self, pro, ts_codes: list[str], trade_date_text: str) -> list[StockDailyRecord]:

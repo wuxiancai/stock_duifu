@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」和任务 3「数据采集与交易日历」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」和任务 4「市场环境评分」。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 
 ## 已完成
@@ -69,13 +69,23 @@
   - 涨跌停明细：`limit_list_d`
 - 已新增全市场初始化参数：
   - `scripts/ingest-market-data.sh --provider tushare --trade-date YYYY-MM-DD --all-stocks`
+- 已新增市场环境评分服务：
+  - `backend/app/market/service.py`
+- 已新增市场环境生成命令：
+  - `scripts/generate-market-environment.sh --trade-date YYYY-MM-DD`
+  - `make generate-market-environment`
+- 已新增最新市场环境 API：
+  - `GET /api/market/latest`
+- TuShare 采集已为三大指数写入近 45 个自然日历史日线，用于计算 MA20。
+- 已修复真实 PostgreSQL 下重复采集多日交易日历时的幂等写入顺序问题。
 
 ## 未完成
 
 - 未创建交易业务 API。
 - 未创建 P0 交易业务页面。
-- 未完成任务 4「市场环境评分」。
+- 未完成任务 5「强势板块排序」。
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股，后续需要在任务 6 基础过滤中分类处理。
+- 连板高度暂无结构化数据，任务 4 中未计入市场评分；后续需要补连板高度数据源后再纳入评分。
 
 ## 本轮验证
 
@@ -161,6 +171,14 @@
   - `.venv/bin/pytest`：20 passed，1 个 LibreSSL/urllib3 warning。
   - `cd frontend && npm test -- --run`：1 passed。
   - `cd frontend && npm run build`：通过；Element Plus 相关 bundle 仍有 chunk size warning。
+- 任务 4 真实数据验证：
+  - `scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-17 --all-stocks`：成功，`stock_daily_rows=5509`、`index_daily_rows=93`、`limit_snapshot_rows=87`。
+  - `scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-18 --all-stocks`：成功，`stock_daily_rows=5507`、`index_daily_rows=96`、`limit_snapshot_rows=103`。
+  - 指数历史覆盖：`000001.SH`、`399001.SZ`、`399006.SZ` 均为 32 条，范围 `2026-05-06` 到 `2026-06-18`。
+  - `scripts/generate-market-environment.sh --trade-date 2026-06-18`：成功生成 `market_daily`。
+  - PostgreSQL 最新 `market_daily`：`trade_date=2026-06-18`、`market_score=55`、`market_status=中性`、`up_count=2023`、`down_count=3395`、`limit_up_count=91`、`limit_down_count=12`、`total_amount=3331719013167.0800`。
+  - `GET /api/market/latest`：返回 200，最新结果与数据库一致。
+  - 评分解释：上证指数站上 MA20 `+15`、创业板指站上 MA20 `+15`、上涨家数未超过下跌家数 `+0`、涨停家数不少于 40 `+15`、跌停家数超过 10 `+0`、成交额较上一交易日放大 `+10`、连板高度暂无结构化数据未计分。
 
 ## 验收口径
 
@@ -175,12 +193,12 @@
 
 ## 下一步
 
-继续 `docs/TASKS.md` 的任务 4：市场环境评分。
+继续 `docs/TASKS.md` 的任务 5：强势板块排序。
 
-1. 用真实 `index_daily`、`stock_daily`、`limit_snapshot` 计算市场环境。
-2. 先实现可测试的评分服务：指数 MA20、上涨/下跌家数、涨停/跌停家数、全市场成交额变化。
-3. 将评分结果写入 `market_daily`。
-4. 提供 API 查询最新市场环境。
+1. 先确定板块数据源字段，优先 TuShare 可用接口；若 TuShare 权限不足，再使用 AkShare/Eastmoney 板块行情补充。
+2. 建立板块日线/成分股所需表或复用 `sector_daily`。
+3. 计算 Top 10 强势板块并写入 `sector_daily`。
+4. 提供 API 查询强势板块排序。
 5. 更新 `docs/HANDOFF.md`。
 6. 提交 git commit。
 

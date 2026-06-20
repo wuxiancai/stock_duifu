@@ -9,7 +9,8 @@
 - [x] 已打通任务 3 的真实数据采集基础链路
 - [x] 已增加 TuShare 主源选择入口和数据覆盖审计
 - [x] 已完成 TuShare 真实拉取映射和全市场数据初始化
-- [ ] 尚未完成市场环境评分
+- [x] 已完成市场环境评分、入库命令和最新结果 API
+- [ ] 尚未完成强势板块排序
 
 ## 开发原则
 
@@ -111,6 +112,33 @@ TuShare 全市场初始化验证：
 
 验收：用真实交易日数据生成市场环境，API 可返回结果。
 
+状态：已完成。
+
+已完成：
+
+- 新增市场环境评分服务：`backend/app/market/service.py`。
+- 新增市场环境生成命令：`scripts/generate-market-environment.sh --trade-date YYYY-MM-DD` / `make generate-market-environment`。
+- 新增最新市场环境 API：`GET /api/market/latest`。
+- TuShare 采集已为三大指数补足 MA20 所需历史日线。
+- 修复真实 PostgreSQL 下重复采集多日交易日历时的幂等写入顺序问题。
+- 连板高度目前没有结构化字段，评分中明确不计分，不伪造结果。
+
+验证：
+
+- `.venv/bin/pytest`
+- `cd frontend && npm test -- --run`
+- `cd frontend && npm run build`
+- `scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-17 --all-stocks`
+- `scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-18 --all-stocks`
+- `scripts/generate-market-environment.sh --trade-date 2026-06-18`
+- PostgreSQL `market_daily` 最新结果：`trade_date=2026-06-18`、`market_score=55`、`market_status=中性`、`up_count=2023`、`down_count=3395`、`limit_up_count=91`、`limit_down_count=12`、`total_amount=3331719013167.0800`。
+- API `GET /api/market/latest` 返回 200，最新结果与数据库一致。
+
+说明：
+
+- 评分项已覆盖上证指数 MA20、创业板指 MA20、上涨/下跌家数、涨停/跌停家数、成交额环比。
+- 连板高度需要后续增加连板结构化数据后再纳入评分。
+
 ### 5. 强势板块排序
 
 - 计算板块当日涨幅、3 日或 5 日涨幅、成交额变化、涨停数量、强势股数量。
@@ -170,4 +198,4 @@ TuShare 全市场初始化验证：
 
 ## 下一步
 
-下一次开发进入任务 4：市场环境评分。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次开发进入任务 5：强势板块排序。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

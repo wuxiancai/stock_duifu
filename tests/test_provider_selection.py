@@ -189,3 +189,42 @@ def test_tushare_provider_uses_trade_date_daily_for_all_stocks() -> None:
     assert client.daily_kwargs == [{"trade_date": "20260618"}]
     assert len(snapshot.stock_basic) == 2
     assert len(snapshot.stock_daily) == 2
+
+
+def test_tushare_provider_fetches_index_history_for_ma20() -> None:
+    class FakeTushareClient:
+        def __init__(self):
+            self.index_daily_kwargs = []
+
+        def trade_cal(self, **kwargs):
+            return pd.DataFrame([{"cal_date": "20260618", "is_open": 1}])
+
+        def stock_basic(self, **kwargs):
+            return pd.DataFrame(
+                [{"ts_code": "000001.SZ", "symbol": "000001", "name": "平安银行", "market": "主板", "list_date": "19910403"}]
+            )
+
+        def index_daily(self, **kwargs):
+            self.index_daily_kwargs.append(kwargs)
+            return pd.DataFrame(
+                [
+                    {"ts_code": kwargs["ts_code"], "trade_date": "20260520", "open": 1, "high": 2, "low": 1, "close": 1, "vol": 100, "amount": 200},
+                    {"ts_code": kwargs["ts_code"], "trade_date": "20260618", "open": 2, "high": 3, "low": 1, "close": 2, "vol": 100, "amount": 200},
+                ]
+            )
+
+        def daily(self, **kwargs):
+            return pd.DataFrame(
+                [{"ts_code": "000001.SZ", "trade_date": "20260618", "open": 10, "high": 11, "low": 9, "close": 10.5, "pre_close": 10, "change": 0.5, "pct_chg": 5, "vol": 100, "amount": 1000}]
+            )
+
+        def limit_list_d(self, **kwargs):
+            return pd.DataFrame([])
+
+    client = FakeTushareClient()
+    provider = TushareMarketDataProvider(token="token-value", pro_client=client)
+
+    snapshot = provider.fetch_snapshot(trade_date=date(2026, 6, 18), sample_size=0)
+
+    assert len(snapshot.index_daily) == 6
+    assert client.index_daily_kwargs[0]["start_date"] < "20260618"

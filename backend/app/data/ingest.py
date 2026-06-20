@@ -19,10 +19,12 @@ def ingest_market_snapshot(engine: Engine, snapshot: MarketDataSnapshot) -> Inge
             session.execute(
                 delete(TradingCalendar).where(TradingCalendar.trade_date == record.trade_date)
             )
+            session.flush()
             session.add(TradingCalendar(**record.__dict__))
 
         for record in snapshot.stock_basic:
             session.execute(delete(StockBasic).where(StockBasic.stock_code == record.stock_code))
+            session.flush()
             session.add(StockBasic(**record.__dict__))
 
         for record in snapshot.index_daily:
@@ -32,6 +34,7 @@ def ingest_market_snapshot(engine: Engine, snapshot: MarketDataSnapshot) -> Inge
                     IndexDaily.trade_date == record.trade_date,
                 )
             )
+            session.flush()
             session.add(IndexDaily(**record.__dict__))
 
         for record in snapshot.stock_daily:
@@ -41,6 +44,7 @@ def ingest_market_snapshot(engine: Engine, snapshot: MarketDataSnapshot) -> Inge
                     StockDaily.trade_date == record.trade_date,
                 )
             )
+            session.flush()
             session.add(StockDaily(**record.__dict__))
 
         for record in snapshot.limit_snapshot:
@@ -51,6 +55,7 @@ def ingest_market_snapshot(engine: Engine, snapshot: MarketDataSnapshot) -> Inge
                     LimitSnapshot.limit_status == record.limit_status,
                 )
             )
+            session.flush()
             session.add(LimitSnapshot(**record.__dict__))
 
         summary = IngestSummary(
@@ -67,4 +72,3 @@ def ingest_market_snapshot(engine: Engine, snapshot: MarketDataSnapshot) -> Inge
         session.add(DataIngestRun(**summary.__dict__))
         session.commit()
         return summary
-

@@ -93,6 +93,15 @@ def _snapshot(stock_name: str = "平安银行") -> MarketDataSnapshot:
     )
 
 
+def _multi_day_calendar_snapshot() -> MarketDataSnapshot:
+    snapshot = _snapshot()
+    previous_date = date(2026, 6, 18)
+    snapshot.trading_calendar.append(
+        TradingCalendarRecord(trade_date=previous_date, is_open=True, source="unit-test")
+    )
+    return snapshot
+
+
 def test_ingest_market_snapshot_writes_all_market_data_tables() -> None:
     engine = _engine()
 
@@ -123,3 +132,13 @@ def test_ingest_market_snapshot_is_idempotent_for_same_trade_date() -> None:
         assert session.query(LimitSnapshot).count() == 1
         assert session.query(DataIngestRun).count() == 2
         assert session.scalar(select(StockBasic).where(StockBasic.stock_code == "000001")).stock_name == "平安银行A"
+
+
+def test_ingest_market_snapshot_replaces_existing_multi_day_calendar_rows() -> None:
+    engine = _engine()
+
+    ingest_market_snapshot(engine, _multi_day_calendar_snapshot())
+    ingest_market_snapshot(engine, _multi_day_calendar_snapshot())
+
+    with Session(engine) as session:
+        assert session.query(TradingCalendar).count() == 2
