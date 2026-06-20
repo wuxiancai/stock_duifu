@@ -14,6 +14,7 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://stock:stock@127.0.0.1:5432/stock",
         alias="DATABASE_URL",
     )
+    tushare_token: str = Field(default="", alias="TUSHARE_TOKEN")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -25,4 +26,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

@@ -8,7 +8,8 @@
 - [x] 已创建任务 2 的业务数据库模型与迁移
 - [x] 已打通任务 3 的真实数据采集基础链路
 - [x] 已增加 TuShare 主源选择入口和数据覆盖审计
-- [ ] 尚未完成 TuShare 真实拉取映射和全市场数据初始化
+- [x] 已完成 TuShare 真实拉取映射和全市场数据初始化
+- [ ] 尚未完成市场环境评分
 
 ## 开发原则
 
@@ -63,7 +64,7 @@
 
 验收：能拉取最近可用交易日真实数据并写入数据库，失败时有清晰错误。
 
-状态：基础链路已完成，全量覆盖未完成。
+状态：已完成主源真实拉取、全市场日线初始化和覆盖审计。
 
 已完成：
 
@@ -71,6 +72,9 @@
 - 新增采集命令：`scripts/ingest-market-data.sh` / `make ingest-market-data`。
 - 使用 AkShare/Sina 真实日线和 AkShare/Eastmoney 涨跌停池写入 PostgreSQL。
 - 指定股票样本 `000001`、`600519`、`300750`、`000002`、`000063` 均写入目标交易日 `2026-06-18` 的真实日线。
+- TuShare token 已通过 `.env` 脱敏保存并由 `TUSHARE_TOKEN` 环境变量读取，`.env` 不提交到 git。
+- 新增 TuShare 真实映射：交易日历、个股基础信息、指数日线、个股日线、涨跌停明细。
+- 新增全市场初始化开关：`scripts/ingest-market-data.sh --provider tushare --trade-date YYYY-MM-DD --all-stocks`。
 
 验证：
 
@@ -79,22 +83,25 @@
 - PostgreSQL 行数：`trading_calendar=109`、`stock_basic=5`、`index_daily=3`、`stock_daily=5`、`limit_snapshot=103`、`data_ingest_run=1`
 - 涨跌停拆分：`limit_up=91`、`limit_down=12`
 
-未完成：
-
-- 尚未使用 TuShare token 跑通真实 TuShare 拉取映射；当前 `--provider tushare` 在缺少 `TUSHARE_TOKEN` 时会明确失败。
-- 尚未执行全市场全量股票日线初始化。
-- 当前 AkShare/Eastmoney 全市场实时快照接口在本机代理环境下会断连，已改用可用的 Sina 日线和涨跌停池组合。
-
 补充进展：
 
 - 已新增 provider 选择：`--provider auto|tushare|akshare`；`auto` 在存在 `TUSHARE_TOKEN` 时选择 TuShare，否则选择 AkShare/Sina。
 - 已新增覆盖审计命令：`scripts/audit-market-data.sh --trade-date YYYY-MM-DD` / `make audit-market-data`。
 - 缺少 `TUSHARE_TOKEN` 时执行 `--provider tushare` 会以清晰错误退出，不会静默伪装为 TuShare 数据。
+- 当前 AkShare/Eastmoney 全市场实时快照接口在本机代理环境下会断连，已保留可用的 Sina 日线和 Eastmoney 涨跌停池组合为后备路径。
 
 覆盖审计验证：
 
 - `scripts/audit-market-data.sh --trade-date 2026-06-18`
-- 输出：`open_trading_days=109`、`stock_basic_rows=5`、`stock_daily_rows=5`、`missing_stock_daily_rows=0`、`index_daily_rows=3`、`limit_up_rows=91`、`limit_down_rows=12`、`latest_stock_daily_date=2026-06-18`
+- 样本模式输出：`open_trading_days=109`、`stock_basic_rows=5`、`stock_daily_rows=5`、`missing_stock_daily_rows=0`、`index_daily_rows=3`、`limit_up_rows=91`、`limit_down_rows=12`、`latest_stock_daily_date=2026-06-18`
+- 全市场 TuShare 输出：`open_trading_days=109`、`stock_basic_rows=5529`、`stock_daily_rows=5507`、`missing_stock_daily_rows=22`、`index_daily_rows=3`、`limit_up_rows=91`、`limit_down_rows=12`、`latest_stock_daily_date=2026-06-18`
+- 缺失日线清单首批包含多只 ST、退市风险或当日无交易个股，需要在任务 6 的基础过滤中继续分类处理。
+
+TuShare 全市场初始化验证：
+
+- `scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-18 --all-stocks`
+- 写入结果：`trading_calendar=169`、`stock_basic=5529`、`index_daily=3`、`stock_daily=5507`、`limit_snapshot=103`。
+- 最新入库运行记录：`provider=tushare`、`trade_date=2026-06-18`、`status=success`。
 
 ### 4. 市场环境评分
 
@@ -163,4 +170,4 @@
 
 ## 下一步
 
-下一次开发继续补齐任务 3：TuShare 真实拉取映射、全市场数据初始化和覆盖审计扩展。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次开发进入任务 4：市场环境评分。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

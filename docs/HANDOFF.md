@@ -6,7 +6,8 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」，并打通任务 3 的真实数据采集基础链路、provider 选择入口和覆盖审计。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」和任务 3「数据采集与交易日历」。
+- TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 
 ## 已完成
 
@@ -60,14 +61,21 @@
   - `--provider akshare`
   - `--provider tushare`
 - 缺少 `TUSHARE_TOKEN` 时，`--provider tushare` 会明确报错，不会静默伪装为 TuShare 数据。
+- 已完成 TuShare 真实拉取映射：
+  - 交易日历：`trade_cal`
+  - 个股基础信息：`stock_basic`
+  - 指数日线：`index_daily`
+  - 个股日线：`daily`
+  - 涨跌停明细：`limit_list_d`
+- 已新增全市场初始化参数：
+  - `scripts/ingest-market-data.sh --provider tushare --trade-date YYYY-MM-DD --all-stocks`
 
 ## 未完成
 
-- 未完成 TuShare 真实拉取映射；当前只完成 provider 选择和缺 token 保护。
-- 未执行全市场全量股票日线初始化。
 - 未创建交易业务 API。
 - 未创建 P0 交易业务页面。
-- 未完成全市场数据覆盖审计。
+- 未完成任务 4「市场环境评分」。
+- 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股，后续需要在任务 6 基础过滤中分类处理。
 
 ## 本轮验证
 
@@ -106,6 +114,53 @@
 - TuShare 缺 token 验证：
   - `scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-18 --sample-size 5`
   - 结果：退出码 2，错误为 `TUSHARE_TOKEN is required for provider=tushare`
+- TuShare 全市场初始化命令：
+  - `scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-18 --all-stocks`
+- TuShare 全市场写入结果：
+  - `trading_calendar=169`
+  - `stock_basic=5529`
+  - `index_daily=3`
+  - `stock_daily=5507`
+  - `limit_snapshot=103`
+  - `limit_up=91`
+  - `limit_down=12`
+  - `provider=tushare`
+  - `status=success`
+- TuShare 全市场覆盖审计：
+  - `scripts/audit-market-data.sh --trade-date 2026-06-18`
+  - `open_trading_days=109`
+  - `stock_basic_rows=5529`
+  - `stock_daily_rows=5507`
+  - `missing_stock_daily_rows=22`
+  - `index_daily_rows=3`
+  - `latest_stock_daily_date=2026-06-18`
+- 缺失日线首批清单：
+  - `000004 *ST国华`
+  - `000793 *ST华闻`
+  - `001331 胜通能源`
+  - `002076 *ST星光`
+  - `002731 ST萃华`
+  - `002762 *ST金比`
+  - `002808 *ST恒久`
+  - `002898 *ST赛隆`
+  - `300159 *ST新研`
+  - `300313 *ST天山`
+  - `300665 飞鹿股份`
+  - `600228 返利科技`
+  - `600717 天津港`
+  - `603137 恒尚节能`
+  - `603159 上海亚虹`
+  - `603721 中广天择`
+  - `688121 卓然股份`
+  - `688143 长盈通`
+  - `688287 退市观典`
+  - `688689 银河微电`
+  - `920305 *ST云创`
+  - `920675 秉扬科技`
+- 本轮完整验证：
+  - `.venv/bin/pytest`：20 passed，1 个 LibreSSL/urllib3 warning。
+  - `cd frontend && npm test -- --run`：1 passed。
+  - `cd frontend && npm run build`：通过；Element Plus 相关 bundle 仍有 chunk size warning。
 
 ## 验收口径
 
@@ -120,12 +175,12 @@
 
 ## 下一步
 
-继续补齐 `docs/TASKS.md` 的任务 3：
+继续 `docs/TASKS.md` 的任务 4：市场环境评分。
 
-1. 完成 TuShare 真实拉取映射，环境变量为 `TUSHARE_TOKEN`。
-2. 建立全市场股票日线初始化命令，避免只停留在 5 只样本。
-3. 扩展数据覆盖审计：目标交易日全市场股票数、最新交易日、缺失日线清单、涨跌停行数。
-4. 明确 AkShare/Eastmoney 全市场实时快照当前在本机代理环境下会断连；可用路径是 Sina 日线和 Eastmoney 涨跌停池。
+1. 用真实 `index_daily`、`stock_daily`、`limit_snapshot` 计算市场环境。
+2. 先实现可测试的评分服务：指数 MA20、上涨/下跌家数、涨停/跌停家数、全市场成交额变化。
+3. 将评分结果写入 `market_daily`。
+4. 提供 API 查询最新市场环境。
 5. 更新 `docs/HANDOFF.md`。
 6. 提交 git commit。
 

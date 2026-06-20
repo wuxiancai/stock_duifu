@@ -11,6 +11,7 @@ from backend.app.data.providers import (
     MissingTushareTokenError,
     TushareMarketDataProvider,
 )
+from backend.app.core.config import get_settings
 from backend.app.db.session import create_database_engine
 
 
@@ -28,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--provider", choices=["auto", "tushare", "akshare"], default="auto")
     ingest.add_argument("--trade-date", help="Target trade date in YYYY-MM-DD format")
     ingest.add_argument("--sample-size", type=int, default=30)
+    ingest.add_argument("--all-stocks", action="store_true", help="Fetch all active stocks for the target trade date")
     ingest.add_argument("--stock-code", action="append", dest="stock_codes")
 
     audit = subparsers.add_parser("audit", help="Report market data coverage")
@@ -36,7 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def load_provider(provider_name: str, tushare_token: Optional[str] = None):
-    token = tushare_token if tushare_token is not None else os.environ.get("TUSHARE_TOKEN", "")
+    token = (
+        tushare_token
+        if tushare_token is not None
+        else os.environ.get("TUSHARE_TOKEN", "") or get_settings().tushare_token
+    )
     if provider_name == "tushare":
         return TushareMarketDataProvider(token=token or "")
     if provider_name == "akshare":
@@ -57,7 +63,7 @@ def main() -> None:
         try:
             snapshot = provider.fetch_snapshot(
                 trade_date=parse_date(args.trade_date),
-                sample_size=args.sample_size,
+                sample_size=0 if args.all_stocks else args.sample_size,
                 stock_codes=args.stock_codes,
             )
         except MissingTushareTokenError as exc:
