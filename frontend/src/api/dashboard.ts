@@ -97,6 +97,50 @@ export interface TradePlanTrackingResponse {
   }>
 }
 
+export interface TradeReviewGroupStats {
+  name: string
+  total_count: number
+  triggered_count: number
+  win_count: number
+  win_rate: number
+  avg_day_return: number | null
+  avg_t5_return: number | null
+}
+
+export interface TradeReviewItem {
+  id: number
+  trade_plan_id: number
+  trade_date: string
+  stock_code: string
+  stock_name: string
+  sector_name: string
+  strategy_type: string
+  triggered: boolean
+  trigger_price: number | null
+  close_price: number | null
+  day_return: number | null
+  t5_return: number | null
+  max_profit: number | null
+  max_loss: number | null
+  result: string
+  failure_reason: string | null
+  discipline_check: boolean
+  note: string
+}
+
+export interface TradeReviewLatestResponse {
+  review_date: string
+  total_count: number
+  triggered_count: number
+  win_count: number
+  win_rate: number
+  avg_day_return: number | null
+  avg_t5_return: number | null
+  strategy_stats: TradeReviewGroupStats[]
+  sector_stats: TradeReviewGroupStats[]
+  items: TradeReviewItem[]
+}
+
 export function fetchMarketLatest(): Promise<MarketLatestResponse> {
   return fetchJson<MarketLatestResponse>('/api/market/latest')
 }
@@ -107,6 +151,10 @@ export function fetchTopSectors(): Promise<SectorTopResponse> {
 
 export function fetchLatestTradePlans(): Promise<TradePlansLatestResponse> {
   return fetchJson<TradePlansLatestResponse>('/api/trade-plans/latest')
+}
+
+export function fetchLatestTradeReviews(): Promise<TradeReviewLatestResponse> {
+  return fetchJson<TradeReviewLatestResponse>('/api/trade-reviews/latest')
 }
 
 export function trackTradePlans(targetTradeDate: string, markUntriggeredAtClose = false): Promise<TradePlanTrackingResponse> {

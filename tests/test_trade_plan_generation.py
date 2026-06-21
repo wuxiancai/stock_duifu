@@ -5,9 +5,9 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from backend.app.db.models import CandidateStock, MarketDaily, StockDaily, TradePlan, TradingCalendar, metadata
+from backend.app.db.models import CandidateStock, MarketDaily, StockDaily, TradePlan, TradeReview, TradingCalendar, metadata
 from backend.app.main import create_app
-from backend.app.trade.service import generate_trade_plans, track_trade_plans
+from backend.app.trade.service import generate_trade_plans, generate_trade_reviews, track_trade_plans
 
 
 def _engine():
@@ -284,3 +284,98 @@ def test_trade_plan_tracking_api_returns_updated_items() -> None:
     payload = response.json()
     assert payload["target_trade_date"] == "2026-06-19"
     assert any(item["status"] == "已触发" for item in payload["items"])
+
+
+def _seed_review_target_day(engine) -> None:
+    with Session(engine) as session:
+        triggered = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
+        untriggered = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000002"))
+        trigger_price = max(float(triggered.buy_price_low), float(triggered.stop_loss_price) + 0.01)
+        triggered.status = "已触发"
+        triggered.trigger_price = trigger_price
+        triggered.tracking_note = "目标交易日价格触达计划买入区间"
+        untriggered.status = "未触发"
+        untriggered.tracking_note = "收盘未触达计划买入区间"
+
+        for offset, multiplier in enumerate([1.10, 1.12, 1.14, 1.16, 1.18]):
+            close = trigger_price * multiplier
+            session.add(
+                StockDaily(
+                    stock_code="000001",
+                    trade_date=date(2026, 6, 19) + timedelta(days=offset),
+                    open=trigger_price,
+                    high=close * 1.01,
+                    low=max(trigger_price * 0.99, float(triggered.stop_loss_price) + 0.01),
+                    close=close,
+                    pre_close=trigger_price,
+                    change=close - trigger_price,
+                    pct_chg=(multiplier - 1) * 100,
+                    volume=1000,
+                    amount=1000000000,
+                    turnover_rate=3.0,
+                    source="unit-test",
+                )
+            )
+        session.add(
+            StockDaily(
+                stock_code="000002",
+                trade_date=date(2026, 6, 19),
+                open=float(untriggered.buy_price_high) * 1.01,
+                high=float(untriggered.buy_price_high) * 1.01,
+                low=float(untriggered.buy_price_high) * 1.01,
+                close=float(untriggered.buy_price_high) * 1.01,
+                pre_close=float(untriggered.buy_price_high),
+                change=0.0,
+                pct_chg=0.0,
+                volume=1000,
+                amount=1000000000,
+                turnover_rate=3.0,
+                source="unit-test",
+            )
+        )
+        session.commit()
+
+
+def test_generate_trade_reviews_calculates_returns_and_group_stats() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    _seed_review_target_day(engine)
+
+    summary = generate_trade_reviews(engine, date(2026, 6, 19))
+
+    assert summary.review_date == date(2026, 6, 19)
+    assert summary.total_count == 2
+    assert summary.triggered_count == 1
+    assert summary.win_count == 1
+    assert summary.win_rate == 1.0
+    triggered = next(item for item in summary.items if item.stock_code == "000001")
+    assert triggered.result == "盈利"
+    assert triggered.day_return == 0.1
+    assert triggered.t5_return == 0.18
+    assert triggered.sector_name == "机器人"
+    assert summary.strategy_stats[0].name == "趋势强势"
+
+    generate_trade_reviews(engine, date(2026, 6, 19))
+    with Session(engine) as session:
+        assert session.query(TradeReview).count() == 2
+
+
+def test_trade_review_api_generates_and_returns_latest_summary() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    _seed_review_target_day(engine)
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.post("/api/trade-reviews/generate", json={"trade_date": "2026-06-19"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["review_date"] == "2026-06-19"
+    assert payload["triggered_count"] == 1
+    assert payload["items"][0]["sector_name"] == "机器人"
+
+    latest = client.get("/api/trade-reviews/latest")
+    assert latest.status_code == 200
+    assert latest.json()["win_rate"] == 1.0

@@ -242,6 +242,11 @@ textarea {
   padding: 24px 0;
 }
 
+.review-grid,
+.review-stats-table {
+  margin-bottom: 18px;
+}
+
 .el-table {
   width: 100%;
 }

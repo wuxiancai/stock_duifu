@@ -12,7 +12,13 @@ from backend.app.core.config import get_settings
 from backend.app.db.session import create_database_engine
 from backend.app.market.service import load_latest_market_environment
 from backend.app.sector.service import load_latest_sector_rankings
-from backend.app.trade.service import load_latest_trade_plans, track_trade_plans, update_trade_plan_status
+from backend.app.trade.service import (
+    generate_trade_reviews,
+    load_latest_trade_plans,
+    load_latest_trade_reviews,
+    track_trade_plans,
+    update_trade_plan_status,
+)
 
 
 class TradePlanTrackingRequest(BaseModel):
@@ -20,10 +26,63 @@ class TradePlanTrackingRequest(BaseModel):
     mark_untriggered_at_close: bool = False
 
 
+class TradeReviewGenerateRequest(BaseModel):
+    trade_date: str
+
+
 class TradePlanStatusUpdate(BaseModel):
     status: str
     trigger_price: Optional[float] = None
     note: str = ""
+
+
+def _review_group_payload(item) -> dict:
+    return {
+        "name": item.name,
+        "total_count": item.total_count,
+        "triggered_count": item.triggered_count,
+        "win_count": item.win_count,
+        "win_rate": item.win_rate,
+        "avg_day_return": item.avg_day_return,
+        "avg_t5_return": item.avg_t5_return,
+    }
+
+
+def _trade_review_payload(summary) -> dict:
+    return {
+        "review_date": summary.review_date.isoformat(),
+        "total_count": summary.total_count,
+        "triggered_count": summary.triggered_count,
+        "win_count": summary.win_count,
+        "win_rate": summary.win_rate,
+        "avg_day_return": summary.avg_day_return,
+        "avg_t5_return": summary.avg_t5_return,
+        "strategy_stats": [_review_group_payload(item) for item in summary.strategy_stats],
+        "sector_stats": [_review_group_payload(item) for item in summary.sector_stats],
+        "items": [
+            {
+                "id": item.id,
+                "trade_plan_id": item.trade_plan_id,
+                "trade_date": item.trade_date.isoformat(),
+                "stock_code": item.stock_code,
+                "stock_name": item.stock_name,
+                "sector_name": item.sector_name,
+                "strategy_type": item.strategy_type,
+                "triggered": item.triggered,
+                "trigger_price": item.trigger_price,
+                "close_price": item.close_price,
+                "day_return": item.day_return,
+                "t5_return": item.t5_return,
+                "max_profit": item.max_profit,
+                "max_loss": item.max_loss,
+                "result": item.result,
+                "failure_reason": item.failure_reason,
+                "discipline_check": item.discipline_check,
+                "note": item.note,
+            }
+            for item in summary.items
+        ],
+    }
 
 
 def _trade_plan_payload(item) -> dict:
@@ -207,6 +266,21 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
                 raise HTTPException(status_code=404, detail=message) from exc
             raise HTTPException(status_code=400, detail=message) from exc
         return _trade_plan_payload(item)
+
+    @app.post("/api/trade-reviews/generate", tags=["trade"])
+    def generate_trade_reviews_api(payload: TradeReviewGenerateRequest) -> dict:
+        try:
+            trade_date = date.fromisoformat(payload.trade_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="trade_date must be YYYY-MM-DD") from exc
+        return _trade_review_payload(generate_trade_reviews(database_engine, trade_date))
+
+    @app.get("/api/trade-reviews/latest", tags=["trade"])
+    def latest_trade_reviews() -> dict:
+        result = load_latest_trade_reviews(database_engine)
+        if result is None:
+            raise HTTPException(status_code=404, detail="trade reviews are not generated")
+        return _trade_review_payload(result)
 
     return app
 

@@ -47,6 +47,7 @@ describe('App', () => {
         target_trade_date: '2026-06-19',
         items: [
           {
+            id: 1,
             stock_code: '300308',
             stock_name: '中际旭创',
             sector_name: '科技风格',
@@ -61,7 +62,53 @@ describe('App', () => {
             take_profit_price: 1641.456,
             position_ratio: 0.4,
             status: '待触发',
+            trigger_price: null,
+            trigger_time: null,
+            tracking_note: '',
             risk_note: '高位强势股，严格执行止损。'
+          }
+        ]
+      },
+      '/api/trade-reviews/latest': {
+        review_date: '2026-06-19',
+        total_count: 1,
+        triggered_count: 1,
+        win_count: 1,
+        win_rate: 1,
+        avg_day_return: 0.1,
+        avg_t5_return: 0.18,
+        strategy_stats: [
+          {
+            name: '趋势强势',
+            total_count: 1,
+            triggered_count: 1,
+            win_count: 1,
+            win_rate: 1,
+            avg_day_return: 0.1,
+            avg_t5_return: 0.18
+          }
+        ],
+        sector_stats: [],
+        items: [
+          {
+            id: 1,
+            trade_plan_id: 1,
+            trade_date: '2026-06-19',
+            stock_code: '300308',
+            stock_name: '中际旭创',
+            sector_name: '科技风格',
+            strategy_type: '趋势强势',
+            triggered: true,
+            trigger_price: 1300,
+            close_price: 1430,
+            day_return: 0.1,
+            t5_return: 0.18,
+            max_profit: 0.2,
+            max_loss: -0.02,
+            result: '盈利',
+            failure_reason: null,
+            discipline_check: true,
+            note: '自动生成复盘'
           }
         ]
       }
@@ -98,5 +145,8 @@ describe('App', () => {
     expect(wrapper.text()).toContain('中际旭创')
     expect(wrapper.text()).toContain('40%')
     expect(wrapper.text()).toContain('交易复盘')
+    expect(wrapper.text()).toContain('复盘日：2026-06-19')
+    expect(wrapper.text()).toContain('当日均收益')
+    expect(wrapper.text()).toContain('盈利')
   })
 })

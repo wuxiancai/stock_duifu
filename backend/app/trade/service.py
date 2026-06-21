@@ -7,7 +7,7 @@ from sqlalchemy import delete, desc, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from backend.app.db.models import CandidateStock, MarketDaily, StockDaily, TradePlan, TradingCalendar
+from backend.app.db.models import CandidateStock, MarketDaily, StockDaily, TradePlan, TradeReview, TradingCalendar
 
 
 @dataclass(frozen=True)
@@ -46,6 +46,53 @@ class TradePlanTrackingResult:
     pct_chg: Optional[float]
     trigger_price: Optional[float]
     tracking_note: str
+
+
+@dataclass(frozen=True)
+class TradeReviewResult:
+    id: Optional[int]
+    trade_plan_id: int
+    trade_date: date
+    stock_code: str
+    stock_name: str
+    sector_name: str
+    strategy_type: str
+    triggered: bool
+    trigger_price: Optional[float]
+    close_price: Optional[float]
+    day_return: Optional[float]
+    t5_return: Optional[float]
+    max_profit: Optional[float]
+    max_loss: Optional[float]
+    result: str
+    failure_reason: Optional[str]
+    discipline_check: bool
+    note: str
+
+
+@dataclass(frozen=True)
+class ReviewGroupStats:
+    name: str
+    total_count: int
+    triggered_count: int
+    win_count: int
+    win_rate: float
+    avg_day_return: Optional[float]
+    avg_t5_return: Optional[float]
+
+
+@dataclass(frozen=True)
+class TradeReviewSummary:
+    review_date: date
+    total_count: int
+    triggered_count: int
+    win_count: int
+    win_rate: float
+    avg_day_return: Optional[float]
+    avg_t5_return: Optional[float]
+    strategy_stats: list[ReviewGroupStats]
+    sector_stats: list[ReviewGroupStats]
+    items: list[TradeReviewResult]
 
 
 def generate_trade_plans(
@@ -174,6 +221,37 @@ def track_trade_plans(
         return results
 
 
+def generate_trade_reviews(engine: Engine, trade_date: date) -> TradeReviewSummary:
+    with Session(engine) as session:
+        plans = session.scalars(
+            select(TradePlan)
+            .where(TradePlan.target_trade_date == trade_date)
+            .order_by(desc(TradePlan.stock_score), TradePlan.stock_code)
+        ).all()
+        session.execute(
+            delete(TradeReview).where(
+                TradeReview.trade_plan_id.in_([plan.id for plan in plans] or [-1]),
+                TradeReview.trade_date == trade_date,
+            )
+        )
+        session.flush()
+
+        for plan in plans:
+            review = _build_trade_review(session, plan, trade_date)
+            session.add(review)
+
+        session.commit()
+        return _load_trade_review_summary(session, trade_date)
+
+
+def load_latest_trade_reviews(engine: Engine) -> Optional[TradeReviewSummary]:
+    with Session(engine) as session:
+        latest_trade_date = session.scalar(select(func.max(TradeReview.trade_date)))
+        if latest_trade_date is None:
+            return None
+        return _load_trade_review_summary(session, latest_trade_date)
+
+
 def update_trade_plan_status(
     engine: Engine,
     plan_id: int,
@@ -200,6 +278,170 @@ def update_trade_plan_status(
         session.commit()
         session.refresh(plan)
         return _plan_result(plan)
+
+
+def _build_trade_review(session: Session, plan: TradePlan, trade_date: date) -> TradeReview:
+    history = session.scalars(
+        select(StockDaily)
+        .where(StockDaily.stock_code == plan.stock_code, StockDaily.trade_date >= trade_date)
+        .order_by(StockDaily.trade_date)
+        .limit(5)
+    ).all()
+    target_daily = next((row for row in history if row.trade_date == trade_date), None)
+    triggered = plan.status == "已触发" and plan.trigger_price is not None
+    trigger_price = _optional_number(plan.trigger_price) if triggered else None
+    close_price = _optional_number(target_daily.close) if target_daily else None
+
+    day_return: Optional[float] = None
+    t5_return: Optional[float] = None
+    max_profit: Optional[float] = None
+    max_loss: Optional[float] = None
+    result = "观察"
+    failure_reason: Optional[str] = None
+    discipline_check = True
+    note = plan.tracking_note or ""
+
+    if not triggered:
+        result = "取消" if plan.status == "取消" else "未触发"
+        failure_reason = plan.tracking_note or "计划未触发"
+        note = note or "未产生实际触发价格，收益字段不计算"
+    elif not target_daily:
+        result = "观察"
+        failure_reason = "缺少目标交易日日线"
+        discipline_check = False
+        note = note or "缺少目标交易日日线，暂不能复盘"
+    elif trigger_price and trigger_price > 0:
+        day_return = _pct_return(close_price, trigger_price)
+        t5_return = _pct_return(_number(history[-1].close), trigger_price) if len(history) >= 5 else None
+        max_profit = round((max(_number(row.high) for row in history) - trigger_price) / trigger_price, 4)
+        max_loss = round((min(_number(row.low) for row in history) - trigger_price) / trigger_price, 4)
+
+        if min(_number(row.low) for row in history) <= _number(plan.stop_loss_price):
+            result = "止损"
+            failure_reason = "触及计划止损价"
+        elif max(_number(row.high) for row in history) >= _number(plan.take_profit_price):
+            result = "止盈"
+        elif day_return is not None and day_return > 0:
+            result = "盈利"
+        else:
+            result = "亏损"
+            failure_reason = _failure_reason(plan, day_return)
+        note = note or "按目标交易日及后续已入库日线自动生成复盘"
+
+    return TradeReview(
+        trade_plan_id=plan.id,
+        trade_date=trade_date,
+        stock_code=plan.stock_code,
+        stock_name=plan.stock_name,
+        strategy_type=plan.strategy_type,
+        triggered=triggered,
+        trigger_price=trigger_price,
+        close_price=close_price,
+        day_return=day_return,
+        t5_return=t5_return,
+        max_profit=max_profit,
+        max_loss=max_loss,
+        result=result,
+        failure_reason=failure_reason,
+        discipline_check=discipline_check,
+        note=note,
+    )
+
+
+def _load_trade_review_summary(session: Session, trade_date: date) -> TradeReviewSummary:
+    rows = session.execute(
+        select(TradeReview, TradePlan)
+        .join(TradePlan, TradePlan.id == TradeReview.trade_plan_id)
+        .where(TradeReview.trade_date == trade_date)
+        .order_by(desc(TradeReview.triggered), desc(TradeReview.day_return), TradeReview.stock_code)
+    ).all()
+    items = [_review_result(review, plan) for review, plan in rows]
+    return TradeReviewSummary(
+        review_date=trade_date,
+        total_count=len(items),
+        triggered_count=sum(1 for item in items if item.triggered),
+        win_count=sum(1 for item in items if _is_win(item)),
+        win_rate=_win_rate(items),
+        avg_day_return=_average([item.day_return for item in items if item.day_return is not None]),
+        avg_t5_return=_average([item.t5_return for item in items if item.t5_return is not None]),
+        strategy_stats=_group_stats(items, lambda item: item.strategy_type),
+        sector_stats=_group_stats(items, lambda item: item.sector_name),
+        items=items,
+    )
+
+
+def _review_result(record: TradeReview, plan: TradePlan) -> TradeReviewResult:
+    return TradeReviewResult(
+        id=record.id,
+        trade_plan_id=record.trade_plan_id,
+        trade_date=record.trade_date,
+        stock_code=record.stock_code,
+        stock_name=record.stock_name,
+        sector_name=plan.sector_name,
+        strategy_type=record.strategy_type,
+        triggered=record.triggered,
+        trigger_price=_optional_number(record.trigger_price),
+        close_price=_optional_number(record.close_price),
+        day_return=_optional_number(record.day_return),
+        t5_return=_optional_number(record.t5_return),
+        max_profit=_optional_number(record.max_profit),
+        max_loss=_optional_number(record.max_loss),
+        result=record.result,
+        failure_reason=record.failure_reason,
+        discipline_check=record.discipline_check,
+        note=record.note,
+    )
+
+
+def _group_stats(items: list[TradeReviewResult], key_fn) -> list[ReviewGroupStats]:
+    groups: dict[str, list[TradeReviewResult]] = {}
+    for item in items:
+        groups.setdefault(key_fn(item), []).append(item)
+    return [
+        ReviewGroupStats(
+            name=name,
+            total_count=len(group),
+            triggered_count=sum(1 for item in group if item.triggered),
+            win_count=sum(1 for item in group if _is_win(item)),
+            win_rate=_win_rate(group),
+            avg_day_return=_average([item.day_return for item in group if item.day_return is not None]),
+            avg_t5_return=_average([item.t5_return for item in group if item.t5_return is not None]),
+        )
+        for name, group in sorted(groups.items(), key=lambda row: (-sum(1 for item in row[1] if _is_win(item)), row[0]))
+    ]
+
+
+def _failure_reason(plan: TradePlan, day_return: Optional[float]) -> str:
+    if plan.market_status in {"弱势", "风险"}:
+        return "大盘弱"
+    if plan.strategy_type == "放量突破":
+        return "假突破"
+    if day_return is not None and day_return < -0.03:
+        return "追高"
+    return "板块退潮"
+
+
+def _pct_return(price: Optional[float], base: float) -> Optional[float]:
+    if price is None or base <= 0:
+        return None
+    return round((price - base) / base, 4)
+
+
+def _is_win(item: TradeReviewResult) -> bool:
+    return item.triggered and item.day_return is not None and item.day_return > 0
+
+
+def _win_rate(items: list[TradeReviewResult]) -> float:
+    triggered_count = sum(1 for item in items if item.triggered)
+    if triggered_count == 0:
+        return 0.0
+    return round(sum(1 for item in items if _is_win(item)) / triggered_count, 4)
+
+
+def _average(values: list[float]) -> Optional[float]:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 4)
 
 
 def _evaluate_plan_tracking(

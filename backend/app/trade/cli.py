@@ -1,10 +1,11 @@
 import argparse
 import json
+from dataclasses import asdict
 from datetime import date
 from typing import Optional
 
 from backend.app.db.session import create_database_engine
-from backend.app.trade.service import generate_trade_plans, track_trade_plans
+from backend.app.trade.service import generate_trade_plans, generate_trade_reviews, track_trade_plans
 
 
 def parse_date(value: Optional[str]) -> Optional[date]:
@@ -29,6 +30,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Mark still-untriggered plans as 未触发 after close",
     )
+
+    review = subparsers.add_parser("review", help="Generate and store trade reviews")
+    review.add_argument("--trade-date", help="Trade date in YYYY-MM-DD format")
     return parser
 
 
@@ -55,6 +59,12 @@ def main() -> None:
             mark_untriggered_at_close=args.mark_untriggered_at_close,
         )
         print(json.dumps([item.__dict__ for item in results], ensure_ascii=False, default=str, sort_keys=True))
+        return
+
+    if args.command == "review":
+        trade_date = parse_date(args.trade_date) or date.today()
+        summary = generate_trade_reviews(create_database_engine(), trade_date)
+        print(json.dumps(asdict(summary), ensure_ascii=False, default=str, sort_keys=True))
         return
 
     parser.error(f"Unsupported command: {args.command}")

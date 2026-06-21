@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」和任务 9「盘中跟踪」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」和任务 10「复盘统计」。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
 
@@ -128,6 +128,12 @@
   - 新增 `scripts/track-trade-plans.sh` 和 `make track-trade-plans`。
   - 新增 `POST /api/trade-plans/track` 和 `PATCH /api/trade-plans/{plan_id}/status`。
   - 今日交易计划页面支持跟踪触发、收盘确认、手动标记触发/取消，展示触发价和跟踪备注。
+- 已完成任务 10 复盘统计：
+  - 新增 `generate_trade_reviews` 和 `load_latest_trade_reviews`。
+  - 新增 `scripts/generate-trade-reviews.sh` 和 `make generate-trade-reviews`。
+  - 新增 `POST /api/trade-reviews/generate` 和 `GET /api/trade-reviews/latest`。
+  - 交易复盘页面接入真实复盘 API，展示复盘汇总、策略统计和复盘明细。
+  - 缺少目标交易日日线时不伪造收益，复盘记录保留明确原因和备注。
 
 ## 未完成
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股；任务 6 已在基础过滤中处理缺失日线、ST/退市风险和非 active 股票。
@@ -136,7 +142,7 @@
 - `sector_daily.five_day_return` 字段当前保存近 3 日累计涨幅；后续如改为 5 日，应同步迁移字段命名或 API 展示。
 - `amount_change` 当前使用 TuShare `dc_index.total_mv * turnover_rate / 100` 作为成交额代理值；后续若取得板块真实成交额字段，应替换为真实成交额。
 - 工作区存在未跟踪文件 `prd_by_glm.md`，不是本轮任务创建或修改，未纳入提交。
-- 本机一键启动时 PostgreSQL 当前映射为 `127.0.0.1:5433 -> postgres:5432`；真实验收命令使用了 `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5433/stock`。
+- 本机本轮重新启动 PostgreSQL 后映射为 `127.0.0.1:5432 -> postgres:5432`；真实验收命令使用了 `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock`。
 
 ## 本轮验证
 
@@ -148,6 +154,12 @@
 - `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5433/stock scripts/db-upgrade.sh`：迁移到 `0004_trade_plan_tracking_fields (head)`。
 - `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5433/stock scripts/track-trade-plans.sh --target-trade-date 2026-06-19 --mark-untriggered-at-close`：返回 2 条真实计划；因 `2026-06-19` 日线暂无数据，状态保持 `待触发` 并写入明确备注。
 - 运行中 API 快验：`POST /api/trade-plans/track` 返回 200，`target_trade_date=2026-06-19`、`items=2`。
+- 任务 10 验证：`.venv/bin/pytest`：49 passed，1 个 LibreSSL/urllib3 warning。
+- 任务 10 验证：`cd frontend && npm test -- --run`：1 passed。
+- 任务 10 验证：`cd frontend && npm run build`：通过；Element Plus / chunk size warning 仍存在。
+- 任务 10 真实数据库验证：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-upgrade.sh` 成功。
+- 任务 10 真实数据库验证：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-current.sh` 输出 `0004_trade_plan_tracking_fields (head)`。
+- 任务 10 真实数据库验证：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/generate-trade-reviews.sh --trade-date 2026-06-19` 生成 2 条复盘记录；因目标交易日日线暂无数据，`day_return` / `t5_return` / `max_profit` / `max_loss` 为 `null`，结果为 `未触发`。
 - `.venv/bin/pytest`：18 passed。
 - `cd frontend && npm test -- --run`：1 passed。
 - `cd frontend && npm run build`：通过。当前 Element Plus 全量引入触发 chunk size warning，属于后续优化项，不影响任务 1 验收。
@@ -289,21 +301,21 @@
 
 ## 验收口径
 
-当前阶段已完成任务 1-8，包括真实数据采集、市场/板块/候选/交易计划生成和 P0 Web 展示；但盘中跟踪、交易复盘和 30 日统计未完成，不代表 MVP 完成。
+当前阶段已完成任务 1-10，包括真实数据采集、市场/板块/候选/交易计划生成、P0 Web 展示、盘中跟踪和交易复盘统计；但模拟交易未完成，不代表扩展模块完成。
 
-在以下事项完成前，不得宣称系统可用于每日交易准备：
+在以下事项完成前，不得宣称系统具备模拟交易能力：
 
-- 交易计划可跟踪触发并生成复盘。
-- 最近 30 天策略胜率和盈亏统计可查询。
+- 模拟账户、持仓、成交记录、费用和资金曲线可查询。
+- 模拟交易只执行计划内股票，且每笔买卖都有原因。
 
 ## 下一步
 
-继续 `docs/TASKS.md` 的任务 9：盘中跟踪。
+继续 `docs/TASKS.md` 的任务 11：模拟交易。
 
-1. 跟踪昨日或最新交易计划是否触发。
-2. 判断取消条件和风险状态。
-3. 支持手动更新计划状态和备注。
-4. 页面/API 需要提供真实或延迟行情下的证据。
+1. 创建模拟账户，默认初始资金 100 万。
+2. 基于交易计划自动模拟买入、卖出、持仓和交易记录。
+3. 计入佣金、印花税、过户费。
+4. 展示账户概览、今日持仓、交易记录、资金曲线和风险指标。
 5. 更新 `docs/HANDOFF.md`。
 6. 提交 git commit。
 

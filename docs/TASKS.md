@@ -15,6 +15,7 @@
 - [x] 已完成交易计划生成、入库命令和最新结果 API
 - [x] 已完成 P0 Web 页面，展示真实市场、板块和交易计划 API 结果
 - [x] 已完成交易计划盘中跟踪、手动状态更新、命令/API/Web 展示
+- [x] 已完成交易复盘生成、最近复盘 API 和 Web 展示
 
 ## 开发原则
 
@@ -345,6 +346,30 @@ TuShare 全市场初始化验证：
 
 验收：真实历史计划能生成复盘统计，页面可查看和导出。
 
+状态：已完成。
+
+已完成：
+
+- 新增交易复盘生成服务：`generate_trade_reviews`。
+- 新增最近交易复盘读取服务：`load_latest_trade_reviews`。
+- 新增 CLI：`scripts/generate-trade-reviews.sh --trade-date YYYY-MM-DD`。
+- 新增 Makefile 入口：`make generate-trade-reviews`。
+- 新增 API：
+  - `POST /api/trade-reviews/generate`
+  - `GET /api/trade-reviews/latest`
+- Web 交易复盘页面已接入真实复盘 API，展示计划数量、触发数量、胜率、当日均收益、T+5 均收益、策略统计和复盘明细。
+- 复盘计算只使用目标交易日及之后已经入库的日线；缺少日线时不伪造收益，记录明确失败原因和备注。
+
+验证：
+
+- `.venv/bin/pytest`：49 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 Element Plus / chunk size warning。
+- `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-upgrade.sh`：成功。
+- `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-current.sh`：`0004_trade_plan_tracking_fields (head)`。
+- `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/generate-trade-reviews.sh --trade-date 2026-06-19`：生成 `2` 条真实复盘记录；因 `2026-06-19` 目标日线暂无数据，收益字段为 `null`，结果为 `未触发`，备注为 `目标交易日暂无日线数据，保持待触发状态`。
+- 真实复盘统计：`total_count=2`、`triggered_count=0`、`win_rate=0.0`，策略统计和板块统计均按 `趋势强势` / `科技风格` 输出。
+
 ### 11. 模拟交易
 
 - 创建模拟账户，默认初始资金 100 万。
@@ -356,4 +381,4 @@ TuShare 全市场初始化验证：
 
 ## 下一步
 
-下一次开发进入任务 10：复盘统计。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次开发进入任务 11：模拟交易。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

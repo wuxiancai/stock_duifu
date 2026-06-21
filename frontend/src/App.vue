@@ -13,6 +13,7 @@ import {
 import { fetchHealth, type HealthResponse } from './api/health'
 import {
   fetchLatestTradePlans,
+  fetchLatestTradeReviews,
   fetchMarketLatest,
   fetchTopSectors,
   trackTradePlans,
@@ -21,13 +22,17 @@ import {
   type SectorTopItem,
   type SectorTopResponse,
   type TradePlanItem,
-  type TradePlansLatestResponse
+  type TradePlansLatestResponse,
+  type TradeReviewGroupStats,
+  type TradeReviewItem,
+  type TradeReviewLatestResponse
 } from './api/dashboard'
 
 const health = ref<HealthResponse | null>(null)
 const market = ref<MarketLatestResponse | null>(null)
 const sectors = ref<SectorTopResponse | null>(null)
 const tradePlans = ref<TradePlansLatestResponse | null>(null)
+const tradeReviews = ref<TradeReviewLatestResponse | null>(null)
 const loading = ref(true)
 const error = ref('')
 const sectorKeyword = ref('')
@@ -97,17 +102,19 @@ async function loadDashboard() {
   error.value = ''
 
   try {
-    const [healthResult, marketResult, sectorsResult, tradePlansResult] = await Promise.all([
+    const [healthResult, marketResult, sectorsResult, tradePlansResult, tradeReviewsResult] = await Promise.all([
       fetchHealth(),
       fetchMarketLatest(),
       fetchTopSectors(),
-      fetchLatestTradePlans()
+      fetchLatestTradePlans(),
+      fetchLatestTradeReviews().catch(() => null)
     ])
 
     health.value = healthResult
     market.value = marketResult
     sectors.value = sectorsResult
     tradePlans.value = tradePlansResult
+    tradeReviews.value = tradeReviewsResult
   } catch (err) {
     error.value = err instanceof Error ? err.message : '业务数据加载失败'
   } finally {
@@ -118,6 +125,11 @@ async function loadDashboard() {
 function formatPercent(value: number | null | undefined, digits = 2) {
   if (value === null || value === undefined || Number.isNaN(value)) return '-'
   return `${value.toFixed(digits)}%`
+}
+
+function formatReturn(value: number | null | undefined, digits = 2) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-'
+  return `${(value * 100).toFixed(digits)}%`
 }
 
 function formatPrice(value: number | null | undefined) {
@@ -433,13 +445,96 @@ onMounted(loadDashboard)
       </section>
 
       <section id="review" class="panel review-panel">
-        <div class="section-heading">
+        <div class="section-heading table-heading">
           <div>
             <h2>交易复盘</h2>
-            <p>任务 10 接入真实复盘记录后，这里展示触发、收益和失败原因。</p>
+            <p>复盘日：{{ tradeReviews?.review_date ?? '-' }}，展示触发、收益和失败原因。</p>
           </div>
         </div>
-        <el-empty description="暂无复盘统计数据，等待 trade_review 生成后展示" />
+
+        <template v-if="tradeReviews">
+          <section class="metric-grid review-grid">
+            <article class="metric">
+              <el-icon><Calendar /></el-icon>
+              <div>
+                <span>计划数量</span>
+                <strong>{{ tradeReviews.total_count }}</strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><Finished /></el-icon>
+              <div>
+                <span>触发 / 胜率</span>
+                <strong>{{ tradeReviews.triggered_count }} / {{ formatReturn(tradeReviews.win_rate, 0) }}</strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><TrendCharts /></el-icon>
+              <div>
+                <span>当日均收益</span>
+                <strong>{{ formatReturn(tradeReviews.avg_day_return) }}</strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><DataAnalysis /></el-icon>
+              <div>
+                <span>T+5 均收益</span>
+                <strong>{{ formatReturn(tradeReviews.avg_t5_return) }}</strong>
+              </div>
+            </article>
+          </section>
+
+          <el-table class="review-stats-table" :data="tradeReviews.strategy_stats" border stripe empty-text="暂无策略统计">
+            <el-table-column prop="name" label="策略" min-width="140" />
+            <el-table-column prop="total_count" label="计划" width="90" sortable />
+            <el-table-column prop="triggered_count" label="触发" width="90" sortable />
+            <el-table-column label="胜率" width="100" sortable prop="win_rate">
+              <template #default="{ row }: { row: TradeReviewGroupStats }">{{ formatReturn(row.win_rate, 0) }}</template>
+            </el-table-column>
+            <el-table-column label="当日均收益" min-width="120" sortable prop="avg_day_return">
+              <template #default="{ row }: { row: TradeReviewGroupStats }">{{ formatReturn(row.avg_day_return) }}</template>
+            </el-table-column>
+            <el-table-column label="T+5 均收益" min-width="120" sortable prop="avg_t5_return">
+              <template #default="{ row }: { row: TradeReviewGroupStats }">{{ formatReturn(row.avg_t5_return) }}</template>
+            </el-table-column>
+          </el-table>
+
+          <el-table :data="tradeReviews.items" border stripe empty-text="暂无复盘明细">
+            <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+              <template #default="{ row }: { row: TradeReviewItem }">
+                <strong>{{ row.stock_name }}</strong>
+                <small class="muted-code">{{ row.stock_code }}</small>
+              </template>
+            </el-table-column>
+            <el-table-column prop="sector_name" label="板块" min-width="130" sortable />
+            <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
+            <el-table-column label="触发" width="90" sortable prop="triggered">
+              <template #default="{ row }: { row: TradeReviewItem }">
+                <el-tag :type="row.triggered ? 'success' : 'info'">{{ row.triggered ? '是' : '否' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="触发/收盘" min-width="130">
+              <template #default="{ row }: { row: TradeReviewItem }">
+                {{ formatPrice(row.trigger_price) }} / {{ formatPrice(row.close_price) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="当日收益" min-width="110" sortable prop="day_return">
+              <template #default="{ row }: { row: TradeReviewItem }">{{ formatReturn(row.day_return) }}</template>
+            </el-table-column>
+            <el-table-column label="T+5收益" min-width="110" sortable prop="t5_return">
+              <template #default="{ row }: { row: TradeReviewItem }">{{ formatReturn(row.t5_return) }}</template>
+            </el-table-column>
+            <el-table-column label="最大浮盈/浮亏" min-width="150">
+              <template #default="{ row }: { row: TradeReviewItem }">
+                {{ formatReturn(row.max_profit) }} / {{ formatReturn(row.max_loss) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="result" label="结果" min-width="100" sortable />
+            <el-table-column prop="failure_reason" label="失败原因" min-width="130" show-overflow-tooltip />
+            <el-table-column prop="note" label="备注" min-width="220" show-overflow-tooltip />
+          </el-table>
+        </template>
+        <el-empty v-else description="暂无复盘统计数据，请先运行复盘生成命令" />
       </section>
     </section>
   </main>
