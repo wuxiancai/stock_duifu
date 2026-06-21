@@ -6,12 +6,13 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」、任务 18「市场环境连板高度补口」、任务 19「强势板块 5 日涨幅与候选股票页面补口」、任务 20「Ubuntu 部署与数据拉取脚本」和任务 21「强势板块独立详情页」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」、任务 18「市场环境连板高度补口」、任务 19「强势板块 5 日涨幅与候选股票页面补口」、任务 20「Ubuntu 部署与数据拉取脚本」、任务 21「强势板块独立详情页」和任务 22「部署 PostgreSQL 端口占用顺延」。
 - `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
 - 已在本机目录补齐 Ubuntu 部署与数据初始化入口：`deploy_ubuntu.sh` / `get_data.sh` / `make deploy-ubuntu` / `make get-data`。
 - Web 已改为板块独立详情页：主页点击强势板块进入 `/sectors/<板块名>`，独立查看该板块候选股票和交易计划。
+- `deploy_ubuntu.sh` 会在宿主机 PostgreSQL 端口占用时自动顺延，并把 `POSTGRES_HOST_PORT` / `DATABASE_URL` 写回 `.env`。
 
 ## 已完成
 
@@ -219,6 +220,11 @@
   - 板块详情页展示板块排名、评分、今日 / 5 日涨幅、涨停 / 强势股数量。
   - 板块详情页只展示该板块候选股票、入选理由、风险提示和该板块交易计划。
   - 保留候选 CSV 导出、“返回强势板块”和浏览器前进 / 后退路径同步。
+- 已完成任务 22 部署 PostgreSQL 端口占用顺延：
+  - `deploy_ubuntu.sh` 从 `POSTGRES_BASE_PORT` 或现有 `POSTGRES_HOST_PORT` 开始探测，遇到占用自动顺延到下一个可用端口。
+  - 部署选中的 `POSTGRES_HOST_PORT` 和对应 `DATABASE_URL` 会写回 `.env`。
+  - `start.sh` 会读取 `.env` 并复用部署时写入的 PostgreSQL 宿主机端口。
+  - `.env.example` 明示 `POSTGRES_HOST_PORT=5432`。
 
 ## 未完成
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股；任务 6 已在基础过滤中处理缺失日线、ST/退市风险和非 active 股票。
@@ -229,10 +235,14 @@
 - AkShare/Eastmoney `stock_zh_a_spot_em` 当前在本机网络下仍可能 `RemoteDisconnected`；AkShare/Sina `stock_zh_a_spot` 本轮只读验证可返回 `300308`、`603986` 两只目标计划股实时快照。
 - PRD 第 17 章模拟交易开发已补齐；仍需在 `2026-06-22` 目标交易日当天运行真实实时快照写入、触发跟踪、模拟成交和 loop 轮询验收，不能在当天验证前宣称真实盘中成交链路已完成。
 - 工作区存在未提交/未跟踪文件 `.gitignore`、`.logs/`、`.venv/`、`frontend/node_modules/`、`frontend/dist/` 等运行现场文件；不是本轮任务创建或修改的长期上下文，未纳入提交。
-- 本机 PostgreSQL 端口可能因 `start.sh` 自动顺延而不是固定 `5432`；部署和数据脚本默认 `5432`，实际运行以脚本输出或 `POSTGRES_HOST_PORT` 为准。
+- 本机 PostgreSQL 端口可能不是固定 `5432`；部署脚本会把实际端口写入 `.env` 的 `POSTGRES_HOST_PORT` / `DATABASE_URL`，后续以 `.env` 为准。
 
 ## 本轮验证
 
+- 任务 22 回归验证：`.venv/bin/pytest tests/test_deployment_scripts.py`：4 passed。
+- 任务 22 脚本语法：`bash -n deploy_ubuntu.sh get_data.sh start.sh scripts/dev-web.sh`：通过。
+- 任务 22 dry-run：`STOCK_DEPLOY_DRY_RUN=1 FORCE_INSTALL=1 TUSHARE_TOKEN=token-for-dry-run POSTGRES_BASE_PORT=5432 bash deploy_ubuntu.sh` 当前本机 `5432` 被占用时选择 `5433`，输出写回 `.env`，并用 `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5433/stock` 执行迁移。
+- 任务 22 全量验证：`.venv/bin/pytest`：94 passed，1 个 LibreSSL/urllib3 warning。
 - 任务 21 验证：`cd frontend && npm test -- --run`：1 passed。
 - 任务 21 验证：`cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 - 任务 21 验证：`.venv/bin/pytest`：93 passed，1 个 LibreSSL/urllib3 warning。
@@ -488,7 +498,7 @@
 
 ## 验收口径
 
-当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
+当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
 
 仍不得把以下事项宣称为已完成：
 

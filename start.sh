@@ -4,7 +4,15 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-5432}"
+if [ -f ".env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
+CONFIGURED_POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-}"
+POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-${POSTGRES_HOST_PORT:-5432}}"
 API_BASE_PORT="${API_BASE_PORT:-8000}"
 WEB_BASE_PORT="${WEB_BASE_PORT:-5173}"
 API_LISTEN_HOST="${API_LISTEN_HOST:-0.0.0.0}"
@@ -23,6 +31,17 @@ is_port_available() {
   local port="$1"
   if command -v lsof >/dev/null 2>&1; then
     ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$HEALTHCHECK_HOST" "$port" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.settimeout(0.2)
+    sys.exit(1 if sock.connect_ex((host, port)) == 0 else 0)
+PY
   else
     ! nc -z "$HEALTHCHECK_HOST" "$port" >/dev/null 2>&1
   fi
@@ -113,7 +132,11 @@ if [ ! -x ".venv/bin/uvicorn" ] || [ ! -d "frontend/node_modules" ]; then
   make install
 fi
 
-POSTGRES_HOST_PORT="$(next_available_port "$POSTGRES_BASE_PORT")"
+if [ -n "$CONFIGURED_POSTGRES_HOST_PORT" ]; then
+  POSTGRES_HOST_PORT="$CONFIGURED_POSTGRES_HOST_PORT"
+else
+  POSTGRES_HOST_PORT="$(next_available_port "$POSTGRES_BASE_PORT")"
+fi
 API_PORT="$(next_available_port "$API_BASE_PORT")"
 WEB_PORT="$(next_available_port "$WEB_BASE_PORT")"
 PUBLIC_HOST="$(detect_public_host)"

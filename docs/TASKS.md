@@ -29,6 +29,7 @@
 - [x] 已补齐 PRD 强势板块和候选股票页面遗漏项：真实 5 日涨幅、板块点击筛选候选、候选股票池展示和导出
 - [x] 已补齐 Ubuntu 一键部署与数据初始化脚本：`deploy_ubuntu.sh`、`get_data.sh`、LAN 监听启动口径
 - [x] 已优化强势板块浏览体验：点击板块进入独立详情页，候选股票和交易计划按板块分页面展示
+- [x] 已修复部署 PostgreSQL 端口占用：`deploy_ubuntu.sh` 会顺延宿主机端口并写回 `.env`
 
 ## 开发原则
 
@@ -725,3 +726,21 @@ TuShare 全市场初始化验证：
 - `.venv/bin/pytest`：93 passed，1 个 LibreSSL/urllib3 warning。
 - `bash start.sh`：API 启动于 `0.0.0.0:8000`，前端启动于 `0.0.0.0:5173`，并打印 LAN URL。
 - `curl http://127.0.0.1:5173/sectors/%E7%A7%91%E6%8A%80%E9%A3%8E%E6%A0%BC`：返回 `200 text/html`。
+
+### 22. 部署 PostgreSQL 端口占用顺延
+
+- `deploy_ubuntu.sh` 不再固定使用宿主机 `127.0.0.1:5432`。
+- 部署时会从 `POSTGRES_BASE_PORT` 或现有 `POSTGRES_HOST_PORT` 开始探测，遇到占用自动顺延到下一个可用端口。
+- 选中的 `POSTGRES_HOST_PORT` 和对应 `DATABASE_URL` 会写回 `.env`，后续 `get_data.sh` 和迁移命令使用同一个数据库端口。
+- `start.sh` 会先读取 `.env`，如果部署已经写入 `POSTGRES_HOST_PORT`，启动应用时复用该端口。
+- `.env.example` 明示 `POSTGRES_HOST_PORT=5432`，方便 Ubuntu 部署时按需改写。
+
+状态：已完成。
+
+验证：
+
+- 新增回归测试：临时占住一个端口后 dry-run `deploy_ubuntu.sh`，确认输出顺延端口、`POSTGRES_HOST_PORT=<next>` 和新 `DATABASE_URL`。
+- `.venv/bin/pytest tests/test_deployment_scripts.py`：4 passed。
+- `bash -n deploy_ubuntu.sh get_data.sh start.sh scripts/dev-web.sh`：通过。
+- `STOCK_DEPLOY_DRY_RUN=1 FORCE_INSTALL=1 TUSHARE_TOKEN=token-for-dry-run POSTGRES_BASE_PORT=5432 bash deploy_ubuntu.sh`：当前本机 `5432` 被占用时选择 `5433`，并输出写回 `.env`、按 `5433` 启动 PostgreSQL 和迁移。
+- `.venv/bin/pytest`：94 passed，1 个 LibreSSL/urllib3 warning。

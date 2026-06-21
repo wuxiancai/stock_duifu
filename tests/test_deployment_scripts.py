@@ -1,4 +1,5 @@
 import os
+import socket
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -41,6 +42,46 @@ def test_deploy_script_has_dry_run_and_keeps_database_empty() -> None:
     assert "get_data.sh" in result.stdout
 
 
+def test_deploy_script_advances_postgres_port_when_base_port_is_busy() -> None:
+    busy_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        busy_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        for candidate_port in range(56000, 59000, 2):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.settimeout(0.1)
+                if probe.connect_ex(("127.0.0.1", candidate_port + 1)) == 0:
+                    continue
+            try:
+                busy_socket.bind(("127.0.0.1", candidate_port))
+                break
+            except OSError:
+                continue
+        else:
+            raise AssertionError("No suitable adjacent ports found for deployment port test")
+
+        busy_socket.listen(1)
+        busy_port = busy_socket.getsockname()[1]
+        expected_port = busy_port + 1
+
+        script = ROOT / "deploy_ubuntu.sh"
+        result = run_script(
+            str(script),
+            {
+                "STOCK_DEPLOY_DRY_RUN": "1",
+                "FORCE_INSTALL": "1",
+                "TUSHARE_TOKEN": "token-for-dry-run",
+                "POSTGRES_BASE_PORT": str(busy_port),
+            },
+        )
+    finally:
+        busy_socket.close()
+
+    assert result.returncode == 0, result.stderr
+    assert f"selected PostgreSQL host port: {expected_port}" in result.stdout
+    assert f"POSTGRES_HOST_PORT={expected_port} docker compose up -d postgres" in result.stdout
+    assert f"127.0.0.1:{expected_port}/stock" in result.stdout
+
+
 def test_get_data_script_runs_after_close_workflow_in_dry_run() -> None:
     script = ROOT / "get_data.sh"
 
@@ -62,6 +103,8 @@ def test_get_data_script_runs_after_close_workflow_in_dry_run() -> None:
 def test_start_script_defaults_to_lan_listen_host() -> None:
     script = (ROOT / "start.sh").read_text()
 
+    assert "CONFIGURED_POSTGRES_HOST_PORT=\"${POSTGRES_HOST_PORT:-}\"" in script
+    assert 'POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-${POSTGRES_HOST_PORT:-5432}}"' in script
     assert 'API_LISTEN_HOST="${API_LISTEN_HOST:-0.0.0.0}"' in script
     assert 'WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-0.0.0.0}"' in script
     assert 'HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"' in script

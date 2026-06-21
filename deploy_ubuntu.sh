@@ -5,7 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 DRY_RUN="${STOCK_DEPLOY_DRY_RUN:-0}"
-POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-5432}"
+POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-5432}"
+POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-}"
+EXPLICIT_DATABASE_URL=""
+EXPLICIT_TUSHARE_TOKEN=""
 
 info() {
   printf '[stock-deploy] %s\n' "$*"
@@ -47,6 +50,71 @@ sudo_cmd() {
     return
   fi
   sudo "$@"
+}
+
+is_port_available() {
+  local port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$port" <<'PY'
+import socket
+import sys
+
+port = int(sys.argv[1])
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.settimeout(0.2)
+    sys.exit(1 if sock.connect_ex(("127.0.0.1", port)) == 0 else 0)
+PY
+  else
+    ! nc -z 127.0.0.1 "$port" >/dev/null 2>&1
+  fi
+}
+
+next_available_port() {
+  local port="$1"
+  while ! is_port_available "$port"; do
+    port=$((port + 1))
+  done
+  printf '%s' "$port"
+}
+
+is_local_stock_database_url() {
+  local value="$1"
+  [[ "$value" =~ ^postgresql\+psycopg://stock:stock@127\.0\.0\.1:[0-9]+/stock$ ]]
+}
+
+upsert_env_key() {
+  local key="$1"
+  local value="$2"
+  local file=".env"
+  local tmp_file
+
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '+ set %s=%s in %s\n' "$key" "$value" "$file"
+    return 0
+  fi
+
+  tmp_file="$(mktemp)"
+  if [ -f "$file" ]; then
+    awk -v key="$key" -v replacement="$key=$value" '
+      BEGIN { done = 0 }
+      $0 ~ "^" key "=" {
+        print replacement
+        done = 1
+        next
+      }
+      { print }
+      END {
+        if (!done) {
+          print replacement
+        }
+      }
+    ' "$file" >"$tmp_file"
+  else
+    printf '%s=%s\n' "$key" "$value" >"$tmp_file"
+  fi
+  mv "$tmp_file" "$file"
 }
 
 run_sudo() {
@@ -135,23 +203,38 @@ ensure_env_file() {
 }
 
 load_env_file() {
-  local explicit_database_url="${DATABASE_URL:-}"
-  local explicit_tushare_token="${TUSHARE_TOKEN:-}"
+  EXPLICIT_DATABASE_URL="${DATABASE_URL:-}"
+  EXPLICIT_TUSHARE_TOKEN="${TUSHARE_TOKEN:-}"
   if [ -f ".env" ]; then
     set -a
     # shellcheck disable=SC1091
     source .env
     set +a
   fi
-  if [ -n "$explicit_database_url" ]; then
-    DATABASE_URL="$explicit_database_url"
-  else
-    DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://stock:stock@127.0.0.1:${POSTGRES_HOST_PORT}/stock}"
+  if [ -n "$EXPLICIT_TUSHARE_TOKEN" ]; then
+    TUSHARE_TOKEN="$EXPLICIT_TUSHARE_TOKEN"
   fi
-  if [ -n "$explicit_tushare_token" ]; then
-    TUSHARE_TOKEN="$explicit_tushare_token"
+  export TUSHARE_TOKEN
+}
+
+select_postgres_port() {
+  local base_port="${POSTGRES_HOST_PORT:-$POSTGRES_BASE_PORT}"
+  POSTGRES_HOST_PORT="$(next_available_port "$base_port")"
+  info "selected PostgreSQL host port: $POSTGRES_HOST_PORT"
+  export POSTGRES_HOST_PORT
+}
+
+configure_database_url() {
+  local selected_database_url="postgresql+psycopg://stock:stock@127.0.0.1:${POSTGRES_HOST_PORT}/stock"
+
+  if [ -n "$EXPLICIT_DATABASE_URL" ]; then
+    DATABASE_URL="$EXPLICIT_DATABASE_URL"
+  elif [ -z "${DATABASE_URL:-}" ] || is_local_stock_database_url "$DATABASE_URL"; then
+    DATABASE_URL="$selected_database_url"
+    upsert_env_key "POSTGRES_HOST_PORT" "$POSTGRES_HOST_PORT"
+    upsert_env_key "DATABASE_URL" "$DATABASE_URL"
   fi
-  export DATABASE_URL TUSHARE_TOKEN
+  export DATABASE_URL
 }
 
 ensure_python_dependencies() {
@@ -224,6 +307,8 @@ main() {
   ensure_node_runtime
   ensure_env_file
   load_env_file
+  select_postgres_port
+  configure_database_url
   ensure_python_dependencies
   ensure_frontend_dependencies
   start_database
