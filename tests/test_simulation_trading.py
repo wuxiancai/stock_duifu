@@ -6,9 +6,20 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from backend.app.db.models import SimulationAccount, SimulationEquity, SimulationPosition, SimulationTrade, StockDaily, TradePlan, metadata
+from backend.app.core.config import get_settings
+from backend.app.db.models import (
+    MarketDaily,
+    SectorDaily,
+    SimulationAccount,
+    SimulationEquity,
+    SimulationPosition,
+    SimulationTrade,
+    StockDaily,
+    TradePlan,
+    metadata,
+)
 from backend.app.main import create_app
-from backend.app.simulation.service import load_latest_simulation, run_simulation, run_simulation_workflow
+from backend.app.simulation.service import _fees, load_latest_simulation, run_simulation, run_simulation_workflow
 
 
 def _engine():
@@ -83,6 +94,43 @@ def _add_daily(
     )
 
 
+def _add_market(session: Session, trade_date: date, market_status: str = "风险") -> None:
+    session.add(
+        MarketDaily(
+            trade_date=trade_date,
+            market_score=20,
+            market_status=market_status,
+            up_count=500,
+            down_count=4500,
+            limit_up_count=20,
+            limit_down_count=40,
+            total_amount=800000000000,
+            suggestion="市场风险，降低模拟仓位",
+        )
+    )
+
+
+def _add_sector(
+    session: Session,
+    trade_date: date,
+    sector_name: str = "科技风格",
+    daily_return: float = -3.5,
+) -> None:
+    session.add(
+        SectorDaily(
+            trade_date=trade_date,
+            sector_name=sector_name,
+            rank_no=10,
+            daily_return=daily_return,
+            five_day_return=-6.0,
+            amount_change=-20.0,
+            limit_up_count=0,
+            strong_stock_count=0,
+            sector_score=20,
+        )
+    )
+
+
 def test_run_simulation_creates_default_account_and_buys_plan_stock_with_fees() -> None:
     engine = _engine()
     with Session(engine) as session:
@@ -149,6 +197,137 @@ def test_run_simulation_sells_position_when_stop_loss_is_hit() -> None:
     assert summary.risk.max_drawdown > 0
 
 
+def test_simulation_fee_rates_are_configurable(monkeypatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("SIMULATION_COMMISSION_RATE", "0.001")
+    monkeypatch.setenv("SIMULATION_STAMP_TAX_RATE", "0.002")
+    monkeypatch.setenv("SIMULATION_TRANSFER_FEE_RATE", "0.0002")
+    monkeypatch.setenv("SIMULATION_MIN_COMMISSION", "1")
+
+    sell_fee = _fees(10000, "卖出")
+
+    assert sell_fee == {
+        "commission": 10.0,
+        "stamp_tax": 20.0,
+        "transfer_fee": 2.0,
+        "total_fee": 32.0,
+    }
+    get_settings.cache_clear()
+
+
+def test_run_simulation_sells_half_at_first_take_profit_and_marks_partial_position() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_trade_plan(session)
+        _add_daily(session, "000001", date(2026, 6, 19), 10.2, 10.8, 10.0, 10.5)
+        _add_daily(session, "000001", date(2026, 6, 22), 13.0, 13.5, 12.9, 13.3, pct_chg=6.0)
+        session.commit()
+
+    run_simulation(engine, date(2026, 6, 19))
+    summary = run_simulation(engine, date(2026, 6, 22))
+
+    assert len(summary.positions) == 1
+    position = summary.positions[0]
+    assert position.position_status == "部分止盈"
+    assert position.quantity > 0
+    sell = next(trade for trade in summary.trades if trade.trade_type == "卖出")
+    assert sell.reason == "达到第一止盈位，模拟卖出 50%"
+    assert sell.quantity % 100 == 0
+    assert sell.profit_loss is not None and sell.profit_loss > 0
+    assert summary.risk.win_rate == 1.0
+    assert summary.risk.profit_loss_ratio is None
+
+
+def test_run_simulation_sells_thirty_percent_more_at_second_take_profit() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_trade_plan(session)
+        _add_daily(session, "000001", date(2026, 6, 19), 10.2, 10.8, 10.0, 10.5)
+        _add_daily(session, "000001", date(2026, 6, 22), 13.0, 13.5, 12.9, 13.3, pct_chg=6.0)
+        _add_daily(session, "000001", date(2026, 6, 23), 14.6, 15.0, 14.2, 14.8, pct_chg=7.0)
+        session.commit()
+
+    run_simulation(engine, date(2026, 6, 19))
+    first = run_simulation(engine, date(2026, 6, 22))
+    second = run_simulation(engine, date(2026, 6, 23))
+
+    first_sell = next(trade for trade in first.trades if trade.trade_type == "卖出")
+    second_sell = next(trade for trade in second.trades if trade.trade_type == "卖出")
+    assert first_sell.reason == "达到第一止盈位，模拟卖出 50%"
+    assert second_sell.reason == "达到第二止盈位，模拟再卖出 30%"
+    assert second.positions[0].position_status == "部分止盈"
+    assert second.positions[0].quantity < first.positions[0].quantity
+
+
+def test_run_simulation_sells_remaining_position_when_close_breaks_ma5() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_trade_plan(session)
+        _add_daily(session, "000001", date(2026, 6, 19), 10.2, 10.8, 10.0, 10.5)
+        for index, close in enumerate([11.0, 11.2, 11.1, 10.9], start=1):
+            day = date(2026, 6, 19) + timedelta(days=index)
+            _add_daily(session, "000001", day, close, close + 0.2, close - 0.2, close)
+        _add_daily(session, "000001", date(2026, 6, 24), 10.2, 10.3, 10.0, 10.1, pct_chg=-4.0)
+        session.commit()
+
+    run_simulation(engine, date(2026, 6, 19))
+    summary = run_simulation(engine, date(2026, 6, 24))
+
+    assert summary.positions == []
+    sell = next(trade for trade in summary.trades if trade.trade_type == "卖出")
+    assert sell.reason == "跌破 MA5，模拟卖出剩余仓位"
+
+
+def test_run_simulation_sells_position_when_market_turns_risk() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_trade_plan(session)
+        _add_daily(session, "000001", date(2026, 6, 19), 10.2, 10.8, 10.0, 10.5)
+        _add_daily(session, "000001", date(2026, 6, 22), 10.4, 10.7, 10.2, 10.6)
+        _add_market(session, date(2026, 6, 22), market_status="风险")
+        session.commit()
+
+    run_simulation(engine, date(2026, 6, 19))
+    summary = run_simulation(engine, date(2026, 6, 22))
+
+    assert summary.positions == []
+    sell = next(trade for trade in summary.trades if trade.trade_type == "卖出")
+    assert sell.reason == "大盘转风险，模拟卖出剩余仓位"
+
+
+def test_run_simulation_sells_position_when_sector_fades() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_trade_plan(session)
+        _add_daily(session, "000001", date(2026, 6, 19), 10.2, 10.8, 10.0, 10.5)
+        _add_daily(session, "000001", date(2026, 6, 22), 10.4, 10.7, 10.2, 10.6)
+        _add_sector(session, date(2026, 6, 22), daily_return=-3.5)
+        session.commit()
+
+    run_simulation(engine, date(2026, 6, 19))
+    summary = run_simulation(engine, date(2026, 6, 22))
+
+    assert summary.positions == []
+    sell = next(trade for trade in summary.trades if trade.trade_type == "卖出")
+    assert sell.reason == "板块退潮，模拟卖出剩余仓位"
+
+
+def test_run_simulation_sells_position_after_plan_holding_period() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_trade_plan(session)
+        _add_daily(session, "000001", date(2026, 6, 19), 10.2, 10.8, 10.0, 10.5)
+        _add_daily(session, "000001", date(2026, 6, 25), 10.4, 10.7, 10.2, 10.6)
+        session.commit()
+
+    run_simulation(engine, date(2026, 6, 19))
+    summary = run_simulation(engine, date(2026, 6, 25))
+
+    assert summary.positions == []
+    sell = next(trade for trade in summary.trades if trade.trade_type == "卖出")
+    assert sell.reason == "持仓超期，按收盘价模拟卖出剩余仓位"
+
+
 def test_run_simulation_workflow_tracks_pending_plan_then_buys() -> None:
     engine = _engine()
     with Session(engine) as session:
@@ -186,6 +365,7 @@ def test_simulation_api_runs_and_returns_latest_summary() -> None:
     payload = response.json()
     assert payload["account"]["initial_cash"] == 1000000.0
     assert payload["positions"][0]["stock_code"] == "000001"
+    assert payload["trades"][0]["trade_time"]
     assert payload["trades"][0]["reason"]
     assert payload["risk"]["max_drawdown"] == 0.0
 

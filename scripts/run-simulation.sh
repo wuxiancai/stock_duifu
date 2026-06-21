@@ -10,7 +10,7 @@ if [ ! -x ".venv/bin/python" ]; then
 fi
 
 case "${1:-}" in
-  run|run-workflow|latest)
+  run|run-workflow|loop|latest)
     exec .venv/bin/python -m backend.app.simulation.cli "$@"
     ;;
   *)

@@ -143,6 +143,7 @@ describe('App', () => {
             stock_code: '300308',
             stock_name: '中际旭创',
             trade_date: '2026-06-19',
+            trade_time: '2026-06-19T10:01:30+08:00',
             trade_type: '买入',
             price: 1300,
             quantity: 300,
@@ -173,7 +174,9 @@ describe('App', () => {
         risk: {
           max_drawdown: 0,
           position_count: 1,
-          position_ratio: 0.4118
+          position_ratio: 0.4118,
+          win_rate: 1,
+          profit_loss_ratio: 2.4
         },
         messages: []
       },
@@ -255,8 +258,12 @@ describe('App', () => {
     expect(wrapper.text()).toContain('关注')
     expect(wrapper.text()).toContain('模拟交易')
     expect(wrapper.text()).toContain('当前总资产')
+    expect(wrapper.text()).toContain('当日盈亏')
+    expect(wrapper.text()).toContain('10:01')
+    expect(wrapper.text()).toContain('39%')
     expect(wrapper.text()).toContain('买入')
     expect(wrapper.text()).toContain('目标交易日价格触达计划买入区间')
+    expect(wrapper.html()).toContain('href="/simulation"')
     expect(wrapper.text()).toContain('股票详情')
     expect(wrapper.text()).toContain('入选理由')
     expect(wrapper.text()).toContain('板块排名 Top 10，趋势多头排列')

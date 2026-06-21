@@ -1,13 +1,18 @@
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
+from time import sleep
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from backend.app.core.config import get_settings
 from backend.app.db.models import (
+    MarketDaily,
+    SectorDaily,
     SimulationAccount,
     SimulationEquity,
     SimulationPosition,
@@ -19,10 +24,13 @@ from backend.app.trade.service import TradePlanTrackingResult, track_trade_plans
 
 DEFAULT_ACCOUNT_NAME = "默认模拟账户"
 DEFAULT_INITIAL_CASH = 1_000_000.0
-COMMISSION_RATE = 0.0003
-STAMP_TAX_RATE = 0.0005
-TRANSFER_FEE_RATE = 0.00001
-MIN_COMMISSION = 5.0
+TRADING_TZ = ZoneInfo("Asia/Shanghai")
+TRADING_START = time(9, 30)
+TRADING_END = time(15, 0)
+DEFAULT_LOOP_INTERVAL_SECONDS = 300
+MAX_HOLDING_DAYS = 5
+SECOND_TAKE_PROFIT_MULTIPLIER = 1.5
+ACTIVE_POSITION_STATUSES = ("持仓中", "部分止盈")
 
 
 @dataclass(frozen=True)
@@ -67,6 +75,7 @@ class SimulationTradeSnapshot:
     stock_code: str
     stock_name: str
     trade_date: date
+    trade_time: datetime
     trade_type: str
     price: float
     quantity: int
@@ -99,6 +108,8 @@ class SimulationRiskSnapshot:
     max_drawdown: float
     position_count: int
     position_ratio: float
+    win_rate: float = 0.0
+    profit_loss_ratio: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +130,14 @@ class SimulationWorkflowSummary:
     simulation: SimulationSummary
 
 
+@dataclass(frozen=True)
+class SimulationLoopSummary:
+    target_trade_date: date
+    iterations: int
+    started: bool
+    messages: list[str]
+
+
 def run_simulation_workflow(
     engine: Engine,
     trade_date: date,
@@ -127,6 +146,33 @@ def run_simulation_workflow(
     tracking = track_trade_plans(engine, trade_date, mark_untriggered_at_close=mark_untriggered_at_close)
     simulation = run_simulation(engine, trade_date)
     return SimulationWorkflowSummary(target_trade_date=trade_date, tracking=tracking, simulation=simulation)
+
+
+def run_trading_loop(
+    engine: Engine,
+    trade_date: date,
+    interval_seconds: int = DEFAULT_LOOP_INTERVAL_SECONDS,
+    max_iterations: Optional[int] = None,
+) -> SimulationLoopSummary:
+    iterations = 0
+    messages: list[str] = []
+    while True:
+        now = datetime.now(TRADING_TZ)
+        if not _is_trading_time(now):
+            if iterations == 0:
+                messages.append("当前不在交易时段 09:30-15:00，未启动模拟交易轮询")
+            break
+        run_simulation_workflow(engine, trade_date)
+        iterations += 1
+        if max_iterations is not None and iterations >= max_iterations:
+            break
+        sleep(max(1, interval_seconds))
+    return SimulationLoopSummary(
+        target_trade_date=trade_date,
+        iterations=iterations,
+        started=iterations > 0,
+        messages=messages,
+    )
 
 
 def run_simulation(engine: Engine, trade_date: date) -> SimulationSummary:
@@ -178,7 +224,7 @@ def _get_or_create_account(session: Session) -> SimulationAccount:
 def _sell_positions(session: Session, account: SimulationAccount, trade_date: date, messages: list[str]) -> None:
     positions = session.scalars(
         select(SimulationPosition)
-        .where(SimulationPosition.account_id == account.id, SimulationPosition.position_status == "持仓中")
+        .where(SimulationPosition.account_id == account.id, SimulationPosition.position_status.in_(ACTIVE_POSITION_STATUSES))
         .order_by(SimulationPosition.stock_code)
     ).all()
     now = datetime.now(timezone.utc)
@@ -192,47 +238,21 @@ def _sell_positions(session: Session, account: SimulationAccount, trade_date: da
         if _number(daily.pct_chg) <= -9.8:
             messages.append(f"{position.stock_code} 目标交易日跌停，按保守成交规则不卖出")
             continue
-        if _number(daily.low) > _number(position.stop_loss_price):
+        sell_action = _sell_action(session, position, daily, trade_date)
+        if sell_action is None:
             _refresh_position_price(position, _number(daily.close))
             continue
-
-        price = round(min(_number(daily.open), _number(position.stop_loss_price)), 4)
-        amount = round(price * position.quantity, 4)
-        fee = _fees(amount, "卖出")
-        net_amount = round(amount - fee["total_fee"], 4)
-        profit_loss = round(net_amount - _number(position.cost_amount), 4)
-        profit_loss_return = round(profit_loss / _number(position.cost_amount), 4) if _number(position.cost_amount) > 0 else None
-        account.available_cash = round(_number(account.available_cash) + net_amount, 4)
-        position.sell_reason = "跌破计划止损价，模拟全仓止损"
-        position.position_status = "已清仓"
-        position.quantity = 0
-        position.market_value = 0
-        position.unrealized_profit = 0
-        position.unrealized_return = 0
-        position.current_price = price
-        session.add(
-            SimulationTrade(
-                account_id=account.id,
-                trade_plan_id=position.trade_plan_id,
-                stock_code=position.stock_code,
-                stock_name=position.stock_name,
-                trade_date=trade_date,
-                trade_time=now,
-                trade_type="卖出",
-                price=price,
-                quantity=position.quantity or int(amount / price),
-                amount=amount,
-                commission=fee["commission"],
-                stamp_tax=fee["stamp_tax"],
-                transfer_fee=fee["transfer_fee"],
-                total_fee=fee["total_fee"],
-                net_amount=net_amount,
-                cash_after=_number(account.available_cash),
-                position_ratio_after=0,
-                profit_loss=profit_loss,
-                profit_loss_return=profit_loss_return,
-                reason=position.sell_reason,
-            )
+        quantity, price, reason, final_status = sell_action
+        _execute_sell(
+            session=session,
+            account=account,
+            position=position,
+            trade_date=trade_date,
+            trade_time=now,
+            price=price,
+            quantity=quantity,
+            reason=reason,
+            final_status=final_status,
         )
 
 
@@ -351,7 +371,7 @@ def _mark_to_market(session: Session, account: SimulationAccount, trade_date: da
     positions = session.scalars(
         select(SimulationPosition).where(
             SimulationPosition.account_id == account.id,
-            SimulationPosition.position_status == "持仓中",
+            SimulationPosition.position_status.in_(ACTIVE_POSITION_STATUSES),
         )
     ).all()
     for position in positions:
@@ -400,7 +420,7 @@ def _load_summary(session: Session, account_id: int, as_of_date: date, messages:
     account = session.get(SimulationAccount, account_id)
     positions = session.scalars(
         select(SimulationPosition)
-        .where(SimulationPosition.account_id == account_id, SimulationPosition.position_status == "持仓中")
+        .where(SimulationPosition.account_id == account_id, SimulationPosition.position_status.in_(ACTIVE_POSITION_STATUSES))
         .order_by(SimulationPosition.stock_code)
     ).all()
     trades = session.scalars(
@@ -415,6 +435,7 @@ def _load_summary(session: Session, account_id: int, as_of_date: date, messages:
         .limit(30)
     ).all()
     position_ratio = round(_number(account.market_value) / _number(account.total_assets), 4) if _number(account.total_assets) > 0 else 0
+    risk_stats = _risk_stats(session, account_id)
     return SimulationSummary(
         as_of_date=as_of_date,
         account=_account_snapshot(account),
@@ -425,6 +446,8 @@ def _load_summary(session: Session, account_id: int, as_of_date: date, messages:
             max_drawdown=_number(account.max_drawdown),
             position_count=len(positions),
             position_ratio=position_ratio,
+            win_rate=risk_stats["win_rate"],
+            profit_loss_ratio=risk_stats["profit_loss_ratio"],
         ),
         messages=messages,
     )
@@ -441,17 +464,119 @@ def _position_ratio_after(account: SimulationAccount, session: Session) -> float
     market_value = session.scalar(
         select(func.sum(SimulationPosition.market_value)).where(
             SimulationPosition.account_id == account.id,
-            SimulationPosition.position_status == "持仓中",
+            SimulationPosition.position_status.in_(ACTIVE_POSITION_STATUSES),
         )
     )
     total_assets = _number(account.available_cash) + _number(market_value)
     return round(_number(market_value) / total_assets, 4) if total_assets > 0 else 0
 
 
+def _sell_action(
+    session: Session,
+    position: SimulationPosition,
+    daily: StockDaily,
+    trade_date: date,
+) -> Optional[tuple[int, float, str, str]]:
+    quantity = int(position.quantity)
+    if quantity <= 0:
+        return None
+    if _number(daily.low) <= _number(position.stop_loss_price):
+        return quantity, round(min(_number(daily.open), _number(position.stop_loss_price)), 4), "跌破计划止损价，模拟全仓止损", "已清仓"
+    if _market_is_risk(session, trade_date):
+        return quantity, _sell_at_close(daily), "大盘转风险，模拟卖出剩余仓位", "已清仓"
+    if _sector_is_fading(session, position, trade_date):
+        return quantity, _sell_at_close(daily), "板块退潮，模拟卖出剩余仓位", "已清仓"
+    if _number(daily.pct_chg) <= -7:
+        return quantity, _sell_at_close(daily), "快速跳水，按当前价模拟卖出剩余仓位并记录滑点", "已清仓"
+    if not _has_sell_reason(session, position, "达到第一止盈位") and _number(daily.high) >= _number(position.take_profit_price):
+        sell_quantity = _lot_floor(quantity * 0.5)
+        if sell_quantity > 0:
+            return sell_quantity, _number(position.take_profit_price), "达到第一止盈位，模拟卖出 50%", "部分止盈"
+    if _has_sell_reason(session, position, "达到第一止盈位") and not _has_sell_reason(session, position, "达到第二止盈位"):
+        second_take_profit = _second_take_profit_price(position)
+        if _number(daily.high) >= second_take_profit:
+            sell_quantity = _lot_floor(quantity * 0.6)
+            if sell_quantity > 0:
+                return sell_quantity, second_take_profit, "达到第二止盈位，模拟再卖出 30%", "部分止盈"
+    if _breaks_ma5(session, position.stock_code, trade_date, _number(daily.close)):
+        return quantity, _sell_at_close(daily), "跌破 MA5，模拟卖出剩余仓位", "已清仓"
+    if _holding_days(session, position, trade_date) >= MAX_HOLDING_DAYS:
+        return quantity, _sell_at_close(daily), "持仓超期，按收盘价模拟卖出剩余仓位", "已清仓"
+    return None
+
+
+def _execute_sell(
+    session: Session,
+    account: SimulationAccount,
+    position: SimulationPosition,
+    trade_date: date,
+    trade_time: datetime,
+    price: float,
+    quantity: int,
+    reason: str,
+    final_status: str,
+) -> None:
+    quantity = min(quantity, int(position.quantity))
+    if quantity <= 0:
+        return
+    original_quantity = int(position.quantity)
+    original_cost = _number(position.cost_amount)
+    amount = round(price * quantity, 4)
+    fee = _fees(amount, "卖出")
+    net_amount = round(amount - fee["total_fee"], 4)
+    sold_cost = round(original_cost * quantity / original_quantity, 4) if original_quantity > 0 else 0
+    profit_loss = round(net_amount - sold_cost, 4)
+    profit_loss_return = round(profit_loss / sold_cost, 4) if sold_cost > 0 else None
+    account.available_cash = round(_number(account.available_cash) + net_amount, 4)
+
+    remaining_quantity = original_quantity - quantity
+    position.sell_reason = reason
+    position.current_price = price
+    if remaining_quantity <= 0:
+        position.position_status = "已清仓"
+        position.quantity = 0
+        position.market_value = 0
+        position.cost_amount = 0
+        position.unrealized_profit = 0
+        position.unrealized_return = 0
+    else:
+        position.position_status = final_status
+        position.quantity = remaining_quantity
+        position.cost_amount = round(original_cost - sold_cost, 4)
+        _refresh_position_price(position, price)
+
+    session.flush()
+    session.add(
+        SimulationTrade(
+            account_id=account.id,
+            trade_plan_id=position.trade_plan_id,
+            stock_code=position.stock_code,
+            stock_name=position.stock_name,
+            trade_date=trade_date,
+            trade_time=trade_time,
+            trade_type="卖出",
+            price=price,
+            quantity=quantity,
+            amount=amount,
+            commission=fee["commission"],
+            stamp_tax=fee["stamp_tax"],
+            transfer_fee=fee["transfer_fee"],
+            total_fee=fee["total_fee"],
+            net_amount=net_amount,
+            cash_after=_number(account.available_cash),
+            position_ratio_after=_position_ratio_after(account, session),
+            profit_loss=profit_loss,
+            profit_loss_return=profit_loss_return,
+            reason=reason,
+        )
+    )
+
+
 def _fees(amount: float, side: str) -> dict[str, float]:
-    commission = max(round(amount * COMMISSION_RATE, 4), MIN_COMMISSION)
-    stamp_tax = round(amount * STAMP_TAX_RATE, 4) if side == "卖出" else 0.0
-    transfer_fee = round(amount * TRANSFER_FEE_RATE, 4)
+    settings = get_settings()
+    commission = max(round(amount * settings.simulation_commission_rate, 4), settings.simulation_min_commission)
+    stamp_tax = round(amount * settings.simulation_stamp_tax_rate, 4) if side == "卖出" else 0.0
+    transfer_fee = round(amount * settings.simulation_transfer_fee_rate, 4)
     total_fee = round(commission + stamp_tax + transfer_fee, 4)
     return {"commission": commission, "stamp_tax": stamp_tax, "transfer_fee": transfer_fee, "total_fee": total_fee}
 
@@ -463,6 +588,28 @@ def _max_drawdown(session: Session, account: SimulationAccount, current_assets: 
     peak = max(_number(previous_peak), current_assets, _number(account.initial_cash))
     drawdown = round((peak - current_assets) / peak, 4) if peak > 0 else 0
     return max(_number(account.max_drawdown), drawdown)
+
+
+def _risk_stats(session: Session, account_id: int) -> dict[str, Optional[float]]:
+    sells = session.scalars(
+        select(SimulationTrade).where(
+            SimulationTrade.account_id == account_id,
+            SimulationTrade.trade_type == "卖出",
+            SimulationTrade.profit_loss.is_not(None),
+        )
+    ).all()
+    if not sells:
+        return {"win_rate": 0.0, "profit_loss_ratio": None}
+    profits = [_number(item.profit_loss) for item in sells]
+    wins = [item for item in profits if item > 0]
+    losses = [item for item in profits if item < 0]
+    win_rate = round(len(wins) / len(profits), 4)
+    if not wins or not losses:
+        return {"win_rate": win_rate, "profit_loss_ratio": None}
+    avg_win = sum(wins) / len(wins)
+    avg_loss = abs(sum(losses) / len(losses))
+    profit_loss_ratio = round(avg_win / avg_loss, 4) if avg_loss > 0 else None
+    return {"win_rate": win_rate, "profit_loss_ratio": profit_loss_ratio}
 
 
 def _account_snapshot(record: SimulationAccount) -> SimulationAccountSnapshot:
@@ -509,6 +656,7 @@ def _trade_snapshot(record: SimulationTrade) -> SimulationTradeSnapshot:
         stock_code=record.stock_code,
         stock_name=record.stock_name,
         trade_date=record.trade_date,
+        trade_time=record.trade_time,
         trade_type=record.trade_type,
         price=_number(record.price),
         quantity=record.quantity,
@@ -548,3 +696,76 @@ def _number(value) -> float:
     if isinstance(value, Decimal):
         return float(value)
     return float(value or 0)
+
+
+def _sell_at_close(daily: StockDaily) -> float:
+    return round(_number(daily.close), 4)
+
+
+def _lot_floor(quantity: float) -> int:
+    return int(quantity // 100) * 100
+
+
+def _has_sell_reason(session: Session, position: SimulationPosition, reason_prefix: str) -> bool:
+    existing = session.scalar(
+        select(SimulationTrade.id).where(
+            SimulationTrade.account_id == position.account_id,
+            SimulationTrade.trade_plan_id == position.trade_plan_id,
+            SimulationTrade.trade_type == "卖出",
+            SimulationTrade.reason.like(f"{reason_prefix}%"),
+        )
+    )
+    return existing is not None
+
+
+def _second_take_profit_price(position: SimulationPosition) -> float:
+    first_gap = _number(position.take_profit_price) - _number(position.buy_price)
+    return round(_number(position.buy_price) + first_gap * SECOND_TAKE_PROFIT_MULTIPLIER, 4)
+
+
+def _market_is_risk(session: Session, trade_date: date) -> bool:
+    market = session.scalar(select(MarketDaily).where(MarketDaily.trade_date == trade_date))
+    return market is not None and market.market_status == "风险"
+
+
+def _sector_is_fading(session: Session, position: SimulationPosition, trade_date: date) -> bool:
+    sector = session.scalar(
+        select(SectorDaily).where(
+            SectorDaily.trade_date == trade_date,
+            SectorDaily.sector_name == position.sector_name,
+        )
+    )
+    if sector is None:
+        return False
+    return _number(sector.daily_return) <= -3 or _number(sector.sector_score) < 40 or int(sector.strong_stock_count) == 0
+
+
+def _breaks_ma5(session: Session, stock_code: str, trade_date: date, close_price: float) -> bool:
+    closes = session.scalars(
+        select(StockDaily.close)
+        .where(StockDaily.stock_code == stock_code, StockDaily.trade_date <= trade_date)
+        .order_by(desc(StockDaily.trade_date))
+        .limit(5)
+    ).all()
+    if len(closes) < 5:
+        return False
+    ma5 = sum(_number(item) for item in closes) / 5
+    return close_price < ma5
+
+
+def _holding_days(session: Session, position: SimulationPosition, trade_date: date) -> int:
+    first_buy_date = session.scalar(
+        select(func.min(SimulationTrade.trade_date)).where(
+            SimulationTrade.account_id == position.account_id,
+            SimulationTrade.trade_plan_id == position.trade_plan_id,
+            SimulationTrade.trade_type == "买入",
+        )
+    )
+    if first_buy_date is None:
+        return 0
+    return (trade_date - first_buy_date).days
+
+
+def _is_trading_time(now: datetime) -> bool:
+    local_now = now.astimezone(TRADING_TZ)
+    return TRADING_START <= local_now.time() <= TRADING_END

@@ -6,8 +6,8 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」和任务 16「PRD MVP 盘后工作流入口」。
-- 已补齐 `docs/TASKS.md` 第 17 章，对齐 `PRD_MVP.md` 第 17 章「扩展模块 / 模拟交易模块」的逐小节状态和缺口；这只是任务追踪补齐，不代表 PRD 第 17 章已全部开发完成。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」和任务 17「扩展模块 / 模拟交易模块开发补齐」。
+- `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
 
@@ -188,6 +188,12 @@
   - 新 workflow 会先回补目标日计划股实时快照，再调用既有 `run_simulation_workflow` 完成计划跟踪和模拟交易。
   - 默认只允许把实时快照写入中国当前自然日；`--allow-date-mismatch` 仅用于确认数据日期匹配后的人工放开。
   - 实时源异常会在 JSON 的 `skipped_reason` 中返回，不写入伪造行情。
+- 已完成任务 17 PRD 模拟交易开发补齐：
+  - 模拟交易费用支持环境变量配置，默认仍为佣金 0.03%、印花税 0.05%、过户费 0.001%、最低佣金 5 元。
+  - 卖出规则补齐第一止盈卖 50%、第二止盈再卖 30%、跌破 MA5、市场风险、板块退潮、持仓超期、快速跳水和跌停不强卖。
+  - 交易记录和 Web 展示补齐交易时间、交易后现金、交易后仓位、当日盈亏、胜率、盈亏比和持仓状态。
+  - Web 导航支持 `/simulation` 模拟交易入口。
+  - `scripts/run-simulation.sh loop --trade-date YYYY-MM-DD --interval-seconds 60 --max-iterations 1` 可用于受控轮询验收。
 
 ## 未完成
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股；任务 6 已在基础过滤中处理缺失日线、ST/退市风险和非 active 股票。
@@ -198,11 +204,17 @@
 - 真实数据库当前 `2026-06-19` 的两只计划股经 TuShare 回补确认 `target_is_open=false`，已被顺延处理：旧目标日两条计划状态为 `取消`，备注为已重新生成到 `2026-06-22`；新目标日 `2026-06-22` 两条计划状态为 `待触发`。
 - `2026-06-22` 日历已通过 TuShare 采集补入，当前该目标日两只计划股 `stock_daily_rows=0`；实时 workflow 已可在目标日当天用 `--provider auto` 回补计划股快照并驱动跟踪/模拟，但本轮因日期保护未写入未来目标日行情。
 - AkShare/Eastmoney `stock_zh_a_spot_em` 当前在本机网络下仍可能 `RemoteDisconnected`；AkShare/Sina `stock_zh_a_spot` 本轮只读验证可返回 `300308`、`603986` 两只目标计划股实时快照。
-- 模拟交易后续可继续完善分批止盈、移动止损、按实时行情轮询和多账户参数化。
+- PRD 第 17 章模拟交易开发已补齐；仍需在 `2026-06-22` 目标交易日当天运行真实实时快照写入、触发跟踪、模拟成交和 loop 轮询验收，不能在当天验证前宣称真实盘中成交链路已完成。
 - 工作区存在未提交/未跟踪文件 `.gitignore`、`.git.zip`、`.logs/`，不是本轮任务创建或修改，未纳入提交。
 - 本机本轮 PostgreSQL 映射为 `127.0.0.1:5432 -> postgres:5432`；真实验收命令使用了 `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock`。
 
 ## 本轮验证
+
+- 任务 17 验证：`.venv/bin/pytest`：89 passed，1 个 LibreSSL/urllib3 warning。
+- 任务 17 验证：`cd frontend && npm test -- --run`：1 passed。
+- 任务 17 验证：`cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 任务 17 脚本验证：`bash -n scripts/run-simulation.sh`：通过。
+- 任务 17 CLI 验证：`.venv/bin/python -m backend.app.simulation.cli loop --help` 正常展示 `--trade-date`、`--interval-seconds`、`--max-iterations`。
 
 - 任务 13 备用实时源验证：`.venv/bin/pytest`：73 passed，1 个 LibreSSL/urllib3 warning。
 - 任务 13 备用实时源验证：`cd frontend && npm test -- --run`：1 passed。

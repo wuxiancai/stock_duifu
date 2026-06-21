@@ -193,6 +193,7 @@ export interface SimulationTrade {
   stock_code: string
   stock_name: string
   trade_date: string
+  trade_time: string
   trade_type: string
   price: number
   quantity: number
@@ -229,6 +230,8 @@ export interface SimulationLatestResponse {
     max_drawdown: number
     position_count: number
     position_ratio: number
+    win_rate: number
+    profit_loss_ratio: number | null
   }
   messages: string[]
 }

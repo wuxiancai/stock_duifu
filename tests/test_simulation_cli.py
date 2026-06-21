@@ -43,6 +43,33 @@ def test_simulation_cli_runs_workflow(monkeypatch, capsys) -> None:
     assert '"simulation"' in output
 
 
+def test_simulation_cli_runs_trading_loop(monkeypatch, capsys) -> None:
+    calls = []
+
+    def fake_run_trading_loop(engine, trade_date, interval_seconds=300, max_iterations=None):
+        calls.append((engine, trade_date, interval_seconds, max_iterations))
+        return {
+            "target_trade_date": trade_date,
+            "iterations": 2,
+            "started": True,
+            "messages": ["loop ok"],
+        }
+
+    monkeypatch.setattr("backend.app.simulation.cli.create_database_engine", lambda: "engine")
+    monkeypatch.setattr("backend.app.simulation.cli.run_trading_loop", fake_run_trading_loop)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["simulation", "loop", "--trade-date", "2026-06-19", "--interval-seconds", "60", "--max-iterations", "2"],
+    )
+
+    cli_main()
+
+    assert calls == [("engine", date(2026, 6, 19), 60, 2)]
+    output = capsys.readouterr().out
+    assert '"iterations": 2' in output
+    assert '"target_trade_date": "2026-06-19"' in output
+
+
 def test_simulation_cli_prints_latest(monkeypatch, capsys) -> None:
     monkeypatch.setattr("backend.app.simulation.cli.create_database_engine", lambda: "engine")
     monkeypatch.setattr("backend.app.simulation.cli.load_latest_simulation", lambda engine: _summary(date(2026, 6, 19)))

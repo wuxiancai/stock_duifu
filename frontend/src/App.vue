@@ -179,6 +179,15 @@ function formatMoney(value: number | null | undefined) {
   return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function formatTime(value: string | null | undefined) {
+  if (!value) return '-'
+  return new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(new Date(value))
+}
+
 function formatPosition(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return '-'
   const percentValue = Math.abs(value) <= 1 ? value * 100 : value
@@ -348,7 +357,17 @@ async function setPlanStatus(row: TradePlanItem, status: string) {
   }
 }
 
-onMounted(loadDashboard)
+function navigateToSimulation() {
+  window.history.pushState({}, '', '/simulation')
+  document.querySelector('#simulation')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+onMounted(async () => {
+  await loadDashboard()
+  if (window.location.pathname === '/simulation') {
+    document.querySelector('#simulation')?.scrollIntoView({ block: 'start' })
+  }
+})
 </script>
 
 <template>
@@ -382,7 +401,7 @@ onMounted(loadDashboard)
           <el-icon><Refresh /></el-icon>
           <span>盘中跟踪</span>
         </a>
-        <a class="nav-item" href="#simulation">
+        <a class="nav-item" href="/simulation" @click.prevent="navigateToSimulation">
           <el-icon><Connection /></el-icon>
           <span>模拟交易</span>
         </a>
@@ -715,6 +734,23 @@ onMounted(loadDashboard)
                 <strong>{{ formatReturn(simulation.account.total_return) }} / {{ formatReturn(simulation.risk.max_drawdown) }}</strong>
               </div>
             </article>
+            <article class="metric">
+              <el-icon><Calendar /></el-icon>
+              <div>
+                <span>当日盈亏 / 今日收益率</span>
+                <strong>
+                  {{ formatMoney(simulation.equity_curve.at(-1)?.daily_profit) }} /
+                  {{ formatReturn(simulation.equity_curve.at(-1)?.daily_return) }}
+                </strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><DataAnalysis /></el-icon>
+              <div>
+                <span>胜率 / 盈亏比</span>
+                <strong>{{ formatReturn(simulation.risk.win_rate) }} / {{ simulation.risk.profit_loss_ratio ?? '-' }}</strong>
+              </div>
+            </article>
           </section>
 
           <el-alert
@@ -755,9 +791,13 @@ onMounted(loadDashboard)
               </template>
             </el-table-column>
             <el-table-column prop="buy_reason" label="买入原因" min-width="240" show-overflow-tooltip />
+            <el-table-column prop="position_status" label="状态" min-width="100" sortable />
           </el-table>
 
           <el-table :data="simulation.trades" border stripe empty-text="暂无今日模拟交易记录">
+            <el-table-column label="时间" min-width="90" sortable prop="trade_time">
+              <template #default="{ row }: { row: SimulationTrade }">{{ formatTime(row.trade_time) }}</template>
+            </el-table-column>
             <el-table-column prop="trade_type" label="方向" width="90" sortable />
             <el-table-column label="股票" min-width="150" sortable prop="stock_name">
               <template #default="{ row }: { row: SimulationTrade }">
@@ -778,6 +818,9 @@ onMounted(loadDashboard)
             </el-table-column>
             <el-table-column label="交易后现金" min-width="130" sortable prop="cash_after">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.cash_after) }}</template>
+            </el-table-column>
+            <el-table-column label="交易后仓位" min-width="120" sortable prop="position_ratio_after">
+              <template #default="{ row }: { row: SimulationTrade }">{{ formatPosition(row.position_ratio_after) }}</template>
             </el-table-column>
             <el-table-column label="盈亏" min-width="110" sortable prop="profit_loss">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.profit_loss) }}</template>

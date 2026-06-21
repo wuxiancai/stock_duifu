@@ -15,6 +15,10 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
     tushare_token: str = Field(default="", alias="TUSHARE_TOKEN")
+    simulation_commission_rate: float = Field(default=0.0003, alias="SIMULATION_COMMISSION_RATE")
+    simulation_stamp_tax_rate: float = Field(default=0.0005, alias="SIMULATION_STAMP_TAX_RATE")
+    simulation_transfer_fee_rate: float = Field(default=0.00001, alias="SIMULATION_TRANSFER_FEE_RATE")
+    simulation_min_commission: float = Field(default=5.0, alias="SIMULATION_MIN_COMMISSION")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
