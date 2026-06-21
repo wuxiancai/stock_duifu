@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」和任务 6「候选股票筛选」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」和任务 7「交易计划生成」。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 
 ## 已完成
@@ -100,19 +100,26 @@
   - `make generate-candidates`
 - 已新增候选查询 API：
   - `GET /api/candidates/latest`
+- 已新增交易计划生成服务：
+  - `backend/app/trade/service.py`
+- 已新增交易计划生成命令：
+  - `scripts/generate-trade-plans.sh --plan-date YYYY-MM-DD`
+  - `make generate-trade-plans`
+- 已新增交易计划查询 API：
+  - `GET /api/trade-plans/latest`
+- 交易计划已从 `candidate_stock`、`market_daily`、`stock_daily` 和 `trading_calendar` 生成次日条件单计划。
+- 交易计划已实现市场状态仓位限制：强势最多 3 只，中性最多 2 只，弱势最多 1 只，风险不生成新计划。
+- 交易计划已实现止损价硬约束：止损价无效或高于计划买入参考价时不入库。
 
 ## 未完成
 
-- 未创建交易业务 API。
 - 未创建 P0 交易业务页面。
-- 未完成任务 7「交易计划生成」。
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股；任务 6 已在基础过滤中处理缺失日线、ST/退市风险和非 active 股票。
 - 连板高度暂无结构化数据，任务 4 中未计入市场评分；后续需要补连板高度数据源后再纳入评分。
 - AkShare/Eastmoney 板块接口在本机网络环境下仍断连；任务 5 已采用 TuShare `dc_index` 作为真实可运行路径。
 - `sector_daily.five_day_return` 字段当前保存近 3 日累计涨幅；后续如改为 5 日，应同步迁移字段命名或 API 展示。
 - `amount_change` 当前使用 TuShare `dc_index.total_mv * turnover_rate / 100` 作为成交额代理值；后续若取得板块真实成交额字段，应替换为真实成交额。
 - 工作区存在未跟踪文件 `prd_by_glm.md`，不是本轮任务创建或修改，未纳入提交。
-- 任务 6 只生成候选股票，不生成买入区间、止损价、止盈价和建议仓位；下一步任务 7 必须补齐这些交易计划字段，且无止损价不得入库。
 
 ## 本轮验证
 
@@ -236,6 +243,16 @@
     - `600487 亨通光电`：`科技风格`，`趋势强势`，评分 `100`。
     - `002384 东山精密`：`科技风格`，`趋势强势`，评分 `100`。
     - `688525 佰维存储`：`科技风格`，`趋势强势`，评分 `100`。
+- 任务 7 真实数据验证：
+  - `.venv/bin/pytest`：42 passed，1 个 LibreSSL/urllib3 warning。
+  - `cd frontend && npm test -- --run`：1 passed。
+  - `cd frontend && npm run build`：通过；Element Plus 相关 bundle 仍有 chunk size warning。
+  - `scripts/generate-trade-plans.sh --plan-date 2026-06-18`：成功生成 2 条真实交易计划并写入 `trade_plan`。
+  - 真实 API `GET /api/trade-plans/latest`：返回 200，`plan_date=2026-06-18`、`target_trade_date=2026-06-19`、`items=2`。
+  - 真实计划目标交易日：`2026-06-19`。
+  - 真实计划样例：
+    - `300308 中际旭创`：`科技风格`，`趋势强势`，买入区间 `1207.2060 - 1367.8800`，止损 `1299.4860`，止盈 `1641.4560`，仓位 `40%`。
+    - `603986 兆易创新`：`科技风格`，`趋势强势`，买入区间 `517.4120 - 629.0000`，止损 `597.5500`，止盈 `754.8000`，仓位 `40%`。
 
 ## 验收口径
 
@@ -243,19 +260,18 @@
 
 在以下事项完成前，不得宣称系统可用于每日交易准备：
 
-- TuShare 主源和全市场真实行情数据可拉取并入库。
-- 市场环境、强势板块和交易计划可由真实数据生成。
 - P0 Web 页面可展示真实数据库结果。
 - 交易计划可跟踪触发并生成复盘。
+- 最近 30 天策略胜率和盈亏统计可查询。
 
 ## 下一步
 
-继续 `docs/TASKS.md` 的任务 7：交易计划生成。
+继续 `docs/TASKS.md` 的任务 8：P0 Web 页面。
 
-1. 从 `candidate_stock` 读取候选，按股票/策略生成第二天条件交易计划。
-2. 生成买入条件、买入区间、止损价、止盈价、建议仓位和风险提示。
-3. 严格执行“没有止损价不得进入计划”。
-4. 提供交易计划查询 API。
+1. 实现今日决策面板，读取 `GET /api/market/latest`。
+2. 实现强势板块页面，读取 `GET /api/sectors/top`。
+3. 实现今日交易计划页面，读取 `GET /api/trade-plans/latest`。
+4. 为交易复盘页面先接入空态或后续任务 10 的真实数据入口。
 5. 更新 `docs/HANDOFF.md`。
 6. 提交 git commit。
 

@@ -10,6 +10,7 @@ from backend.app.core.config import get_settings
 from backend.app.db.session import create_database_engine
 from backend.app.market.service import load_latest_market_environment
 from backend.app.sector.service import load_latest_sector_rankings
+from backend.app.trade.service import load_latest_trade_plans
 
 
 def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = None) -> FastAPI:
@@ -105,6 +106,37 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
                     "close_price": item.close_price,
                     "amount": item.amount,
                     "reason": item.reason,
+                    "risk_note": item.risk_note,
+                }
+                for item in items
+            ],
+        }
+
+    @app.get("/api/trade-plans/latest", tags=["trade"])
+    def latest_trade_plans() -> dict:
+        result = load_latest_trade_plans(database_engine)
+        if result is None:
+            raise HTTPException(status_code=404, detail="trade plans are not generated")
+        plan_date, target_trade_date, items = result
+        return {
+            "plan_date": plan_date.isoformat(),
+            "target_trade_date": target_trade_date.isoformat(),
+            "items": [
+                {
+                    "stock_code": item.stock_code,
+                    "stock_name": item.stock_name,
+                    "sector_name": item.sector_name,
+                    "strategy_type": item.strategy_type,
+                    "stock_score": item.stock_score,
+                    "sector_score": item.sector_score,
+                    "market_status": item.market_status,
+                    "buy_condition": item.buy_condition,
+                    "buy_price_low": item.buy_price_low,
+                    "buy_price_high": item.buy_price_high,
+                    "stop_loss_price": item.stop_loss_price,
+                    "take_profit_price": item.take_profit_price,
+                    "position_ratio": item.position_ratio,
+                    "status": item.status,
                     "risk_note": item.risk_note,
                 }
                 for item in items

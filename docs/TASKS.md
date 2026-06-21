@@ -12,7 +12,7 @@
 - [x] 已完成市场环境评分、入库命令和最新结果 API
 - [x] 已完成强势板块排序、入库命令和最新结果 API
 - [x] 已完成候选股票筛选、入库命令和最新结果 API
-- [ ] 尚未完成交易计划生成
+- [x] 已完成交易计划生成、入库命令和最新结果 API
 
 ## 开发原则
 
@@ -250,6 +250,30 @@ TuShare 全市场初始化验证：
 
 验收：真实交易日能生成第二天交易计划，API 可查询，计划字段完整。
 
+状态：已完成。
+
+已完成：
+
+- 新增交易计划生成服务：`backend/app/trade/service.py`。
+- 新增交易计划生成命令：`scripts/generate-trade-plans.sh --plan-date YYYY-MM-DD` / `make generate-trade-plans`。
+- 新增最新交易计划 API：`GET /api/trade-plans/latest`。
+- 从 `candidate_stock`、`market_daily`、`stock_daily` 和 `trading_calendar` 生成次日条件交易计划。
+- 已实现市场状态仓位限制：强势最多 3 只，中性最多 2 只，弱势最多 1 只，风险不生成新计划。
+- 已实现止损价硬约束：止损价无效或高于计划买入参考价时不入库。
+- 止损价按技术止损、固定 5% 止损、ATR14 止损三者中更接近买入价者计算。
+
+验证：
+
+- `.venv/bin/pytest`：42 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 Element Plus 相关 chunk size warning。
+- `scripts/generate-trade-plans.sh --plan-date 2026-06-18`：成功生成 2 条真实交易计划并写入 `trade_plan`。
+- 真实 API `GET /api/trade-plans/latest`：返回 200，`plan_date=2026-06-18`、`target_trade_date=2026-06-19`、`items=2`。
+- 真实计划目标交易日：`2026-06-19`。
+- 真实计划样例：
+  - `300308 中际旭创`：`科技风格`，`趋势强势`，买入区间 `1207.2060 - 1367.8800`，止损 `1299.4860`，止盈 `1641.4560`，仓位 `40%`。
+  - `603986 兆易创新`：`科技风格`，`趋势强势`，买入区间 `517.4120 - 629.0000`，止损 `597.5500`，止盈 `754.8000`，仓位 `40%`。
+
 ### 8. P0 Web 页面
 
 - 实现今日决策面板。
@@ -286,4 +310,4 @@ TuShare 全市场初始化验证：
 
 ## 下一步
 
-下一次开发进入任务 7：交易计划生成。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次开发进入任务 8：P0 Web 页面。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

@@ -1,4 +1,4 @@
-.PHONY: install test test-backend test-frontend db-upgrade db-current ingest-market-data audit-market-data generate-market-environment generate-sector-ranking generate-candidates dev-api dev-web
+.PHONY: install test test-backend test-frontend db-upgrade db-current ingest-market-data audit-market-data generate-market-environment generate-sector-ranking generate-candidates generate-trade-plans dev-api dev-web
 
 install:
 	python3 -m venv .venv
@@ -34,6 +34,9 @@ generate-sector-ranking:
 
 generate-candidates:
 	bash scripts/generate-candidates.sh
+
+generate-trade-plans:
+	bash scripts/generate-trade-plans.sh
 
 dev-api:
 	bash scripts/dev-api.sh
