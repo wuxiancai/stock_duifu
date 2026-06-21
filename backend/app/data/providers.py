@@ -71,6 +71,13 @@ def as_date(value) -> date:
     return pd.to_datetime(value).date()
 
 
+def _row_value(row, *names: str):
+    for name in names:
+        if name in row:
+            return row[name]
+    return None
+
+
 class AkShareSinaMarketDataProvider:
     name = "akshare_sina"
 
@@ -233,6 +240,66 @@ class AkShareSinaMarketDataProvider:
         if eligible.empty:
             return None
         return int(eligible.index[-1])
+
+
+class AkShareRealtimeQuoteProvider:
+    name = "akshare_realtime"
+
+    def __init__(self, spot_fetcher=None):
+        self._spot_fetcher = spot_fetcher or ak.stock_zh_a_spot_em
+
+    def fetch_realtime_stock_daily(
+        self,
+        stock_codes: Iterable[str],
+        trade_date: date,
+    ) -> list[StockDailyRecord]:
+        wanted = {str(code).zfill(6) for code in stock_codes}
+        if not wanted:
+            return []
+
+        with without_proxy_env():
+            frame = self._spot_fetcher()
+        if frame.empty:
+            return []
+
+        records: list[StockDailyRecord] = []
+        for _, row in frame.iterrows():
+            code = str(_row_value(row, "代码", "code", "symbol") or "").zfill(6)
+            if code not in wanted:
+                continue
+            record = self._quote_row_to_daily(row, code, trade_date)
+            if record is not None:
+                records.append(record)
+        return records
+
+    def _quote_row_to_daily(self, row, stock_code: str, trade_date: date) -> Optional[StockDailyRecord]:
+        close = as_float(_row_value(row, "最新价", "最新", "close"), default=None)
+        open_price = as_float(_row_value(row, "今开", "开盘", "open"), default=None)
+        high = as_float(_row_value(row, "最高", "high"), default=None)
+        low = as_float(_row_value(row, "最低", "low"), default=None)
+        pre_close = as_float(_row_value(row, "昨收", "pre_close"), default=None)
+        if not close or not open_price or not high or not low:
+            return None
+        if close <= 0 or open_price <= 0 or high <= 0 or low <= 0:
+            return None
+        pre_close = pre_close or close
+        change = as_float(_row_value(row, "涨跌额", "change"), default=close - pre_close)
+        pct_chg = as_float(_row_value(row, "涨跌幅", "pct_chg"), default=0.0)
+        return StockDailyRecord(
+            stock_code=stock_code,
+            trade_date=trade_date,
+            open=open_price,
+            high=high,
+            low=low,
+            close=close,
+            pre_close=pre_close,
+            change=change,
+            pct_chg=pct_chg,
+            volume=as_float(_row_value(row, "成交量", "volume"), default=0.0),
+            amount=as_float(_row_value(row, "成交额", "amount"), default=0.0),
+            turnover_rate=as_float(_row_value(row, "换手率", "turnover_rate"), default=None),
+            source=self.name,
+        )
 
 
 class MissingTushareTokenError(RuntimeError):

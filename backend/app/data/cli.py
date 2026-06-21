@@ -7,8 +7,10 @@ from typing import Optional
 
 from backend.app.data.audit import audit_market_data_coverage
 from backend.app.data.ingest import ingest_market_snapshot
+from backend.app.data.realtime_quotes import run_realtime_quote_workflow
 from backend.app.data.target_daily import backfill_trade_plan_target_daily
 from backend.app.data.providers import (
+    AkShareRealtimeQuoteProvider,
     AkShareSinaMarketDataProvider,
     MissingTushareTokenError,
     TushareMarketDataProvider,
@@ -48,7 +50,35 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Refetch plan stocks even when stock_daily already exists",
     )
+
+    realtime = subparsers.add_parser(
+        "run-realtime-workflow",
+        help="Fetch delayed realtime quotes for target trade plans, then track and simulate",
+    )
+    realtime.add_argument("--provider", choices=["akshare"], default="akshare")
+    realtime.add_argument("--target-trade-date", required=True, help="Target trade date in YYYY-MM-DD format")
+    realtime.add_argument(
+        "--include-existing",
+        action="store_true",
+        help="Refetch plan stocks even when stock_daily already exists",
+    )
+    realtime.add_argument(
+        "--mark-untriggered-at-close",
+        action="store_true",
+        help="Mark plans as untriggered when the quote range never reaches the buy interval",
+    )
+    realtime.add_argument(
+        "--allow-date-mismatch",
+        action="store_true",
+        help="Allow writing the current realtime snapshot to a target date different from China today",
+    )
     return parser
+
+
+def load_realtime_quote_provider(provider_name: str):
+    if provider_name == "akshare":
+        return AkShareRealtimeQuoteProvider()
+    raise ValueError(f"Unsupported realtime provider: {provider_name}")
 
 
 def load_provider(provider_name: str, tushare_token: Optional[str] = None):
@@ -102,6 +132,18 @@ def main() -> None:
             )
         except MissingTushareTokenError as exc:
             parser.error(str(exc))
+        print(json.dumps(asdict(result), ensure_ascii=False, default=str, sort_keys=True))
+        return
+
+    if args.command == "run-realtime-workflow":
+        result = run_realtime_quote_workflow(
+            create_database_engine(),
+            parse_date(args.target_trade_date),
+            load_realtime_quote_provider(args.provider),
+            include_existing=args.include_existing,
+            mark_untriggered_at_close=args.mark_untriggered_at_close,
+            allow_date_mismatch=args.allow_date_mismatch,
+        )
         print(json.dumps(asdict(result), ensure_ascii=False, default=str, sort_keys=True))
         return
 
