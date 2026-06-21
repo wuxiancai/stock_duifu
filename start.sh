@@ -152,7 +152,7 @@ API_PORT="$(next_available_port "$API_LISTEN_HOST" "$API_BASE_PORT")"
 WEB_PORT="$(next_available_port "$WEB_LISTEN_HOST" "$WEB_BASE_PORT")"
 PUBLIC_HOST="$(detect_public_host)"
 DATABASE_URL="postgresql+psycopg://stock:stock@$DB_HOST:$POSTGRES_HOST_PORT/stock"
-VITE_API_BASE_URL="http://$PUBLIC_HOST:$API_PORT"
+VITE_DEV_API_PROXY_TARGET="http://$HEALTHCHECK_HOST:$API_PORT"
 
 mkdir -p "$LOG_DIR"
 : >"$LOG_DIR/api.log"
@@ -171,7 +171,7 @@ API_PID="$!"
 wait_for_url "http://$HEALTHCHECK_HOST:$API_PORT/api/health" "API" "$API_PID" "$LOG_DIR/api.log"
 
 info "starting frontend on $WEB_LISTEN_HOST:$WEB_PORT, log: $LOG_DIR/web.log"
-(cd frontend && VITE_API_BASE_URL="$VITE_API_BASE_URL" npm run dev -- --host "$WEB_LISTEN_HOST" --port "$WEB_PORT") >"$LOG_DIR/web.log" 2>&1 &
+(cd frontend && VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" npm run dev -- --host "$WEB_LISTEN_HOST" --port "$WEB_PORT") >"$LOG_DIR/web.log" 2>&1 &
 WEB_PID="$!"
 wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend" "$WEB_PID" "$LOG_DIR/web.log"
 
@@ -182,9 +182,12 @@ Project is running.
 Frontend local: http://$HEALTHCHECK_HOST:$WEB_PORT
 Frontend LAN:   http://$PUBLIC_HOST:$WEB_PORT
 API local:      http://$HEALTHCHECK_HOST:$API_PORT/api/health
-API LAN:        http://$PUBLIC_HOST:$API_PORT/api/health
+API proxy:      /api -> $VITE_DEV_API_PROXY_TARGET
 Database:       $DB_HOST:$POSTGRES_HOST_PORT -> postgres:5432
 Logs:     $LOG_DIR
+
+If another LAN computer cannot open Frontend LAN, allow the web port on Ubuntu:
+  sudo ufw allow $WEB_PORT/tcp
 
 Press Ctrl+C to stop API and frontend.
 PostgreSQL keeps running in Docker. Stop it with:

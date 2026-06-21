@@ -188,9 +188,24 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
     assert 'API_LISTEN_HOST="${API_LISTEN_HOST:-0.0.0.0}"' in script
     assert 'WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-0.0.0.0}"' in script
     assert 'HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"' in script
-    assert "VITE_API_BASE_URL=\"http://$PUBLIC_HOST:$API_PORT\"" in script
+    assert 'VITE_DEV_API_PROXY_TARGET="http://$HEALTHCHECK_HOST:$API_PORT"' in script
+    assert 'VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" npm run dev' in script
+    assert "API proxy:      /api -> $VITE_DEV_API_PROXY_TARGET" in script
+    assert "sudo ufw allow $WEB_PORT/tcp" in script
     assert "API_RELOAD=0" in script
     assert 'tail -n 80 "$log_file"' in script
     assert "sock.bind((host, port))" in script
     assert 'API_PORT="$(next_available_port "$API_LISTEN_HOST" "$API_BASE_PORT")"' in script
     assert 'WEB_PORT="$(next_available_port "$WEB_LISTEN_HOST" "$WEB_BASE_PORT")"' in script
+
+
+def test_vite_dev_server_proxies_same_origin_api_requests() -> None:
+    vite_config = (ROOT / "frontend" / "vite.config.ts").read_text()
+    dashboard_api = (ROOT / "frontend" / "src" / "api" / "dashboard.ts").read_text()
+    health_api = (ROOT / "frontend" / "src" / "api" / "health.ts").read_text()
+
+    assert "process.env.VITE_DEV_API_PROXY_TARGET" in vite_config
+    assert "process.env.VITE_API_BASE_URL" in vite_config
+    assert "target: apiProxyTarget" in vite_config
+    assert "const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''" in dashboard_api
+    assert "const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''" in health_api

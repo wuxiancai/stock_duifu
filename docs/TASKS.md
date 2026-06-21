@@ -34,6 +34,7 @@
 - [x] 已避开系统 PostgreSQL 默认端口：部署默认从 `15432` 启动项目 PostgreSQL
 - [x] 已优化 Ubuntu 启动脚本：`start.sh` 生产启动 API 不使用 reload，失败时直接打印日志尾部
 - [x] 已修复 start.sh API 端口误判：端口检测改为真实 bind 探测，8000 被占用时会选择 8001
+- [x] 已修复 Ubuntu 前端 API 访问口径：浏览器固定走同源 `/api`，由 Vite 代理到实际 API 端口，并提示局域网防火墙放通 Web 端口
 
 ## 开发原则
 
@@ -812,3 +813,23 @@ TuShare 全市场初始化验证：
 - `bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
 - `.venv/bin/pytest tests/test_deployment_scripts.py`：7 passed。
 - `.venv/bin/pytest`：97 passed，1 个 LibreSSL/urllib3 warning。
+
+### 27. Ubuntu 前端 API 同源代理
+
+- 修复 Ubuntu 上用 `127.0.0.1:5173` 打开页面时 `/api/sectors/top` 被 Vite dev server 直接返回 `404` 的问题。
+- 修复用 `192.168.x.x:5173` 打开页面时，浏览器直连绝对 API 地址造成 `Failed to fetch`、CORS 或网络路径不一致的问题。
+- `start.sh` 不再向浏览器注入 `VITE_API_BASE_URL=http://<LAN_IP>:<API_PORT>`；前端默认请求同源 `/api/...`。
+- `start.sh` 改为向 Vite 进程注入 `VITE_DEV_API_PROXY_TARGET=http://127.0.0.1:<API_PORT>`，由 Vite 在 Ubuntu 本机代理到真实 API。
+- 启动提示改为打印 `API proxy: /api -> ...`，并提醒另一台局域网电脑无法打开时在 Ubuntu 上放通 Web 端口：`sudo ufw allow <WEB_PORT>/tcp`。
+- 这意味着局域网访问只需要浏览器能连上前端端口；API 端口不再需要直接暴露给局域网浏览器。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_deployment_scripts.py`：8 passed。
+- `bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- `.venv/bin/pytest`：98 passed，1 个 LibreSSL/urllib3 warning。
+- 真实启动验证：本地占住 `0.0.0.0:8000` 后运行 `bash start.sh`，脚本选择 API `8001`、前端 `5173`；`curl http://127.0.0.1:5173/api/health` 通过 Vite 代理返回 API 健康检查 JSON。

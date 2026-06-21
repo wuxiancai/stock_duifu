@@ -2,11 +2,11 @@
 
 ## 当前状态
 
-- 日期：2026-06-21
+- 日期：2026-06-22
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」、任务 18「市场环境连板高度补口」、任务 19「强势板块 5 日涨幅与候选股票页面补口」、任务 20「Ubuntu 部署与数据拉取脚本」、任务 21「强势板块独立详情页」、任务 22「部署 PostgreSQL 端口占用顺延」、任务 23「部署迁移数据库端口同步」、任务 24「部署默认避开 5432」、任务 25「Ubuntu 启动脚本诊断与 API 非 reload 启动」和任务 26「start.sh API 端口 bind 探测」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」、任务 18「市场环境连板高度补口」、任务 19「强势板块 5 日涨幅与候选股票页面补口」、任务 20「Ubuntu 部署与数据拉取脚本」、任务 21「强势板块独立详情页」、任务 22「部署 PostgreSQL 端口占用顺延」、任务 23「部署迁移数据库端口同步」、任务 24「部署默认避开 5432」、任务 25「Ubuntu 启动脚本诊断与 API 非 reload 启动」、任务 26「start.sh API 端口 bind 探测」和任务 27「Ubuntu 前端 API 同源代理」。
 - `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
@@ -17,6 +17,7 @@
 - `deploy_ubuntu.sh` 默认从 `15432` 启动项目 PostgreSQL，不再碰系统常用 `5432`。
 - `start.sh` 启动 API 时使用 `API_RELOAD=0`，并在 API/前端启动失败时直接打印日志尾部。
 - `start.sh` 使用真实 socket bind 探测 API/Web/PostgreSQL 宿主机端口；`8000` 被占用时会自动改用 `8001`。
+- `start.sh` 启动前端时不再把局域网 API 绝对地址注入浏览器；浏览器固定请求同源 `/api`，Vite 在 Ubuntu 本机代理到实际 API 端口。
 
 ## 已完成
 
@@ -248,6 +249,11 @@
   - 端口检测改为用 Python socket 实际尝试 bind 到监听地址。
   - API 使用 `API_LISTEN_HOST` 检测，Web 使用 `WEB_LISTEN_HOST` 检测，PostgreSQL 使用 `DB_HOST` 检测。
   - `start.sh` PostgreSQL 默认起始端口同步为 `15432`。
+- 已完成任务 27 Ubuntu 前端 API 同源代理：
+  - `start.sh` 不再设置 `VITE_API_BASE_URL=http://<LAN_IP>:<API_PORT>`，避免同一个页面在 `127.0.0.1` 和 `192.168.x.x` 下访问不同 API 路径。
+  - `start.sh` 改为设置 `VITE_DEV_API_PROXY_TARGET=http://127.0.0.1:<API_PORT>` 给 Vite dev server；浏览器仍请求同源 `/api/...`。
+  - `frontend/vite.config.ts` 用 `VITE_DEV_API_PROXY_TARGET` 配置代理目标，并兼容显式 `VITE_API_BASE_URL`。
+  - 启动提示明确 `API proxy: /api -> ...`，并提示局域网电脑超时时在 Ubuntu 放通 Web 端口：`sudo ufw allow <WEB_PORT>/tcp`。
 
 ## 未完成
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股；任务 6 已在基础过滤中处理缺失日线、ST/退市风险和非 active 股票。
@@ -266,6 +272,11 @@
 - 任务 26 脚本语法：`bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
 - 任务 26 回归验证：`.venv/bin/pytest tests/test_deployment_scripts.py`：7 passed。
 - 任务 26 全量验证：`.venv/bin/pytest`：97 passed，1 个 LibreSSL/urllib3 warning。
+- 任务 27 真实启动代理验证：本地占住 `0.0.0.0:8000` 后运行 `bash start.sh`，脚本选择 API `8001`、前端 `5173`；`curl http://127.0.0.1:5173/api/health` 通过 Vite 代理返回 API 健康检查 JSON。
+- 任务 27 脚本语法：`bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
+- 任务 27 回归验证：`.venv/bin/pytest tests/test_deployment_scripts.py`：8 passed。
+- 任务 27 前端验证：`cd frontend && npm test -- --run`：1 passed；`cd frontend && npm run build`：通过，仍有 VueUse pure annotation 和 chunk size warning。
+- 任务 27 全量验证：`.venv/bin/pytest`：98 passed，1 个 LibreSSL/urllib3 warning。
 - 任务 25 脚本语法：`bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
 - 任务 25 回归验证：`.venv/bin/pytest tests/test_deployment_scripts.py`：7 passed。
 - 任务 25 全量验证：`.venv/bin/pytest`：97 passed，1 个 LibreSSL/urllib3 warning。
@@ -547,7 +558,7 @@
 下一次优先在 Ubuntu 目标机器按顺序执行：
 
 1. `bash deploy_ubuntu.sh`，确认依赖、空库迁移和前端构建完成。
-2. `PUBLIC_HOST=服务器局域网IP bash start.sh`，确认局域网浏览器可访问页面。
+2. `PUBLIC_HOST=服务器局域网IP bash start.sh`，确认局域网浏览器可访问页面；若其他电脑访问 `http://服务器局域网IP:<WEB_PORT>` 超时，在 Ubuntu 上执行 `sudo ufw allow <WEB_PORT>/tcp` 后重试。
 3. `TRADE_DATE=YYYY-MM-DD bash get_data.sh`，拉真实行情并生成市场环境、强势板块、候选股票和交易计划。
 4. 目标交易日当天再执行 `bash scripts/run-realtime-workflow.sh --provider auto --target-trade-date YYYY-MM-DD`，确认真实实时快照能写入计划股并驱动跟踪/模拟。
 5. 每轮完成前继续更新 `docs/HANDOFF.md` 并提交 git commit。

@@ -8,7 +8,7 @@ export interface HealthResponse {
   }
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 export async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch(`${API_BASE_URL}/api/health`)
@@ -19,4 +19,3 @@ export async function fetchHealth(): Promise<HealthResponse> {
 
   return response.json() as Promise<HealthResponse>
 }
-
