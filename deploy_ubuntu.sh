@@ -227,7 +227,7 @@ select_postgres_port() {
 configure_database_url() {
   local selected_database_url="postgresql+psycopg://stock:stock@127.0.0.1:${POSTGRES_HOST_PORT}/stock"
 
-  if [ -n "$EXPLICIT_DATABASE_URL" ]; then
+  if [ -n "$EXPLICIT_DATABASE_URL" ] && ! is_local_stock_database_url "$EXPLICIT_DATABASE_URL"; then
     DATABASE_URL="$EXPLICIT_DATABASE_URL"
   elif [ -z "${DATABASE_URL:-}" ] || is_local_stock_database_url "$DATABASE_URL"; then
     DATABASE_URL="$selected_database_url"
@@ -283,6 +283,25 @@ wait_for_postgres() {
   exit 1
 }
 
+detect_postgres_published_port() {
+  docker compose port postgres 5432 2>/dev/null | sed -E 's/.*:([0-9]+)$/\1/' | tail -n 1
+}
+
+sync_database_url_from_running_container() {
+  local published_port
+  published_port="$(detect_postgres_published_port)"
+  if [ -z "$published_port" ]; then
+    echo "Could not detect PostgreSQL published host port from Docker Compose." >&2
+    exit 1
+  fi
+  if [ "$published_port" != "$POSTGRES_HOST_PORT" ]; then
+    info "Docker published PostgreSQL host port is $published_port; updating deployment config"
+    POSTGRES_HOST_PORT="$published_port"
+    export POSTGRES_HOST_PORT
+  fi
+  configure_database_url
+}
+
 start_database() {
   if [ "${RESET_DB:-0}" = "1" ]; then
     info "RESET_DB=1; removing existing PostgreSQL volume before deployment"
@@ -293,6 +312,7 @@ start_database() {
   run_shell "POSTGRES_HOST_PORT=$POSTGRES_HOST_PORT docker compose up -d postgres"
   if [ "$DRY_RUN" != "1" ]; then
     wait_for_postgres
+    sync_database_url_from_running_container
   fi
 }
 

@@ -82,6 +82,49 @@ def test_deploy_script_advances_postgres_port_when_base_port_is_busy() -> None:
     assert f"127.0.0.1:{expected_port}/stock" in result.stdout
 
 
+def test_deploy_script_overrides_stale_local_database_url_when_port_advances() -> None:
+    busy_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        busy_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        for candidate_port in range(59000, 62000, 2):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.settimeout(0.1)
+                if probe.connect_ex(("127.0.0.1", candidate_port + 1)) == 0:
+                    continue
+            try:
+                busy_socket.bind(("127.0.0.1", candidate_port))
+                break
+            except OSError:
+                continue
+        else:
+            raise AssertionError("No suitable adjacent ports found for stale DATABASE_URL test")
+
+        busy_socket.listen(1)
+        busy_port = busy_socket.getsockname()[1]
+        expected_port = busy_port + 1
+
+        script = ROOT / "deploy_ubuntu.sh"
+        result = run_script(
+            str(script),
+            {
+                "STOCK_DEPLOY_DRY_RUN": "1",
+                "FORCE_INSTALL": "1",
+                "TUSHARE_TOKEN": "token-for-dry-run",
+                "POSTGRES_BASE_PORT": str(busy_port),
+                "DATABASE_URL": f"postgresql+psycopg://stock:stock@127.0.0.1:{busy_port}/stock",
+            },
+        )
+    finally:
+        busy_socket.close()
+
+    assert result.returncode == 0, result.stderr
+    assert f"selected PostgreSQL host port: {expected_port}" in result.stdout
+    assert (
+        f"DATABASE_URL='postgresql+psycopg://stock:stock@127.0.0.1:{expected_port}/stock' "
+        "scripts/db-upgrade.sh"
+    ) in result.stdout
+
+
 def test_get_data_script_runs_after_close_workflow_in_dry_run() -> None:
     script = ROOT / "get_data.sh"
 

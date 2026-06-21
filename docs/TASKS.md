@@ -30,6 +30,7 @@
 - [x] 已补齐 Ubuntu 一键部署与数据初始化脚本：`deploy_ubuntu.sh`、`get_data.sh`、LAN 监听启动口径
 - [x] 已优化强势板块浏览体验：点击板块进入独立详情页，候选股票和交易计划按板块分页面展示
 - [x] 已修复部署 PostgreSQL 端口占用：`deploy_ubuntu.sh` 会顺延宿主机端口并写回 `.env`
+- [x] 已修复部署迁移连错旧端口：旧本地 `DATABASE_URL` 会按 Docker 实际端口重写
 
 ## 开发原则
 
@@ -744,3 +745,19 @@ TuShare 全市场初始化验证：
 - `bash -n deploy_ubuntu.sh get_data.sh start.sh scripts/dev-web.sh`：通过。
 - `STOCK_DEPLOY_DRY_RUN=1 FORCE_INSTALL=1 TUSHARE_TOKEN=token-for-dry-run POSTGRES_BASE_PORT=5432 bash deploy_ubuntu.sh`：当前本机 `5432` 被占用时选择 `5433`，并输出写回 `.env`、按 `5433` 启动 PostgreSQL 和迁移。
 - `.venv/bin/pytest`：94 passed，1 个 LibreSSL/urllib3 warning。
+
+### 23. 部署迁移数据库端口同步
+
+- 修复 Ubuntu 部署中 PostgreSQL 容器已 ready，但 Alembic 仍连接旧 `127.0.0.1:5432` 导致密码错误的问题。
+- `deploy_ubuntu.sh` 遇到显式或 `.env` 中的旧本地 `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:<旧端口>/stock` 时，不再保留旧值，而是按选中的端口重写。
+- Docker Compose 启动 PostgreSQL 后，脚本会读取 `docker compose port postgres 5432` 的真实 published port，并用它再次同步 `POSTGRES_HOST_PORT` / `DATABASE_URL`。
+- 只有非本地 stock 数据库 URL 才会作为外部数据库配置保留。
+
+状态：已完成。
+
+验证：
+
+- 新增回归测试：即使环境变量里带旧本地 `DATABASE_URL=...5432...`，部署 dry-run 也会把迁移命令改为顺延后的实际端口。
+- `.venv/bin/pytest tests/test_deployment_scripts.py`：5 passed。
+- `bash -n deploy_ubuntu.sh get_data.sh start.sh scripts/dev-web.sh`：通过。
+- `STOCK_DEPLOY_DRY_RUN=1 FORCE_INSTALL=1 TUSHARE_TOKEN=token-for-dry-run POSTGRES_BASE_PORT=5432 DATABASE_URL='postgresql+psycopg://stock:stock@127.0.0.1:5432/stock' bash deploy_ubuntu.sh`：当前本机 `5432` 被占用时，迁移命令使用 `127.0.0.1:5433/stock`。
