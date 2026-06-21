@@ -298,6 +298,129 @@ class LimitSnapshot(Base):
     )
 
 
+class SimulationAccount(Base):
+    __tablename__ = "simulation_account"
+    __table_args__ = (UniqueConstraint("account_name", name="uq_simulation_account_account_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    initial_cash: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    available_cash: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    frozen_cash: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False, default=0)
+    market_value: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False, default=0)
+    total_assets: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    total_profit: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False, default=0)
+    total_return: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=0)
+    max_drawdown: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SimulationPosition(Base):
+    __tablename__ = "simulation_position"
+    __table_args__ = (
+        UniqueConstraint("account_id", "trade_plan_id", name="uq_sim_position_account_plan"),
+        Index("ix_simulation_position_account_id", "account_id"),
+        Index("ix_simulation_position_stock_code", "stock_code"),
+        Index("ix_simulation_position_status", "position_status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("simulation_account.id", ondelete="CASCADE"), nullable=False
+    )
+    trade_plan_id: Mapped[int] = mapped_column(
+        ForeignKey("trade_plan.id", ondelete="CASCADE"), nullable=False
+    )
+    stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    stock_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    sector_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    strategy_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    buy_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    current_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    market_value: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    cost_amount: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    unrealized_profit: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False, default=0)
+    unrealized_return: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=0)
+    stop_loss_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    take_profit_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    position_status: Mapped[str] = mapped_column(String(20), nullable=False, default="持仓中")
+    buy_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    sell_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SimulationTrade(Base):
+    __tablename__ = "simulation_trade"
+    __table_args__ = (
+        Index("ix_simulation_trade_account_id", "account_id"),
+        Index("ix_simulation_trade_trade_date", "trade_date"),
+        Index("ix_simulation_trade_stock_code", "stock_code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("simulation_account.id", ondelete="CASCADE"), nullable=False
+    )
+    trade_plan_id: Mapped[int] = mapped_column(
+        ForeignKey("trade_plan.id", ondelete="CASCADE"), nullable=False
+    )
+    stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    stock_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    trade_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    trade_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    trade_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    commission: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    stamp_tax: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    transfer_fee: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    total_fee: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    net_amount: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    cash_after: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    position_ratio_after: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=0)
+    profit_loss: Mapped[Optional[float]] = mapped_column(Numeric(20, 4))
+    profit_loss_return: Mapped[Optional[float]] = mapped_column(Numeric(10, 4))
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class SimulationEquity(Base):
+    __tablename__ = "simulation_equity"
+    __table_args__ = (
+        UniqueConstraint("account_id", "trade_date", name="uq_simulation_equity_account_trade_date"),
+        Index("ix_simulation_equity_trade_date", "trade_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("simulation_account.id", ondelete="CASCADE"), nullable=False
+    )
+    trade_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    available_cash: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    market_value: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    total_assets: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    daily_profit: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False, default=0)
+    daily_return: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=0)
+    max_drawdown: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class DataIngestRun(Base):
     __tablename__ = "data_ingest_run"
     __table_args__ = (Index("ix_data_ingest_run_trade_date", "trade_date"),)

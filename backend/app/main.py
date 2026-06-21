@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from datetime import date
 from typing import Optional
 
@@ -12,6 +13,7 @@ from backend.app.core.config import get_settings
 from backend.app.db.session import create_database_engine
 from backend.app.market.service import load_latest_market_environment
 from backend.app.sector.service import load_latest_sector_rankings
+from backend.app.simulation.service import load_latest_simulation, run_simulation
 from backend.app.trade.service import (
     generate_trade_reviews,
     load_latest_trade_plans,
@@ -27,6 +29,10 @@ class TradePlanTrackingRequest(BaseModel):
 
 
 class TradeReviewGenerateRequest(BaseModel):
+    trade_date: str
+
+
+class SimulationRunRequest(BaseModel):
     trade_date: str
 
 
@@ -281,6 +287,21 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
         if result is None:
             raise HTTPException(status_code=404, detail="trade reviews are not generated")
         return _trade_review_payload(result)
+
+    @app.post("/api/simulation/run", tags=["simulation"])
+    def run_simulation_api(payload: SimulationRunRequest) -> dict:
+        try:
+            trade_date = date.fromisoformat(payload.trade_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="trade_date must be YYYY-MM-DD") from exc
+        return asdict(run_simulation(database_engine, trade_date))
+
+    @app.get("/api/simulation/latest", tags=["simulation"])
+    def latest_simulation() -> dict:
+        result = load_latest_simulation(database_engine)
+        if result is None:
+            raise HTTPException(status_code=404, detail="simulation is not generated")
+        return asdict(result)
 
     return app
 

@@ -1,4 +1,4 @@
-.PHONY: start install check-dev-environment test test-backend test-frontend db-upgrade db-current ingest-market-data audit-market-data generate-market-environment generate-sector-ranking generate-candidates generate-trade-plans track-trade-plans generate-trade-reviews dev-api dev-web
+.PHONY: start install check-dev-environment test test-backend test-frontend db-upgrade db-current ingest-market-data audit-market-data generate-market-environment generate-sector-ranking generate-candidates generate-trade-plans track-trade-plans generate-trade-reviews run-simulation dev-api dev-web
 
 start:
 	bash start.sh
@@ -49,6 +49,9 @@ track-trade-plans:
 
 generate-trade-reviews:
 	bash scripts/generate-trade-reviews.sh
+
+run-simulation:
+	bash scripts/run-simulation.sh
 
 dev-api:
 	bash scripts/dev-api.sh

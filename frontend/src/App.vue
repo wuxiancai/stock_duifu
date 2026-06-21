@@ -12,15 +12,21 @@ import {
 } from '@element-plus/icons-vue'
 import { fetchHealth, type HealthResponse } from './api/health'
 import {
+  fetchLatestSimulation,
   fetchLatestTradePlans,
   fetchLatestTradeReviews,
   fetchMarketLatest,
   fetchTopSectors,
+  runSimulation,
   trackTradePlans,
   updateTradePlanStatus,
   type MarketLatestResponse,
   type SectorTopItem,
   type SectorTopResponse,
+  type SimulationEquityPoint,
+  type SimulationLatestResponse,
+  type SimulationPosition,
+  type SimulationTrade,
   type TradePlanItem,
   type TradePlansLatestResponse,
   type TradeReviewGroupStats,
@@ -33,11 +39,13 @@ const market = ref<MarketLatestResponse | null>(null)
 const sectors = ref<SectorTopResponse | null>(null)
 const tradePlans = ref<TradePlansLatestResponse | null>(null)
 const tradeReviews = ref<TradeReviewLatestResponse | null>(null)
+const simulation = ref<SimulationLatestResponse | null>(null)
 const loading = ref(true)
 const error = ref('')
 const sectorKeyword = ref('')
 const planKeyword = ref('')
 const planTrackingLoading = ref(false)
+const simulationLoading = ref(false)
 
 const statusType = computed(() => {
   if (error.value) return 'danger'
@@ -102,12 +110,13 @@ async function loadDashboard() {
   error.value = ''
 
   try {
-    const [healthResult, marketResult, sectorsResult, tradePlansResult, tradeReviewsResult] = await Promise.all([
+    const [healthResult, marketResult, sectorsResult, tradePlansResult, tradeReviewsResult, simulationResult] = await Promise.all([
       fetchHealth(),
       fetchMarketLatest(),
       fetchTopSectors(),
       fetchLatestTradePlans(),
-      fetchLatestTradeReviews().catch(() => null)
+      fetchLatestTradeReviews().catch(() => null),
+      fetchLatestSimulation().catch(() => null)
     ])
 
     health.value = healthResult
@@ -115,6 +124,7 @@ async function loadDashboard() {
     sectors.value = sectorsResult
     tradePlans.value = tradePlansResult
     tradeReviews.value = tradeReviewsResult
+    simulation.value = simulationResult
   } catch (err) {
     error.value = err instanceof Error ? err.message : '业务数据加载失败'
   } finally {
@@ -135,6 +145,11 @@ function formatReturn(value: number | null | undefined, digits = 2) {
 function formatPrice(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return '-'
   return value.toFixed(2)
+}
+
+function formatMoney(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-'
+  return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function formatPosition(value: number | null | undefined) {
@@ -225,6 +240,21 @@ async function runPlanTracking(markUntriggeredAtClose = false) {
   }
 }
 
+async function runSimulationForTarget() {
+  if (!tradePlans.value?.target_trade_date) return
+  simulationLoading.value = true
+  error.value = ''
+
+  try {
+    simulation.value = await runSimulation(tradePlans.value.target_trade_date)
+    ElMessage.success(`模拟交易已运行到 ${simulation.value.as_of_date}`)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '模拟交易运行失败'
+  } finally {
+    simulationLoading.value = false
+  }
+}
+
 async function setPlanStatus(row: TradePlanItem, status: string) {
   planTrackingLoading.value = true
   error.value = ''
@@ -265,6 +295,10 @@ onMounted(loadDashboard)
         <a class="nav-item" href="#plans">
           <el-icon><Finished /></el-icon>
           <span>交易计划</span>
+        </a>
+        <a class="nav-item" href="#simulation">
+          <el-icon><Connection /></el-icon>
+          <span>模拟交易</span>
         </a>
         <a class="nav-item" href="#review">
           <el-icon><Calendar /></el-icon>
@@ -442,6 +476,139 @@ onMounted(loadDashboard)
           </el-table-column>
           <el-table-column prop="risk_note" label="风险提示" min-width="260" show-overflow-tooltip />
         </el-table>
+      </section>
+
+      <section id="simulation" class="panel simulation-panel">
+        <div class="section-heading table-heading">
+          <div>
+            <h2>模拟交易</h2>
+            <p>模拟日：{{ simulation?.as_of_date ?? '-' }}，只执行计划内股票，按保守成交和费用规则计算。</p>
+          </div>
+          <el-button :loading="simulationLoading" :disabled="!tradePlans?.target_trade_date" @click="runSimulationForTarget">
+            运行模拟交易
+          </el-button>
+        </div>
+
+        <template v-if="simulation">
+          <section class="metric-grid simulation-grid">
+            <article class="metric primary-metric">
+              <el-icon><Connection /></el-icon>
+              <div>
+                <span>当前总资产</span>
+                <strong>{{ formatMoney(simulation.account.total_assets) }}</strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><DataAnalysis /></el-icon>
+              <div>
+                <span>可用现金</span>
+                <strong>{{ formatMoney(simulation.account.available_cash) }}</strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><TrendCharts /></el-icon>
+              <div>
+                <span>持仓市值 / 仓位</span>
+                <strong>{{ formatMoney(simulation.account.market_value) }} / {{ formatReturn(simulation.risk.position_ratio, 0) }}</strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><Finished /></el-icon>
+              <div>
+                <span>累计收益 / 最大回撤</span>
+                <strong>{{ formatReturn(simulation.account.total_return) }} / {{ formatReturn(simulation.risk.max_drawdown) }}</strong>
+              </div>
+            </article>
+          </section>
+
+          <el-alert
+            v-if="simulation.messages.length"
+            class="suggestion-alert"
+            :title="simulation.messages.join('；')"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+
+          <el-table :data="simulation.positions" border stripe empty-text="暂无模拟持仓">
+            <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+              <template #default="{ row }: { row: SimulationPosition }">
+                <strong>{{ row.stock_name }}</strong>
+                <small class="muted-code">{{ row.stock_code }}</small>
+              </template>
+            </el-table-column>
+            <el-table-column prop="sector_name" label="板块" min-width="120" sortable />
+            <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
+            <el-table-column prop="quantity" label="数量" min-width="100" sortable />
+            <el-table-column label="成本/现价" min-width="130">
+              <template #default="{ row }: { row: SimulationPosition }">
+                {{ formatPrice(row.buy_price) }} / {{ formatPrice(row.current_price) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="市值" min-width="120" sortable prop="market_value">
+              <template #default="{ row }: { row: SimulationPosition }">{{ formatMoney(row.market_value) }}</template>
+            </el-table-column>
+            <el-table-column label="浮盈亏" min-width="130" sortable prop="unrealized_profit">
+              <template #default="{ row }: { row: SimulationPosition }">
+                {{ formatMoney(row.unrealized_profit) }} / {{ formatReturn(row.unrealized_return) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="止损/止盈" min-width="130">
+              <template #default="{ row }: { row: SimulationPosition }">
+                {{ formatPrice(row.stop_loss_price) }} / {{ formatPrice(row.take_profit_price) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="buy_reason" label="买入原因" min-width="240" show-overflow-tooltip />
+          </el-table>
+
+          <el-table :data="simulation.trades" border stripe empty-text="暂无今日模拟交易记录">
+            <el-table-column prop="trade_type" label="方向" width="90" sortable />
+            <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+              <template #default="{ row }: { row: SimulationTrade }">
+                <strong>{{ row.stock_name }}</strong>
+                <small class="muted-code">{{ row.stock_code }}</small>
+              </template>
+            </el-table-column>
+            <el-table-column label="价格/数量" min-width="130">
+              <template #default="{ row }: { row: SimulationTrade }">
+                {{ formatPrice(row.price) }} / {{ row.quantity }}
+              </template>
+            </el-table-column>
+            <el-table-column label="成交金额" min-width="120" sortable prop="amount">
+              <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.amount) }}</template>
+            </el-table-column>
+            <el-table-column label="费用" min-width="110" sortable prop="total_fee">
+              <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.total_fee) }}</template>
+            </el-table-column>
+            <el-table-column label="交易后现金" min-width="130" sortable prop="cash_after">
+              <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.cash_after) }}</template>
+            </el-table-column>
+            <el-table-column label="盈亏" min-width="110" sortable prop="profit_loss">
+              <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.profit_loss) }}</template>
+            </el-table-column>
+            <el-table-column prop="reason" label="原因" min-width="260" show-overflow-tooltip />
+          </el-table>
+
+          <el-table :data="simulation.equity_curve" border stripe empty-text="暂无资金曲线">
+            <el-table-column prop="trade_date" label="日期" min-width="120" sortable />
+            <el-table-column label="总资产" min-width="130" sortable prop="total_assets">
+              <template #default="{ row }: { row: SimulationEquityPoint }">{{ formatMoney(row.total_assets) }}</template>
+            </el-table-column>
+            <el-table-column label="现金" min-width="130" sortable prop="available_cash">
+              <template #default="{ row }: { row: SimulationEquityPoint }">{{ formatMoney(row.available_cash) }}</template>
+            </el-table-column>
+            <el-table-column label="持仓市值" min-width="130" sortable prop="market_value">
+              <template #default="{ row }: { row: SimulationEquityPoint }">{{ formatMoney(row.market_value) }}</template>
+            </el-table-column>
+            <el-table-column label="日收益" min-width="110" sortable prop="daily_return">
+              <template #default="{ row }: { row: SimulationEquityPoint }">{{ formatReturn(row.daily_return) }}</template>
+            </el-table-column>
+            <el-table-column label="最大回撤" min-width="110" sortable prop="max_drawdown">
+              <template #default="{ row }: { row: SimulationEquityPoint }">{{ formatReturn(row.max_drawdown) }}</template>
+            </el-table-column>
+          </el-table>
+        </template>
+        <el-empty v-else description="暂无模拟交易数据，请先运行模拟交易" />
       </section>
 
       <section id="review" class="panel review-panel">

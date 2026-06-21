@@ -69,6 +69,82 @@ describe('App', () => {
           }
         ]
       },
+      '/api/simulation/latest': {
+        as_of_date: '2026-06-19',
+        account: {
+          id: 1,
+          account_name: '默认模拟账户',
+          initial_cash: 1000000,
+          available_cash: 600000,
+          frozen_cash: 0,
+          market_value: 420000,
+          total_assets: 1020000,
+          total_profit: 20000,
+          total_return: 0.02,
+          max_drawdown: 0
+        },
+        positions: [
+          {
+            id: 1,
+            stock_code: '300308',
+            stock_name: '中际旭创',
+            sector_name: '科技风格',
+            strategy_type: '趋势强势',
+            buy_price: 1300,
+            current_price: 1400,
+            quantity: 300,
+            market_value: 420000,
+            cost_amount: 390122,
+            unrealized_profit: 29878,
+            unrealized_return: 0.0766,
+            stop_loss_price: 1299.486,
+            take_profit_price: 1641.456,
+            position_status: '持仓中',
+            buy_reason: '目标交易日价格触达计划买入区间',
+            sell_reason: ''
+          }
+        ],
+        trades: [
+          {
+            id: 1,
+            trade_plan_id: 1,
+            stock_code: '300308',
+            stock_name: '中际旭创',
+            trade_date: '2026-06-19',
+            trade_type: '买入',
+            price: 1300,
+            quantity: 300,
+            amount: 390000,
+            commission: 117,
+            stamp_tax: 0,
+            transfer_fee: 3.9,
+            total_fee: 120.9,
+            net_amount: -390120.9,
+            cash_after: 609879.1,
+            position_ratio_after: 0.39,
+            profit_loss: null,
+            profit_loss_return: null,
+            reason: '目标交易日价格触达计划买入区间'
+          }
+        ],
+        equity_curve: [
+          {
+            trade_date: '2026-06-19',
+            available_cash: 600000,
+            market_value: 420000,
+            total_assets: 1020000,
+            daily_profit: 20000,
+            daily_return: 0.02,
+            max_drawdown: 0
+          }
+        ],
+        risk: {
+          max_drawdown: 0,
+          position_count: 1,
+          position_ratio: 0.4118
+        },
+        messages: []
+      },
       '/api/trade-reviews/latest': {
         review_date: '2026-06-19',
         total_count: 1,
@@ -144,6 +220,10 @@ describe('App', () => {
     expect(wrapper.text()).toContain('今日交易计划')
     expect(wrapper.text()).toContain('中际旭创')
     expect(wrapper.text()).toContain('40%')
+    expect(wrapper.text()).toContain('模拟交易')
+    expect(wrapper.text()).toContain('当前总资产')
+    expect(wrapper.text()).toContain('买入')
+    expect(wrapper.text()).toContain('目标交易日价格触达计划买入区间')
     expect(wrapper.text()).toContain('交易复盘')
     expect(wrapper.text()).toContain('复盘日：2026-06-19')
     expect(wrapper.text()).toContain('当日均收益')

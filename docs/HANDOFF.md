@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」和任务 10「复盘统计」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」和任务 11「模拟交易」。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
 
@@ -134,6 +134,15 @@
   - 新增 `POST /api/trade-reviews/generate` 和 `GET /api/trade-reviews/latest`。
   - 交易复盘页面接入真实复盘 API，展示复盘汇总、策略统计和复盘明细。
   - 缺少目标交易日日线时不伪造收益，复盘记录保留明确原因和备注。
+- 已完成任务 11 模拟交易：
+  - 新增 `simulation_account`、`simulation_position`、`simulation_trade`、`simulation_equity` 四张表和迁移 `0005_simulation_trading_tables`。
+  - 新增 `backend/app/simulation/service.py` 和 `backend/app/simulation/cli.py`，默认模拟账户初始资金为 `1000000`。
+  - 新增 `scripts/run-simulation.sh`、`make run-simulation`。
+  - 新增 `POST /api/simulation/run` 和 `GET /api/simulation/latest`。
+  - 模拟买入只执行计划内且状态为 `已触发` 的股票；涨停、高开过多、低开跌破止损、无止损或无触发价均不买入。
+  - 模拟卖出优先处理止损，跌停时不强行卖出。
+  - 已计入佣金、印花税、过户费，并保留每笔交易原因。
+  - Web 新增“模拟交易”页面，展示账户、持仓、交易记录、资金曲线和回撤。
 
 ## 未完成
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股；任务 6 已在基础过滤中处理缺失日线、ST/退市风险和非 active 股票。
@@ -141,10 +150,21 @@
 - AkShare/Eastmoney 板块接口在本机网络环境下仍断连；任务 5 已采用 TuShare `dc_index` 作为真实可运行路径。
 - `sector_daily.five_day_return` 字段当前保存近 3 日累计涨幅；后续如改为 5 日，应同步迁移字段命名或 API 展示。
 - `amount_change` 当前使用 TuShare `dc_index.total_mv * turnover_rate / 100` 作为成交额代理值；后续若取得板块真实成交额字段，应替换为真实成交额。
-- 工作区存在未跟踪文件 `prd_by_glm.md`，不是本轮任务创建或修改，未纳入提交。
-- 本机本轮重新启动 PostgreSQL 后映射为 `127.0.0.1:5432 -> postgres:5432`；真实验收命令使用了 `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock`。
+- 真实数据库当前 `2026-06-19` 的交易计划仍为 `待触发`，模拟交易不会伪造成交；下一步需要先跑盘中跟踪或补实时/延迟行情触发链路，再进入自动模拟成交。
+- 模拟交易后续可继续完善分批止盈、移动止损、按实时行情轮询和多账户参数化。
+- 工作区存在未提交/未跟踪文件 `.gitignore`、`.git.zip`、`.logs/`，不是本轮任务创建或修改，未纳入提交。
+- 本机本轮 PostgreSQL 映射为 `127.0.0.1:5432 -> postgres:5432`；真实验收命令使用了 `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock`。
 
 ## 本轮验证
+
+- 任务 11 验证：`.venv/bin/pytest`：57 passed，1 个 LibreSSL/urllib3 warning。
+- 任务 11 验证：`cd frontend && npm test -- --run`：1 passed。
+- 任务 11 验证：`cd frontend && npm run build`：通过；Element Plus / chunk size warning 仍存在。
+- 任务 11 验证：`bash -n scripts/run-simulation.sh`：通过。
+- 任务 11 真实数据库验证：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-upgrade.sh` 成功。
+- 任务 11 真实数据库验证：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-current.sh` 输出 `0005_simulation_trading_tables (head)`。
+- 任务 11 真实数据库验证：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/run-simulation.sh --trade-date 2026-06-19` 创建默认模拟账户并生成资金曲线；总资产 `1000000.0`，交易 `0` 笔，持仓 `0`，原因是两条真实计划仍为 `待触发`。
+- 任务 11 API 快验：`GET /api/simulation/latest` 返回 200，`as_of_date=2026-06-19`、`total_assets=1000000.0`、资金曲线 `1` 条。
 
 - `bash -n start.sh scripts/check-dev-environment.sh`：通过。
 - `bash -n scripts/track-trade-plans.sh`：通过。

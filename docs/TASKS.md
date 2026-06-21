@@ -16,6 +16,7 @@
 - [x] 已完成 P0 Web 页面，展示真实市场、板块和交易计划 API 结果
 - [x] 已完成交易计划盘中跟踪、手动状态更新、命令/API/Web 展示
 - [x] 已完成交易复盘生成、最近复盘 API 和 Web 展示
+- [x] 已完成模拟交易账户、买卖撮合、资金曲线、API/CLI/Web 展示
 
 ## 开发原则
 
@@ -379,6 +380,32 @@ TuShare 全市场初始化验证：
 
 验收：模拟交易只执行计划内股票，每笔买卖都有原因，资金曲线和最大回撤可查。
 
+状态：已完成。
+
+已完成：
+
+- 新增模拟交易表和迁移：`simulation_account`、`simulation_position`、`simulation_trade`、`simulation_equity`，迁移版本为 `0005_simulation_trading_tables`。
+- 新增模拟交易服务：`backend/app/simulation/service.py`，默认账户初始资金 `1000000`。
+- 新增模拟交易 CLI：`scripts/run-simulation.sh --trade-date YYYY-MM-DD` / `make run-simulation`。
+- 新增 API：
+  - `POST /api/simulation/run`
+  - `GET /api/simulation/latest`
+- 买入只执行 `target_trade_date` 匹配且状态为 `已触发` 的交易计划；无触发价、无止损、涨停、高开过多、低开跌破止损均不买入。
+- 卖出优先处理持仓止损，跌停时不强行卖出。
+- 手续费已计入佣金 `0.03%`、印花税 `0.05%`、过户费 `0.001%`，佣金最低 `5` 元。
+- Web 新增“模拟交易”页面，展示账户概览、持仓、交易记录和资金曲线。
+
+验证：
+
+- `.venv/bin/pytest`：57 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 Element Plus / chunk size warning。
+- `bash -n scripts/run-simulation.sh`：通过。
+- `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-upgrade.sh`：迁移到 `0005_simulation_trading_tables (head)`。
+- `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/run-simulation.sh --trade-date 2026-06-19`：创建默认模拟账户并生成 `2026-06-19` 权益曲线，总资产 `1000000.0`。
+- 真实数据库当前 `2026-06-19` 两条交易计划仍为 `待触发`，因此模拟交易没有伪造买入，`simulation_trade=0`、持仓为 `0`。
+- 真实 API 快验：`GET /api/simulation/latest` 返回 200，`as_of_date=2026-06-19`、`total_assets=1000000.0`、资金曲线 `1` 条。
+
 ## 下一步
 
-下一次开发进入任务 11：模拟交易。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次开发进入任务 12：完善模拟交易盘中实盘化链路。优先补齐“计划触发后自动模拟成交”的连续流程、分批止盈/移动止损、以及实时或延迟行情轮询。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

@@ -24,6 +24,10 @@ def test_core_mvp_tables_are_declared() -> None:
         "candidate_stock",
         "trade_plan",
         "trade_review",
+        "simulation_account",
+        "simulation_position",
+        "simulation_trade",
+        "simulation_equity",
     }.issubset(metadata.tables.keys())
 
 
@@ -155,3 +159,83 @@ def test_trade_review_has_required_columns_and_plan_date_guard() -> None:
     }.issubset(columns)
     assert ("trade_plan_id", "trade_date") in _unique_columns("trade_review")
     assert ("trade_date",) in _index_columns("trade_review")
+
+
+def test_simulation_tables_have_required_columns_indexes_and_duplicate_guards() -> None:
+    account_columns = set(metadata.tables["simulation_account"].columns.keys())
+    position_columns = set(metadata.tables["simulation_position"].columns.keys())
+    trade_columns = set(metadata.tables["simulation_trade"].columns.keys())
+    equity_columns = set(metadata.tables["simulation_equity"].columns.keys())
+
+    assert {
+        "id",
+        "account_name",
+        "initial_cash",
+        "available_cash",
+        "market_value",
+        "total_assets",
+        "total_profit",
+        "total_return",
+        "max_drawdown",
+    }.issubset(account_columns)
+    assert ("account_name",) in _unique_columns("simulation_account")
+
+    assert {
+        "id",
+        "account_id",
+        "trade_plan_id",
+        "stock_code",
+        "stock_name",
+        "sector_name",
+        "strategy_type",
+        "buy_price",
+        "current_price",
+        "quantity",
+        "market_value",
+        "cost_amount",
+        "unrealized_profit",
+        "unrealized_return",
+        "stop_loss_price",
+        "take_profit_price",
+        "position_status",
+        "buy_reason",
+        "sell_reason",
+    }.issubset(position_columns)
+    assert ("account_id", "trade_plan_id") in _unique_columns("simulation_position")
+    assert ("position_status",) in _index_columns("simulation_position")
+
+    assert {
+        "id",
+        "account_id",
+        "trade_plan_id",
+        "trade_date",
+        "trade_type",
+        "price",
+        "quantity",
+        "amount",
+        "commission",
+        "stamp_tax",
+        "transfer_fee",
+        "total_fee",
+        "net_amount",
+        "cash_after",
+        "position_ratio_after",
+        "profit_loss",
+        "profit_loss_return",
+        "reason",
+    }.issubset(trade_columns)
+    assert ("trade_date",) in _index_columns("simulation_trade")
+
+    assert {
+        "id",
+        "account_id",
+        "trade_date",
+        "available_cash",
+        "market_value",
+        "total_assets",
+        "daily_profit",
+        "daily_return",
+        "max_drawdown",
+    }.issubset(equity_columns)
+    assert ("account_id", "trade_date") in _unique_columns("simulation_equity")
+    assert ("trade_date",) in _index_columns("simulation_equity")
