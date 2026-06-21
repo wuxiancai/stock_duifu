@@ -30,11 +30,15 @@ class SectorRankingResult:
     sector_name: str
     rank_no: int
     daily_return: float
-    three_day_return: float
+    five_day_return: float
     amount_change: float
     limit_up_count: int
     strong_stock_count: int
     sector_score: int
+
+    @property
+    def three_day_return(self) -> float:
+        return self.five_day_return
 
 
 class SectorDataProvider(Protocol):
@@ -62,7 +66,7 @@ def generate_sector_rankings(
                     sector_name=ranking.sector_name,
                     rank_no=ranking.rank_no,
                     daily_return=ranking.daily_return,
-                    five_day_return=ranking.three_day_return,
+                    five_day_return=ranking.five_day_return,
                     amount_change=ranking.amount_change,
                     limit_up_count=ranking.limit_up_count,
                     strong_stock_count=ranking.strong_stock_count,
@@ -89,7 +93,7 @@ def calculate_sector_rankings(
         today = next((record for record in ordered if record.trade_date == trade_date), None)
         if today is None:
             continue
-        recent = [record for record in ordered if record.trade_date <= trade_date][-3:]
+        recent = [record for record in ordered if record.trade_date <= trade_date][-5:]
         previous = [record for record in ordered if record.trade_date < trade_date][-5:]
         previous_amount_avg = (
             sum(record.amount for record in previous) / len(previous)
@@ -104,7 +108,7 @@ def calculate_sector_rankings(
         candidates.append(
             {
                 "record": today,
-                "three_day_return": sum(record.daily_return for record in recent),
+                "five_day_return": sum(record.daily_return for record in recent),
                 "amount_change": amount_change,
                 "limit_up_count": _limit_up_count(session, trade_date, today.member_codes),
                 "strong_stock_count": int(today.up_num),
@@ -119,9 +123,9 @@ def calculate_sector_rankings(
         key=lambda item: item["record"].daily_return,
         size=max(1, ceil(len(candidates) * 0.1)),
     )
-    three_day_winners = _top_codes(
+    five_day_winners = _top_codes(
         candidates,
-        key=lambda item: item["three_day_return"],
+        key=lambda item: item["five_day_return"],
         size=max(1, ceil(len(candidates) * 0.2)),
     )
 
@@ -131,7 +135,7 @@ def calculate_sector_rankings(
         score = 0
         if record.sector_code in daily_winners:
             score += 20
-        if record.sector_code in three_day_winners:
+        if record.sector_code in five_day_winners:
             score += 20
         if item["amount_change"] > 0:
             score += 20
@@ -146,7 +150,7 @@ def calculate_sector_rankings(
         key=lambda pair: (
             pair[0],
             pair[1]["record"].daily_return,
-            pair[1]["three_day_return"],
+            pair[1]["five_day_return"],
             pair[1]["amount_change"],
         ),
         reverse=True,
@@ -158,7 +162,7 @@ def calculate_sector_rankings(
             sector_name=item["record"].sector_name,
             rank_no=index + 1,
             daily_return=item["record"].daily_return,
-            three_day_return=item["three_day_return"],
+            five_day_return=item["five_day_return"],
             amount_change=item["amount_change"],
             limit_up_count=item["limit_up_count"],
             strong_stock_count=item["strong_stock_count"],
@@ -197,7 +201,7 @@ def _load_sector_rankings_for_date(session: Session, trade_date: date) -> Option
                 sector_name=record.sector_name,
                 rank_no=record.rank_no,
                 daily_return=_number(record.daily_return),
-                three_day_return=_number(record.five_day_return),
+                five_day_return=_number(record.five_day_return),
                 amount_change=_number(record.amount_change),
                 limit_up_count=record.limit_up_count,
                 strong_stock_count=record.strong_stock_count,

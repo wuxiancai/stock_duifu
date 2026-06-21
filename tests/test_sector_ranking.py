@@ -26,11 +26,11 @@ class FakeSectorProvider:
     def fetch_sector_window(self, trade_date: date, lookback_days: int = 5) -> list[SectorRawRecord]:
         records: list[SectorRawRecord] = []
         names = ["机器人", "半导体"] + [f"板块{i}" for i in range(3, 13)]
-        base_day = trade_date - timedelta(days=2)
+        base_day = trade_date - timedelta(days=4)
         for idx, name in enumerate(names):
-            for offset in range(3):
+            for offset in range(5):
                 day = base_day + timedelta(days=offset)
-                daily_return = 8 - idx if offset == 2 else 1 + idx / 10
+                daily_return = 8 - idx if offset == 4 else 1 + idx / 10
                 amount = 1000 + idx * 10 + offset * (300 if idx == 0 else 20)
                 up_num = 8 if idx == 0 else max(0, 6 - idx)
                 records.append(
@@ -81,12 +81,14 @@ def test_generate_sector_rankings_scores_top10_and_persists() -> None:
     assert rankings[0].limit_up_count == 2
     assert rankings[0].strong_stock_count == 8
     assert rankings[0].amount_change > 0
+    assert rankings[0].five_day_return == 12.0
 
     with Session(engine) as session:
         saved = session.scalars(select(SectorDaily).order_by(SectorDaily.rank_no)).all()
         assert len(saved) == 10
         assert saved[0].sector_name == "机器人"
         assert saved[0].sector_score == 100
+        assert float(saved[0].five_day_return) == 12.0
 
 
 def test_generate_sector_rankings_is_idempotent_for_same_trade_date() -> None:
@@ -119,6 +121,7 @@ def test_sector_top_api_returns_latest_rankings() -> None:
     assert payload["trade_date"] == "2026-06-18"
     assert payload["items"][0]["sector_name"] == "机器人"
     assert payload["items"][0]["sector_score"] == 100
+    assert payload["items"][0]["five_day_return"] == 12.0
 
 
 def test_prd_sector_strong_api_returns_rankings_by_date() -> None:

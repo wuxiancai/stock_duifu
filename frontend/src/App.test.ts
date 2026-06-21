@@ -35,11 +35,30 @@ describe('App', () => {
             rank_no: 1,
             sector_name: '科技风格',
             daily_return: 2.83,
+            five_day_return: 9.2,
             three_day_return: 8.7,
             amount_change: 1000000000,
             limit_up_count: 3,
             strong_stock_count: 79,
             sector_score: 100
+          }
+        ]
+      },
+      '/api/candidates/latest': {
+        trade_date: '2026-06-18',
+        items: [
+          {
+            stock_code: '300308',
+            stock_name: '中际旭创',
+            sector_name: '科技风格',
+            sector_rank: 7,
+            strategy_type: '趋势强势',
+            stock_score: 100,
+            sector_score: 100,
+            close_price: 1367.88,
+            amount: 18000000000,
+            reason: '板块共振，趋势多头排列，量价健康',
+            risk_note: '趋势票避免高开追涨'
           }
         ]
       },
@@ -254,6 +273,9 @@ describe('App', () => {
     expect(wrapper.text()).toContain('连板高度')
     expect(wrapper.text()).toContain('强势板块')
     expect(wrapper.text()).toContain('科技风格')
+    expect(wrapper.text()).toContain('5日涨幅')
+    expect(wrapper.text()).toContain('候选股票池')
+    expect(wrapper.text()).toContain('板块共振，趋势多头排列，量价健康')
     expect(wrapper.text()).toContain('今日交易计划')
     expect(wrapper.text()).toContain('中际旭创')
     expect(wrapper.text()).toContain('40%')

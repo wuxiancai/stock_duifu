@@ -12,6 +12,7 @@ import {
 } from '@element-plus/icons-vue'
 import { fetchHealth, type HealthResponse } from './api/health'
 import {
+  fetchLatestCandidates,
   fetchLatestSimulation,
   fetchLatestTradePlans,
   fetchLatestTradeReviews,
@@ -21,6 +22,8 @@ import {
   runSimulationWorkflow,
   trackTradePlans,
   updateTradePlanStatus,
+  type CandidateItem,
+  type CandidateLatestResponse,
   type MarketLatestResponse,
   type SectorTopItem,
   type SectorTopResponse,
@@ -40,6 +43,7 @@ import {
 const health = ref<HealthResponse | null>(null)
 const market = ref<MarketLatestResponse | null>(null)
 const sectors = ref<SectorTopResponse | null>(null)
+const candidates = ref<CandidateLatestResponse | null>(null)
 const tradePlans = ref<TradePlansLatestResponse | null>(null)
 const tradeReviews = ref<TradeReviewLatestResponse | null>(null)
 const simulation = ref<SimulationLatestResponse | null>(null)
@@ -48,6 +52,7 @@ const trackingItems = ref<TradePlanTrackingResponse['items']>([])
 const loading = ref(true)
 const error = ref('')
 const sectorKeyword = ref('')
+const selectedSectorName = ref('')
 const planKeyword = ref('')
 const planTrackingLoading = ref(false)
 const simulationLoading = ref(false)
@@ -79,6 +84,15 @@ const filteredSectors = computed(() => {
   if (!keyword) return items
 
   return items.filter((item) => item.sector_name.toLowerCase().includes(keyword))
+})
+
+const filteredCandidates = computed(() => {
+  const sectorName = selectedSectorName.value.trim()
+  const items = candidates.value?.items ?? []
+
+  if (!sectorName) return items
+
+  return items.filter((item) => item.sector_name === sectorName)
 })
 
 const filteredTradePlans = computed(() => {
@@ -127,10 +141,11 @@ async function loadDashboard() {
   error.value = ''
 
   try {
-    const [healthResult, marketResult, sectorsResult, tradePlansResult, tradeReviewsResult, simulationResult] = await Promise.all([
+    const [healthResult, marketResult, sectorsResult, candidatesResult, tradePlansResult, tradeReviewsResult, simulationResult] = await Promise.all([
       fetchHealth(),
       fetchMarketLatest(),
       fetchTopSectors(),
+      fetchLatestCandidates().catch(() => null),
       fetchLatestTradePlans(),
       fetchLatestTradeReviews().catch(() => null),
       fetchLatestSimulation().catch(() => null)
@@ -139,6 +154,7 @@ async function loadDashboard() {
     health.value = healthResult
     market.value = marketResult
     sectors.value = sectorsResult
+    candidates.value = candidatesResult
     tradePlans.value = tradePlansResult
     tradeReviews.value = tradeReviewsResult
     simulation.value = simulationResult
@@ -149,6 +165,17 @@ async function loadDashboard() {
   } finally {
     loading.value = false
   }
+}
+
+function focusSector(sectorName: string) {
+  selectedSectorName.value = sectorName
+  planKeyword.value = sectorName
+  document.querySelector('#candidates')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function clearFocusedSector() {
+  selectedSectorName.value = ''
+  planKeyword.value = ''
 }
 
 async function loadPlanDetail(planId: number | undefined) {
@@ -221,16 +248,36 @@ function exportCsv(filename: string, headers: string[], rows: Array<Array<string
 function exportSectors() {
   exportCsv(
     `top-sectors-${sectors.value?.trade_date ?? 'latest'}.csv`,
-    ['排名', '板块', '今日涨幅', '3日涨幅', '成交额代理变化', '涨停数', '强势股数', '评分'],
+    ['排名', '板块', '今日涨幅', '5日涨幅', '成交额代理变化', '涨停数', '强势股数', '评分'],
     filteredSectors.value.map((item) => [
       item.rank_no,
       item.sector_name,
       item.daily_return,
-      item.three_day_return,
+      item.five_day_return,
       item.amount_change,
       item.limit_up_count,
       item.strong_stock_count,
       item.sector_score
+    ])
+  )
+}
+
+function exportCandidates() {
+  exportCsv(
+    `candidates-${candidates.value?.trade_date ?? 'latest'}${selectedSectorName.value ? `-${selectedSectorName.value}` : ''}.csv`,
+    ['股票代码', '股票名称', '板块', '板块排名', '策略', '个股评分', '板块评分', '收盘价', '成交额', '入选理由', '风险提示'],
+    filteredCandidates.value.map((item) => [
+      item.stock_code,
+      item.stock_name,
+      item.sector_name,
+      item.sector_rank,
+      item.strategy_type,
+      item.stock_score,
+      item.sector_score,
+      item.close_price,
+      item.amount,
+      item.reason,
+      item.risk_note
     ])
   )
 }
@@ -389,6 +436,10 @@ onMounted(async () => {
           <el-icon><TrendCharts /></el-icon>
           <span>强势板块</span>
         </a>
+        <a class="nav-item" href="#candidates">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>候选股票</span>
+        </a>
         <a class="nav-item" href="#plans">
           <el-icon><Finished /></el-icon>
           <span>交易计划</span>
@@ -515,12 +566,16 @@ onMounted(async () => {
               <el-tag :type="row.rank_no <= 3 ? 'success' : 'info'">{{ row.rank_no }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="sector_name" label="板块" min-width="150" sortable />
+          <el-table-column prop="sector_name" label="板块" min-width="150" sortable>
+            <template #default="{ row }: { row: SectorTopItem }">
+              <el-button link type="primary" @click="focusSector(row.sector_name)">{{ row.sector_name }}</el-button>
+            </template>
+          </el-table-column>
           <el-table-column prop="daily_return" label="今日涨幅" min-width="120" sortable>
             <template #default="{ row }: { row: SectorTopItem }">{{ formatPercent(row.daily_return) }}</template>
           </el-table-column>
-          <el-table-column prop="three_day_return" label="3日涨幅" min-width="120" sortable>
-            <template #default="{ row }: { row: SectorTopItem }">{{ formatPercent(row.three_day_return) }}</template>
+          <el-table-column prop="five_day_return" label="5日涨幅" min-width="120" sortable>
+            <template #default="{ row }: { row: SectorTopItem }">{{ formatPercent(row.five_day_return) }}</template>
           </el-table-column>
           <el-table-column prop="amount_change" label="成交额代理" min-width="140" sortable>
             <template #default="{ row }: { row: SectorTopItem }">{{ formatLargeAmount(row.amount_change) }}</template>
@@ -528,6 +583,44 @@ onMounted(async () => {
           <el-table-column prop="limit_up_count" label="涨停" min-width="90" sortable />
           <el-table-column prop="strong_stock_count" label="强势股" min-width="100" sortable />
           <el-table-column prop="sector_score" label="评分" min-width="90" sortable />
+        </el-table>
+      </section>
+
+      <section id="candidates" class="panel">
+        <div class="section-heading table-heading">
+          <div>
+            <h2>候选股票池</h2>
+            <p>
+              交易日：{{ candidates?.trade_date ?? '-' }}，{{ selectedSectorName ? `当前板块：${selectedSectorName}` : '展示全部候选' }}
+            </p>
+          </div>
+          <div class="table-tools">
+            <el-button v-if="selectedSectorName" @click="clearFocusedSector">清除板块筛选</el-button>
+            <el-button :icon="Download" :disabled="!filteredCandidates.length" @click="exportCandidates">导出候选</el-button>
+          </div>
+        </div>
+
+        <el-table :data="filteredCandidates" border stripe empty-text="暂无候选股票数据">
+          <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+            <template #default="{ row }: { row: CandidateItem }">
+              <strong>{{ row.stock_name }}</strong>
+              <small class="muted-code">{{ row.stock_code }}</small>
+            </template>
+          </el-table-column>
+          <el-table-column prop="sector_name" label="板块" min-width="130" sortable />
+          <el-table-column prop="sector_rank" label="板块排名" min-width="110" sortable />
+          <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
+          <el-table-column label="评分" min-width="110" sortable prop="stock_score">
+            <template #default="{ row }: { row: CandidateItem }">{{ row.stock_score }} / {{ row.sector_score }}</template>
+          </el-table-column>
+          <el-table-column label="收盘价" min-width="110" sortable prop="close_price">
+            <template #default="{ row }: { row: CandidateItem }">{{ formatPrice(row.close_price) }}</template>
+          </el-table-column>
+          <el-table-column label="成交额" min-width="130" sortable prop="amount">
+            <template #default="{ row }: { row: CandidateItem }">{{ formatLargeAmount(row.amount) }}</template>
+          </el-table-column>
+          <el-table-column prop="reason" label="入选理由" min-width="300" show-overflow-tooltip />
+          <el-table-column prop="risk_note" label="风险提示" min-width="260" show-overflow-tooltip />
         </el-table>
       </section>
 

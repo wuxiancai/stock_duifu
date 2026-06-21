@@ -44,6 +44,7 @@ export interface SectorTopItem {
   rank_no: number
   sector_name: string
   daily_return: number
+  five_day_return: number
   three_day_return: number
   amount_change: number
   limit_up_count: number
@@ -77,6 +78,25 @@ export interface TradePlanItem {
   tracking_note: string
   is_watched: boolean
   risk_note: string
+}
+
+export interface CandidateItem {
+  stock_code: string
+  stock_name: string
+  sector_name: string
+  sector_rank: number
+  strategy_type: string
+  stock_score: number
+  sector_score: number
+  close_price: number
+  amount: number
+  reason: string
+  risk_note: string
+}
+
+export interface CandidateLatestResponse {
+  trade_date: string
+  items: CandidateItem[]
 }
 
 export interface TradePlanDetail extends TradePlanItem {
@@ -249,6 +269,10 @@ export function fetchMarketLatest(): Promise<MarketLatestResponse> {
 
 export function fetchTopSectors(): Promise<SectorTopResponse> {
   return fetchJson<SectorTopResponse>('/api/sectors/top')
+}
+
+export function fetchLatestCandidates(): Promise<CandidateLatestResponse> {
+  return fetchJson<CandidateLatestResponse>('/api/candidates/latest')
 }
 
 export function fetchLatestTradePlans(): Promise<TradePlansLatestResponse> {

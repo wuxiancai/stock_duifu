@@ -26,6 +26,7 @@
 - [x] 已完成 PRD MVP 盘后工作流入口：按顺序执行采集、市场、板块、候选和交易计划生成
 - [x] 已补齐 PRD 第 17 章任务映射：扩展模块 / 模拟交易模块逐小节状态和缺口
 - [x] 已补齐 PRD 市场环境遗漏项：连板高度结构化、评分加分、入库、API 和 Web 展示
+- [x] 已补齐 PRD 强势板块和候选股票页面遗漏项：真实 5 日涨幅、板块点击筛选候选、候选股票池展示和导出
 
 ## 开发原则
 
@@ -205,7 +206,7 @@ TuShare 全市场初始化验证：
 说明：
 
 - `amount_change` 当前使用 TuShare `dc_index.total_mv * turnover_rate / 100` 作为成交额代理值，后续若取得板块真实成交额字段，应替换为真实成交额。
-- `sector_daily.five_day_return` 字段当前保存近 3 日累计涨幅；后续如改为 5 日，应同步迁移字段命名或 API 展示。
+- `sector_daily.five_day_return` 字段当前保存真实 5 日累计涨幅；API 继续兼容返回 `three_day_return`，前端展示以 5 日涨幅为准。
 
 ### 6. 候选股票筛选
 
@@ -642,6 +643,27 @@ TuShare 全市场初始化验证：
 - `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-upgrade.sh`：已升级到 `0007_market_limit_up_height (head)`。
 - `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/generate-market-environment.sh --trade-date 2026-06-18`：真实库重算返回 `limit_up_height=4`、`market_score=70`、`market_status=中性`。
 - 后续全量验证见本轮交接文档。
+
+### 19. PRD MVP 强势板块和候选股票页面补口
+
+- 强势板块评分从近 3 日累计改为真实近 5 日累计，并写入 `sector_daily.five_day_return`。
+- `GET /api/sectors/top` 和 `GET /api/sectors/strong` 新增 `five_day_return`，同时保留 `three_day_return` 兼容旧前端或脚本。
+- 强势板块页面展示“5日涨幅”，CSV 导出同步改为 5 日口径。
+- Web 新增“候选股票池”页面区块，接入 `GET /api/candidates/latest`，展示股票、板块、板块排名、策略、评分、收盘价、成交额、入选理由和风险提示。
+- 点击强势板块名称会筛选对应板块候选股票，并同步筛选今日交易计划。
+- 候选股票池支持按当前板块导出 CSV。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_sector_ranking.py`：4 passed。
+- `cd frontend && npm test -- --run`：1 passed。
+- `.venv/bin/pytest`：90 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 真实库刷新：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5433/stock bash scripts/generate-sector-ranking.sh --trade-date 2026-06-18 --member-fetch-limit 80` 成功；`科技风格 five_day_return=14.00`。
+- 浏览器运行态快验：`http://127.0.0.1:5173/` 展示 `5日涨幅` 和 `候选股票池`，刷新后可见 `13.56%`、`14.00%` 等 5 日口径数据，无 `数据异常`。
+- 浏览器交互快验：点击强势板块 `科技风格` 后，候选股票池显示 `当前板块：科技风格`，交易计划筛选框同步为 `科技风格`。
 
 ## 下一步
 
