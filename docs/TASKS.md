@@ -36,6 +36,7 @@
 - [x] 已修复 start.sh API 端口误判：端口检测改为真实 bind 探测，8000 被占用时会选择 8001
 - [x] 已修复 Ubuntu 前端 API 访问口径：浏览器固定走同源 `/api`，由 Vite 代理到实际 API 端口，并提示局域网防火墙放通 Web 端口
 - [x] 已修复 `.env` 残留 `VITE_API_BASE_URL` 污染前端：`start.sh` 启动前端时强制清空浏览器端绝对 API 地址
+- [x] 已修复启动脚本端口事实源不一致：`start.sh` 选定 PostgreSQL/API/Web 端口后写回 `.env`
 
 ## 开发原则
 
@@ -852,3 +853,22 @@ TuShare 全市场初始化验证：
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 - `.venv/bin/pytest`：98 passed，1 个 LibreSSL/urllib3 warning。
 - 真实启动验证：显式带入 `VITE_API_BASE_URL=http://127.0.0.1:8000` 且占住 `8000` 后运行 `bash start.sh`，脚本选择 API `8001`；`curl http://127.0.0.1:5173/src/api/dashboard.ts` 的转换结果不含 `127.0.0.1:8000`，`curl http://127.0.0.1:5173/api/health` 通过代理返回 API 健康检查 JSON。
+
+### 29. start.sh 运行端口写回 `.env`
+
+- `start.sh` 会在 PostgreSQL、API、Web 都启动并通过健康检查后，把运行事实写回 `.env`。
+- 写回字段包括：`POSTGRES_HOST_PORT`、`DATABASE_URL`、`API_HOST`、`API_PORT`、`WEB_HOST`、`WEB_PORT`。
+- `start.sh` 会删除 `.env` 中的 `VITE_API_BASE_URL`，避免浏览器端继续使用固定 `127.0.0.1:8000`。
+- `API_BASE_PORT` / `WEB_BASE_PORT` 现在会分别优先继承 `.env` 的 `API_PORT` / `WEB_PORT`，所以下一次启动会从上一次实际端口开始探测。
+- `deploy_ubuntu.sh` 和 `start.sh` 的端口事实源统一为 `.env`，脚本自动顺延后的端口不会再和 `.env` 里的固定旧端口长期不一致。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_deployment_scripts.py`：8 passed。
+- `bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- `.venv/bin/pytest`：98 passed，1 个 LibreSSL/urllib3 warning。
+- 真实启动验证：占住 `127.0.0.1:8000` 且 `.env` 初始写 `API_PORT=8000` 后运行 `bash start.sh`，脚本选择 `API_PORT=8001`；API 和前端都 ready 后，把 `API_PORT=8001`、实际 `WEB_PORT`、`POSTGRES_HOST_PORT`、`DATABASE_URL` 写回 `.env`，同时删除 `VITE_API_BASE_URL`。

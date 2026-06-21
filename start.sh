@@ -13,10 +13,10 @@ fi
 
 CONFIGURED_POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-}"
 POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-${POSTGRES_HOST_PORT:-15432}}"
-API_BASE_PORT="${API_BASE_PORT:-8000}"
-WEB_BASE_PORT="${WEB_BASE_PORT:-5173}"
-API_LISTEN_HOST="${API_LISTEN_HOST:-0.0.0.0}"
-WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-0.0.0.0}"
+API_BASE_PORT="${API_BASE_PORT:-${API_PORT:-8000}}"
+WEB_BASE_PORT="${WEB_BASE_PORT:-${WEB_PORT:-5173}}"
+API_LISTEN_HOST="${API_LISTEN_HOST:-${API_HOST:-0.0.0.0}}"
+WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-${WEB_HOST:-0.0.0.0}}"
 HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"
 DB_HOST="${DB_HOST:-127.0.0.1}"
 LOG_DIR="$ROOT_DIR/.logs"
@@ -25,6 +25,56 @@ WEB_PID=""
 
 info() {
   printf '[stock-start] %s\n' "$*"
+}
+
+upsert_env_key() {
+  local key="$1"
+  local value="$2"
+  local file=".env"
+  local tmp_file
+
+  tmp_file="$(mktemp)"
+  if [ -f "$file" ]; then
+    awk -v key="$key" -v replacement="$key=$value" '
+      BEGIN { done = 0 }
+      $0 ~ "^" key "=" {
+        print replacement
+        done = 1
+        next
+      }
+      { print }
+      END {
+        if (!done) {
+          print replacement
+        }
+      }
+    ' "$file" >"$tmp_file"
+  else
+    printf '%s=%s\n' "$key" "$value" >"$tmp_file"
+  fi
+  mv "$tmp_file" "$file"
+}
+
+remove_env_key() {
+  local key="$1"
+  local file=".env"
+  local tmp_file
+
+  [ -f "$file" ] || return 0
+  tmp_file="$(mktemp)"
+  awk -v key="$key" '$0 !~ "^" key "=" { print }' "$file" >"$tmp_file"
+  mv "$tmp_file" "$file"
+}
+
+sync_runtime_env() {
+  upsert_env_key "POSTGRES_HOST_PORT" "$POSTGRES_HOST_PORT"
+  upsert_env_key "DATABASE_URL" "$DATABASE_URL"
+  upsert_env_key "API_HOST" "$API_LISTEN_HOST"
+  upsert_env_key "API_PORT" "$API_PORT"
+  upsert_env_key "WEB_HOST" "$WEB_LISTEN_HOST"
+  upsert_env_key "WEB_PORT" "$WEB_PORT"
+  remove_env_key "VITE_API_BASE_URL"
+  info "synced selected ports to .env: api=$API_PORT, web=$WEB_PORT, postgres=$POSTGRES_HOST_PORT"
 }
 
 is_port_available() {
@@ -174,6 +224,7 @@ info "starting frontend on $WEB_LISTEN_HOST:$WEB_PORT, log: $LOG_DIR/web.log"
 (cd frontend && VITE_API_BASE_URL="" VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" npm run dev -- --host "$WEB_LISTEN_HOST" --port "$WEB_PORT") >"$LOG_DIR/web.log" 2>&1 &
 WEB_PID="$!"
 wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend" "$WEB_PID" "$LOG_DIR/web.log"
+sync_runtime_env
 
 cat <<EOF
 

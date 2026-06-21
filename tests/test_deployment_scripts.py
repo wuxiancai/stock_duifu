@@ -190,11 +190,21 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
 
     assert "CONFIGURED_POSTGRES_HOST_PORT=\"${POSTGRES_HOST_PORT:-}\"" in script
     assert 'POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-${POSTGRES_HOST_PORT:-15432}}"' in script
-    assert 'API_LISTEN_HOST="${API_LISTEN_HOST:-0.0.0.0}"' in script
-    assert 'WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-0.0.0.0}"' in script
+    assert 'API_BASE_PORT="${API_BASE_PORT:-${API_PORT:-8000}}"' in script
+    assert 'WEB_BASE_PORT="${WEB_BASE_PORT:-${WEB_PORT:-5173}}"' in script
+    assert 'API_LISTEN_HOST="${API_LISTEN_HOST:-${API_HOST:-0.0.0.0}}"' in script
+    assert 'WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-${WEB_HOST:-0.0.0.0}}"' in script
     assert 'HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"' in script
     assert 'VITE_DEV_API_PROXY_TARGET="http://$HEALTHCHECK_HOST:$API_PORT"' in script
     assert 'VITE_API_BASE_URL="" VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" npm run dev' in script
+    assert 'sync_runtime_env' in script
+    assert 'upsert_env_key "POSTGRES_HOST_PORT" "$POSTGRES_HOST_PORT"' in script
+    assert 'upsert_env_key "DATABASE_URL" "$DATABASE_URL"' in script
+    assert 'upsert_env_key "API_PORT" "$API_PORT"' in script
+    assert 'upsert_env_key "WEB_PORT" "$WEB_PORT"' in script
+    assert 'remove_env_key "VITE_API_BASE_URL"' in script
+    assert 'synced selected ports to .env' in script
+    assert script.index('wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend"') < script.index("sync_runtime_env\n\ncat <<EOF")
     assert "API proxy:      /api -> $VITE_DEV_API_PROXY_TARGET" in script
     assert "sudo ufw allow $WEB_PORT/tcp" in script
     assert "API_RELOAD=0" in script
