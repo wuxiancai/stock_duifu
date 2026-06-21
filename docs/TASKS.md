@@ -32,6 +32,7 @@
 - [x] 已修复部署 PostgreSQL 端口占用：`deploy_ubuntu.sh` 会顺延宿主机端口并写回 `.env`
 - [x] 已修复部署迁移连错旧端口：旧本地 `DATABASE_URL` 会按 Docker 实际端口重写
 - [x] 已避开系统 PostgreSQL 默认端口：部署默认从 `15432` 启动项目 PostgreSQL
+- [x] 已优化 Ubuntu 启动脚本：`start.sh` 生产启动 API 不使用 reload，失败时直接打印日志尾部
 
 ## 开发原则
 
@@ -777,3 +778,20 @@ TuShare 全市场初始化验证：
 - `STOCK_DEPLOY_DRY_RUN=1 FORCE_INSTALL=1 TUSHARE_TOKEN=token-for-dry-run bash deploy_ubuntu.sh`：输出 `selected PostgreSQL host port: 15432`，并以 `POSTGRES_HOST_PORT=15432 docker compose up -d postgres` 启动。
 - `.venv/bin/pytest tests/test_deployment_scripts.py`：7 passed。
 - `bash -n deploy_ubuntu.sh get_data.sh start.sh scripts/dev-web.sh`：通过。
+
+### 25. Ubuntu 启动脚本诊断与 API 非 reload 启动
+
+- `scripts/dev-api.sh` 支持 `API_RELOAD=0`，用于 Ubuntu 启动时关闭 `uvicorn --reload`。
+- `start.sh` 启动 API 时显式设置 `API_RELOAD=0`，避免部署环境下 reload 派生进程或文件监听导致健康检查长时间不通过。
+- `start.sh` 每次启动前清空 `.logs/api.log` 和 `.logs/web.log`，避免旧日志混淆。
+- API 或前端进程提前退出时，`start.sh` 会直接在终端打印对应日志最后 80 行。
+- API 或前端健康检查超时时，`start.sh` 也会直接打印对应日志最后 80 行。
+
+状态：已完成。
+
+验证：
+
+- `bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
+- `.venv/bin/pytest tests/test_deployment_scripts.py`：7 passed。
+- `.venv/bin/pytest`：97 passed，1 个 LibreSSL/urllib3 warning。
+- 本地真实启动：`bash start.sh` 已走到 `API is ready` 和 `Frontend is ready`，随后手动 Ctrl-C 停止前端/API。

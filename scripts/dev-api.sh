@@ -11,6 +11,10 @@ fi
 
 HOST="${API_HOST:-127.0.0.1}"
 PORT="${API_PORT:-8000}"
+RELOAD="${API_RELOAD:-1}"
 
-exec .venv/bin/uvicorn backend.app.main:app --host "$HOST" --port "$PORT" --reload
+if [ "$RELOAD" = "1" ]; then
+  exec .venv/bin/uvicorn backend.app.main:app --host "$HOST" --port "$PORT" --reload
+fi
 
+exec .venv/bin/uvicorn backend.app.main:app --host "$HOST" --port "$PORT"

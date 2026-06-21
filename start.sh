@@ -58,15 +58,27 @@ next_available_port() {
 wait_for_url() {
   local url="$1"
   local name="$2"
+  local pid="${3:-}"
+  local log_file="${4:-}"
   local i
   for i in $(seq 1 60); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       info "$name is ready: $url"
       return 0
     fi
+    if [ -n "$pid" ] && ! kill -0 "$pid" >/dev/null 2>&1; then
+      echo "$name process exited before becoming ready. Check log: $log_file" >&2
+      if [ -n "$log_file" ] && [ -f "$log_file" ]; then
+        tail -n 80 "$log_file" >&2
+      fi
+      return 1
+    fi
     sleep 1
   done
   echo "$name did not become ready in time. Check logs in $LOG_DIR" >&2
+  if [ -n "$log_file" ] && [ -f "$log_file" ]; then
+    tail -n 80 "$log_file" >&2
+  fi
   return 1
 }
 
@@ -144,6 +156,8 @@ DATABASE_URL="postgresql+psycopg://stock:stock@$DB_HOST:$POSTGRES_HOST_PORT/stoc
 VITE_API_BASE_URL="http://$PUBLIC_HOST:$API_PORT"
 
 mkdir -p "$LOG_DIR"
+: >"$LOG_DIR/api.log"
+: >"$LOG_DIR/web.log"
 
 info "starting PostgreSQL container: host $DB_HOST:$POSTGRES_HOST_PORT -> container postgres:5432"
 POSTGRES_HOST_PORT="$POSTGRES_HOST_PORT" docker compose up -d postgres
@@ -153,14 +167,14 @@ info "running database migrations"
 DATABASE_URL="$DATABASE_URL" scripts/db-upgrade.sh
 
 info "starting API on $API_LISTEN_HOST:$API_PORT, log: $LOG_DIR/api.log"
-API_HOST="$API_LISTEN_HOST" API_PORT="$API_PORT" DATABASE_URL="$DATABASE_URL" scripts/dev-api.sh >"$LOG_DIR/api.log" 2>&1 &
+API_HOST="$API_LISTEN_HOST" API_PORT="$API_PORT" API_RELOAD=0 DATABASE_URL="$DATABASE_URL" scripts/dev-api.sh >"$LOG_DIR/api.log" 2>&1 &
 API_PID="$!"
-wait_for_url "http://$HEALTHCHECK_HOST:$API_PORT/api/health" "API"
+wait_for_url "http://$HEALTHCHECK_HOST:$API_PORT/api/health" "API" "$API_PID" "$LOG_DIR/api.log"
 
 info "starting frontend on $WEB_LISTEN_HOST:$WEB_PORT, log: $LOG_DIR/web.log"
 (cd frontend && VITE_API_BASE_URL="$VITE_API_BASE_URL" npm run dev -- --host "$WEB_LISTEN_HOST" --port "$WEB_PORT") >"$LOG_DIR/web.log" 2>&1 &
 WEB_PID="$!"
-wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend"
+wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend" "$WEB_PID" "$LOG_DIR/web.log"
 
 cat <<EOF
 

@@ -189,3 +189,5 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
     assert 'WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-0.0.0.0}"' in script
     assert 'HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"' in script
     assert "VITE_API_BASE_URL=\"http://$PUBLIC_HOST:$API_PORT\"" in script
+    assert "API_RELOAD=0" in script
+    assert 'tail -n 80 "$log_file"' in script
