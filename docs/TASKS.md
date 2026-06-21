@@ -19,6 +19,7 @@
 - [x] 已完成模拟交易账户、买卖撮合、资金曲线、API/CLI/Web 展示
 - [x] 已完成模拟交易盘中实盘化基础链路：先跟踪计划触发，再自动运行模拟交易
 - [x] 已完成任务 13 第一阶段：按目标交易日交易计划回补真实个股日线，并识别目标日闭市
+- [x] 已完成任务 13 第二阶段：闭市目标日交易计划自动顺延/重生成到下一开市日
 
 ## 开发原则
 
@@ -447,7 +448,7 @@ TuShare 全市场初始化验证：
 
 验收：目标日有真实日线时可进入后续跟踪和模拟；目标日闭市或数据源未返回日线时必须明确说明，不伪造成交。
 
-状态：第一阶段已完成；后续仍需补闭市目标日自动顺延/重生成、延迟实时行情、分批止盈、移动止损和交易时段轮询。
+状态：第二阶段已完成；后续仍需补延迟实时行情、分批止盈、移动止损和交易时段轮询。
 
 已完成：
 
@@ -456,6 +457,10 @@ TuShare 全市场初始化验证：
 - 新增脚本和 Makefile 入口：`scripts/backfill-target-daily.sh` / `make backfill-target-daily`。
 - 回补结果新增 `target_is_open`，用于区分“数据源缺日线”和“目标日不是开市日”。
 - `track_trade_plans` 在目标日闭市且无日线时输出闭市备注，保持不触发、不模拟买入。
+- 新增服务：`retarget_closed_trade_plans(engine, target_trade_date, limit=None)`。
+- 新增 CLI：`python -m backend.app.trade.cli retarget-closed --target-trade-date YYYY-MM-DD`。
+- 新增脚本和 Makefile 入口：`scripts/retarget-closed-trade-plans.sh` / `make retarget-closed-trade-plans`。
+- 闭市目标日会把旧计划标记为 `取消` 并写入顺延备注，再用原计划日重新生成到目标日之后的下一开市日；缺少下一开市日历时会明确提示先采集更晚交易日历。
 
 验证：
 
@@ -467,7 +472,14 @@ TuShare 全市场初始化验证：
 - 真实 PostgreSQL：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-current.sh` 输出 `0005_simulation_trading_tables (head)`。
 - 真实回补：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/backfill-target-daily.sh --provider tushare --target-trade-date 2026-06-19` 返回 `planned_stock_count=2`、`requested_stock_count=2`、`fetched_stock_daily_rows=0`、`missing_stock_codes=["300308", "603986"]`、`target_is_open=false`。
 - 真实 workflow：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/run-simulation.sh run-workflow --trade-date 2026-06-19` 返回 `tracking=2`、总资产 `1000000.0`、交易 `0` 笔；两只计划股保持 `待触发`，备注为目标日不是开市日。
+- 第二阶段验证：`.venv/bin/pytest`：68 passed，1 个 LibreSSL/urllib3 warning。
+- 第二阶段验证：`cd frontend && npm test -- --run`：1 passed。
+- 第二阶段验证：`cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 第二阶段脚本验证：`bash -n scripts/retarget-closed-trade-plans.sh scripts/backfill-target-daily.sh scripts/ingest-market-data.sh scripts/run-simulation.sh`：通过。
+- 第二阶段真实日历补充：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-22 --stock-code 300308 --stock-code 603986` 返回 `trading_calendar_rows=173`、`stock_daily_rows=0`。
+- 第二阶段真实顺延：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/retarget-closed-trade-plans.sh --target-trade-date 2026-06-19` 返回 `target_is_open=false`、`new_target_trade_date=2026-06-22`、`closed_plan_count=2`、`generated_plan_count=2`。
+- 第二阶段真实库确认：`2026-06-19` 两条计划状态为 `取消` 且备注为已重新生成到 `2026-06-22`；`2026-06-22` 两条计划状态为 `待触发`。
 
 ## 下一步
 
-下一次继续任务 13 第二阶段：当交易计划目标日被真实日历确认非开市时，自动顺延或重新生成到下一开市日；随后接入延迟实时行情，让开市目标日计划可基于真实数据触发并进入模拟成交。再往后完善分批止盈、移动止损和交易时段轮询。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次继续任务 13 第三阶段：接入延迟实时行情或更及时的目标日行情，让 `2026-06-22` 这类开市目标日计划可基于真实数据触发并进入模拟成交。再往后完善分批止盈、移动止损和交易时段轮询。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

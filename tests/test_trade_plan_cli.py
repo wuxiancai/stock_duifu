@@ -2,6 +2,7 @@ from datetime import date
 from types import SimpleNamespace
 
 from backend.app.trade.cli import main as cli_main
+from backend.app.trade.service import TradePlanRetargetResult
 
 
 def test_trade_plan_cli_generates_json_summary(monkeypatch, capsys) -> None:
@@ -92,3 +93,39 @@ def test_trade_plan_cli_tracks_trade_plans(monkeypatch, capsys) -> None:
 
     assert calls == [("engine", date(2026, 6, 19), True)]
     assert '"status": "已触发"' in capsys.readouterr().out
+
+
+def test_trade_plan_cli_retargets_closed_trade_plans(monkeypatch, capsys) -> None:
+    calls = []
+
+    def fake_retarget_closed_trade_plans(engine, target_trade_date, limit=None):
+        calls.append((engine, target_trade_date, limit))
+        return TradePlanRetargetResult(
+            old_target_trade_date=target_trade_date,
+            target_is_open=False,
+            new_target_trade_date=date(2026, 6, 22),
+            plan_dates=[date(2026, 6, 18)],
+            closed_plan_count=2,
+            generated_plan_count=2,
+            skipped_reason="",
+            items=[],
+        )
+
+    monkeypatch.setattr("backend.app.trade.cli.create_database_engine", lambda: "engine")
+    monkeypatch.setattr("backend.app.trade.cli.retarget_closed_trade_plans", fake_retarget_closed_trade_plans)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "trade",
+            "retarget-closed",
+            "--target-trade-date",
+            "2026-06-19",
+            "--limit",
+            "2",
+        ],
+    )
+
+    cli_main()
+
+    assert calls == [("engine", date(2026, 6, 19), 2)]
+    assert '"new_target_trade_date": "2026-06-22"' in capsys.readouterr().out

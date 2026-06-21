@@ -5,7 +5,12 @@ from datetime import date
 from typing import Optional
 
 from backend.app.db.session import create_database_engine
-from backend.app.trade.service import generate_trade_plans, generate_trade_reviews, track_trade_plans
+from backend.app.trade.service import (
+    generate_trade_plans,
+    generate_trade_reviews,
+    retarget_closed_trade_plans,
+    track_trade_plans,
+)
 
 
 def parse_date(value: Optional[str]) -> Optional[date]:
@@ -30,6 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Mark still-untriggered plans as 未触发 after close",
     )
+
+    retarget = subparsers.add_parser("retarget-closed", help="Retarget plans whose target date is closed")
+    retarget.add_argument("--target-trade-date", required=True, help="Closed target trade date in YYYY-MM-DD format")
+    retarget.add_argument("--limit", type=int)
 
     review = subparsers.add_parser("review", help="Generate and store trade reviews")
     review.add_argument("--trade-date", help="Trade date in YYYY-MM-DD format")
@@ -59,6 +68,15 @@ def main() -> None:
             mark_untriggered_at_close=args.mark_untriggered_at_close,
         )
         print(json.dumps([item.__dict__ for item in results], ensure_ascii=False, default=str, sort_keys=True))
+        return
+
+    if args.command == "retarget-closed":
+        result = retarget_closed_trade_plans(
+            create_database_engine(),
+            parse_date(args.target_trade_date),
+            limit=args.limit,
+        )
+        print(json.dumps(asdict(result), ensure_ascii=False, default=str, sort_keys=True))
         return
 
     if args.command == "review":

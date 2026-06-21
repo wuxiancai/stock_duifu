@@ -7,7 +7,12 @@ from sqlalchemy.pool import StaticPool
 
 from backend.app.db.models import CandidateStock, MarketDaily, StockDaily, TradePlan, TradeReview, TradingCalendar, metadata
 from backend.app.main import create_app
-from backend.app.trade.service import generate_trade_plans, generate_trade_reviews, track_trade_plans
+from backend.app.trade.service import (
+    generate_trade_plans,
+    generate_trade_reviews,
+    retarget_closed_trade_plans,
+    track_trade_plans,
+)
 
 
 def _engine():
@@ -246,6 +251,53 @@ def test_track_trade_plans_reports_closed_target_date_without_daily_data() -> No
     assert len(results) == 2
     assert all(item.status == "待触发" for item in results)
     assert all("不是开市日" in item.tracking_note for item in results)
+
+
+def test_retarget_closed_trade_plans_cancels_closed_target_and_generates_next_open_target() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        closed = session.scalar(select(TradingCalendar).where(TradingCalendar.trade_date == date(2026, 6, 19)))
+        closed.is_open = False
+        session.add(TradingCalendar(trade_date=date(2026, 6, 20), is_open=False, source="unit-test"))
+        session.add(TradingCalendar(trade_date=date(2026, 6, 22), is_open=True, source="unit-test"))
+        session.commit()
+
+    result = retarget_closed_trade_plans(engine, date(2026, 6, 19))
+
+    assert result.target_is_open is False
+    assert result.new_target_trade_date == date(2026, 6, 22)
+    assert result.plan_dates == [plan_date]
+    assert result.closed_plan_count == 2
+    assert result.generated_plan_count == 2
+    assert {item.stock_code for item in result.items} == {"000001", "000002"}
+    assert all(item.target_trade_date == date(2026, 6, 22) for item in result.items)
+
+    with Session(engine) as session:
+        old_plans = session.scalars(select(TradePlan).where(TradePlan.target_trade_date == date(2026, 6, 19))).all()
+        new_plans = session.scalars(select(TradePlan).where(TradePlan.target_trade_date == date(2026, 6, 22))).all()
+        assert len(old_plans) == 2
+        assert len(new_plans) == 2
+        assert all(plan.status == "取消" for plan in old_plans)
+        assert all("2026-06-22" in plan.tracking_note for plan in old_plans)
+        assert all(plan.status == "待触发" for plan in new_plans)
+
+
+def test_retarget_closed_trade_plans_skips_open_target_date() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+
+    result = retarget_closed_trade_plans(engine, date(2026, 6, 19))
+
+    assert result.target_is_open is True
+    assert result.new_target_trade_date is None
+    assert result.generated_plan_count == 0
+    assert result.skipped_reason == "目标交易日是开市日，无需顺延"
+    with Session(engine) as session:
+        assert session.query(TradePlan).count() == 2
+        assert all(plan.status == "待触发" for plan in session.scalars(select(TradePlan)).all())
 
 
 def test_trade_plan_status_api_updates_manual_status_and_note() -> None:

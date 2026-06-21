@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」和任务 13 第一阶段「真实目标交易日日线回补入口」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」和任务 13 第二阶段「闭市目标日计划顺延/重生成」。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
 
@@ -155,6 +155,12 @@
   - 新增 `scripts/backfill-target-daily.sh` 和 `make backfill-target-daily`。
   - 回补结果输出 `planned_stock_count`、`existing_stock_count`、`requested_stock_count`、`fetched_stock_daily_rows`、`missing_stock_codes` 和 `target_is_open`。
   - `track_trade_plans` 在目标日明确非开市且无日线时写入闭市备注，不伪造成交。
+- 已完成任务 13 第二阶段闭市目标日计划顺延/重生成：
+  - 新增 `retarget_closed_trade_plans(engine, target_trade_date, limit=None)`。
+  - 新增 `backend.app.trade.cli retarget-closed` 子命令。
+  - 新增 `scripts/retarget-closed-trade-plans.sh` 和 `make retarget-closed-trade-plans`。
+  - 闭市目标日旧计划会标记为 `取消` 并写入顺延备注，新计划用原 `plan_date` 重生成到目标日之后的下一开市日。
+  - 如果交易日历缺少下一开市日，命令会明确提示先采集更晚交易日历，不用自然日硬凑。
 
 ## 未完成
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股；任务 6 已在基础过滤中处理缺失日线、ST/退市风险和非 active 股票。
@@ -162,13 +168,22 @@
 - AkShare/Eastmoney 板块接口在本机网络环境下仍断连；任务 5 已采用 TuShare `dc_index` 作为真实可运行路径。
 - `sector_daily.five_day_return` 字段当前保存近 3 日累计涨幅；后续如改为 5 日，应同步迁移字段命名或 API 展示。
 - `amount_change` 当前使用 TuShare `dc_index.total_mv * turnover_rate / 100` 作为成交额代理值；后续若取得板块真实成交额字段，应替换为真实成交额。
-- 真实数据库当前 `2026-06-19` 的两只计划股经 TuShare 回补确认 `target_is_open=false`，不是开市日，因此没有个股日线，workflow 会写入“目标交易日不是开市日，未产生行情数据，计划需重新生成到下一开市日”，并且不会伪造成交。
-- 下一步需要处理闭市目标日计划自动顺延或重新生成到下一开市日，再补延迟实时行情，让开市目标日计划能基于真实数据触发后进入模拟成交。
+- 真实数据库当前 `2026-06-19` 的两只计划股经 TuShare 回补确认 `target_is_open=false`，已被顺延处理：旧目标日两条计划状态为 `取消`，备注为已重新生成到 `2026-06-22`；新目标日 `2026-06-22` 两条计划状态为 `待触发`。
+- `2026-06-22` 日历已通过 TuShare 采集补入，当前该目标日两只计划股 `stock_daily_rows=0`，后续需要接入延迟实时行情或等目标日日线返回后再触发跟踪和模拟成交。
+- 下一步需要继续任务 13 第三阶段：接入延迟实时行情或更及时的目标日行情，让开市目标日计划能基于真实数据触发后进入模拟成交。
 - 模拟交易后续可继续完善分批止盈、移动止损、按实时行情轮询和多账户参数化。
 - 工作区存在未提交/未跟踪文件 `.gitignore`、`.git.zip`、`.logs/`，不是本轮任务创建或修改，未纳入提交。
 - 本机本轮 PostgreSQL 映射为 `127.0.0.1:5432 -> postgres:5432`；真实验收命令使用了 `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock`。
 
 ## 本轮验证
+
+- 任务 13 第二阶段验证：`.venv/bin/pytest`：68 passed，1 个 LibreSSL/urllib3 warning。
+- 任务 13 第二阶段验证：`cd frontend && npm test -- --run`：1 passed。
+- 任务 13 第二阶段验证：`cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 任务 13 第二阶段脚本验证：`bash -n scripts/retarget-closed-trade-plans.sh scripts/backfill-target-daily.sh scripts/ingest-market-data.sh scripts/run-simulation.sh`：通过。
+- 任务 13 第二阶段真实日历补充：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-22 --stock-code 300308 --stock-code 603986` 返回 `trading_calendar_rows=173`、`stock_daily_rows=0`。
+- 任务 13 第二阶段真实顺延：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/retarget-closed-trade-plans.sh --target-trade-date 2026-06-19` 返回 `target_is_open=false`、`new_target_trade_date=2026-06-22`、`closed_plan_count=2`、`generated_plan_count=2`。
+- 任务 13 第二阶段真实库确认：`2026-06-19` 两条计划状态为 `取消` 且备注为已重新生成到 `2026-06-22`；`2026-06-22` 两条计划状态为 `待触发`。
 
 - 任务 13 第一阶段验证：`.venv/bin/pytest`：65 passed，1 个 LibreSSL/urllib3 warning。
 - 任务 13 第一阶段验证：`cd frontend && npm test -- --run`：1 passed。

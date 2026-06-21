@@ -49,6 +49,18 @@ class TradePlanTrackingResult:
 
 
 @dataclass(frozen=True)
+class TradePlanRetargetResult:
+    old_target_trade_date: date
+    target_is_open: Optional[bool]
+    new_target_trade_date: Optional[date]
+    plan_dates: list[date]
+    closed_plan_count: int
+    generated_plan_count: int
+    skipped_reason: str
+    items: list[TradePlanResult]
+
+
+@dataclass(frozen=True)
 class TradeReviewResult:
     id: Optional[int]
     trade_plan_id: int
@@ -104,18 +116,94 @@ def generate_trade_plans(
     with Session(engine) as session:
         target = target_trade_date or _next_open_trade_date(session, plan_date)
         plans = calculate_trade_plans(session, plan_date, target, limit=limit)
-        session.execute(
-            delete(TradePlan).where(
-                TradePlan.plan_date == plan_date,
-                TradePlan.target_trade_date == target,
-            )
-        )
-        session.flush()
-        for plan in plans:
-            payload = {key: value for key, value in plan.__dict__.items() if key != "id"}
-            session.add(TradePlan(**payload))
+        _replace_trade_plans(session, plan_date, target, plans)
         session.commit()
         return plans
+
+
+def retarget_closed_trade_plans(
+    engine: Engine,
+    target_trade_date: date,
+    limit: Optional[int] = None,
+) -> TradePlanRetargetResult:
+    with Session(engine) as session:
+        target_is_open = _target_is_open(session, target_trade_date)
+        plans = session.scalars(
+            select(TradePlan)
+            .where(TradePlan.target_trade_date == target_trade_date)
+            .order_by(TradePlan.plan_date, desc(TradePlan.stock_score), TradePlan.stock_code)
+        ).all()
+        plan_dates = sorted({plan.plan_date for plan in plans})
+
+        if target_is_open is None:
+            return TradePlanRetargetResult(
+                old_target_trade_date=target_trade_date,
+                target_is_open=None,
+                new_target_trade_date=None,
+                plan_dates=plan_dates,
+                closed_plan_count=len(plans),
+                generated_plan_count=0,
+                skipped_reason="目标交易日缺少交易日历，需先采集或回补交易日历",
+                items=[],
+            )
+        if target_is_open:
+            return TradePlanRetargetResult(
+                old_target_trade_date=target_trade_date,
+                target_is_open=True,
+                new_target_trade_date=None,
+                plan_dates=plan_dates,
+                closed_plan_count=len(plans),
+                generated_plan_count=0,
+                skipped_reason="目标交易日是开市日，无需顺延",
+                items=[],
+            )
+        if not plans:
+            return TradePlanRetargetResult(
+                old_target_trade_date=target_trade_date,
+                target_is_open=False,
+                new_target_trade_date=None,
+                plan_dates=[],
+                closed_plan_count=0,
+                generated_plan_count=0,
+                skipped_reason="目标交易日没有交易计划，无需顺延",
+                items=[],
+            )
+
+        new_target = _next_open_trade_date_after(session, target_trade_date)
+        if new_target is None:
+            return TradePlanRetargetResult(
+                old_target_trade_date=target_trade_date,
+                target_is_open=False,
+                new_target_trade_date=None,
+                plan_dates=plan_dates,
+                closed_plan_count=len(plans),
+                generated_plan_count=0,
+                skipped_reason="目标交易日之后缺少下一开市日历，需先采集更晚的交易日历",
+                items=[],
+            )
+
+        generated: list[TradePlanResult] = []
+        for plan_date in plan_dates:
+            next_plans = calculate_trade_plans(session, plan_date, new_target, limit=limit)
+            _replace_trade_plans(session, plan_date, new_target, next_plans)
+            generated.extend(next_plans)
+
+        note = f"目标交易日不是开市日，已重新生成到 {new_target.isoformat()}"
+        for plan in plans:
+            plan.status = "取消"
+            plan.tracking_note = note
+
+        session.commit()
+        return TradePlanRetargetResult(
+            old_target_trade_date=target_trade_date,
+            target_is_open=False,
+            new_target_trade_date=new_target,
+            plan_dates=plan_dates,
+            closed_plan_count=len(plans),
+            generated_plan_count=len(generated),
+            skipped_reason="",
+            items=generated,
+        )
 
 
 def calculate_trade_plans(
@@ -596,14 +684,36 @@ def _build_plan(
     )
 
 
+def _replace_trade_plans(
+    session: Session,
+    plan_date: date,
+    target_trade_date: date,
+    plans: list[TradePlanResult],
+) -> None:
+    session.execute(
+        delete(TradePlan).where(
+            TradePlan.plan_date == plan_date,
+            TradePlan.target_trade_date == target_trade_date,
+        )
+    )
+    session.flush()
+    for plan in plans:
+        payload = {key: value for key, value in plan.__dict__.items() if key != "id"}
+        session.add(TradePlan(**payload))
+
+
 def _next_open_trade_date(session: Session, plan_date: date) -> date:
-    next_open = session.scalar(
+    next_open = _next_open_trade_date_after(session, plan_date)
+    return next_open or plan_date + timedelta(days=1)
+
+
+def _next_open_trade_date_after(session: Session, after_date: date) -> Optional[date]:
+    return session.scalar(
         select(TradingCalendar.trade_date)
-        .where(TradingCalendar.trade_date > plan_date, TradingCalendar.is_open.is_(True))
+        .where(TradingCalendar.trade_date > after_date, TradingCalendar.is_open.is_(True))
         .order_by(TradingCalendar.trade_date)
         .limit(1)
     )
-    return next_open or plan_date + timedelta(days=1)
 
 
 def _max_new_positions(market_status: str) -> int:
