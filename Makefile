@@ -1,10 +1,16 @@
-.PHONY: install test test-backend test-frontend db-upgrade db-current ingest-market-data audit-market-data generate-market-environment generate-sector-ranking generate-candidates generate-trade-plans dev-api dev-web
+.PHONY: start install check-dev-environment test test-backend test-frontend db-upgrade db-current ingest-market-data audit-market-data generate-market-environment generate-sector-ranking generate-candidates generate-trade-plans dev-api dev-web
+
+start:
+	bash start.sh
 
 install:
 	python3 -m venv .venv
 	.venv/bin/python -m pip install -U pip
 	.venv/bin/pip install -e ".[dev]"
 	cd frontend && npm install
+
+check-dev-environment:
+	bash scripts/check-dev-environment.sh
 
 test: test-backend test-frontend
 

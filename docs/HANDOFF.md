@@ -8,6 +8,7 @@
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
 - 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」和任务 8「P0 Web 页面」。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
+- 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
 
 ## 已完成
 
@@ -27,6 +28,12 @@
 - 已创建本地启动脚本：
   - `scripts/dev-api.sh`
   - `scripts/dev-web.sh`
+- 已新增一键启动脚本：
+  - `start.sh`
+  - `scripts/check-dev-environment.sh`
+  - `make start`
+  - `make check-dev-environment`
+- `start.sh` 会自动检测 PostgreSQL、API、前端宿主机端口占用，并顺延到下一个可用端口；PostgreSQL 容器内部端口保持 `5432`。
 - 已创建基础测试：
   - `tests/test_health.py`
   - `frontend/src/App.test.ts`
@@ -126,6 +133,7 @@
 
 ## 本轮验证
 
+- `bash -n start.sh scripts/check-dev-environment.sh`：通过。
 - `.venv/bin/pytest`：18 passed。
 - `cd frontend && npm test -- --run`：1 passed。
 - `cd frontend && npm run build`：通过。当前 Element Plus 全量引入触发 chunk size warning，属于后续优化项，不影响任务 1 验收。
