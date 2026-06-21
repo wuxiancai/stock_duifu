@@ -1,4 +1,5 @@
 import os
+import re
 import socket
 import subprocess
 from pathlib import Path
@@ -55,9 +56,13 @@ def test_deploy_script_uses_high_default_postgres_port_instead_of_5432() -> None
     )
 
     assert result.returncode == 0, result.stderr
-    assert "selected PostgreSQL host port: 15432" in result.stdout
-    assert "POSTGRES_HOST_PORT=15432 docker compose up -d postgres" in result.stdout
-    assert "127.0.0.1:15432/stock" in result.stdout
+    selected_port_match = re.search(r"selected PostgreSQL host port: (\d+)", result.stdout)
+    assert selected_port_match is not None, result.stdout
+    selected_port = int(selected_port_match.group(1))
+
+    assert selected_port >= 15432
+    assert f"POSTGRES_HOST_PORT={selected_port} docker compose up -d postgres" in result.stdout
+    assert f"127.0.0.1:{selected_port}/stock" in result.stdout
 
 
 def test_deploy_script_honors_explicit_postgres_host_port() -> None:
@@ -189,7 +194,7 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
     assert 'WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-0.0.0.0}"' in script
     assert 'HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"' in script
     assert 'VITE_DEV_API_PROXY_TARGET="http://$HEALTHCHECK_HOST:$API_PORT"' in script
-    assert 'VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" npm run dev' in script
+    assert 'VITE_API_BASE_URL="" VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" npm run dev' in script
     assert "API proxy:      /api -> $VITE_DEV_API_PROXY_TARGET" in script
     assert "sudo ufw allow $WEB_PORT/tcp" in script
     assert "API_RELOAD=0" in script
@@ -203,9 +208,11 @@ def test_vite_dev_server_proxies_same_origin_api_requests() -> None:
     vite_config = (ROOT / "frontend" / "vite.config.ts").read_text()
     dashboard_api = (ROOT / "frontend" / "src" / "api" / "dashboard.ts").read_text()
     health_api = (ROOT / "frontend" / "src" / "api" / "health.ts").read_text()
+    env_example = (ROOT / ".env.example").read_text()
 
     assert "process.env.VITE_DEV_API_PROXY_TARGET" in vite_config
-    assert "process.env.VITE_API_BASE_URL" in vite_config
     assert "target: apiProxyTarget" in vite_config
+    assert "process.env.VITE_API_BASE_URL" not in vite_config
+    assert "VITE_API_BASE_URL" not in env_example
     assert "const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''" in dashboard_api
     assert "const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''" in health_api

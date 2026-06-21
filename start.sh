@@ -171,7 +171,7 @@ API_PID="$!"
 wait_for_url "http://$HEALTHCHECK_HOST:$API_PORT/api/health" "API" "$API_PID" "$LOG_DIR/api.log"
 
 info "starting frontend on $WEB_LISTEN_HOST:$WEB_PORT, log: $LOG_DIR/web.log"
-(cd frontend && VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" npm run dev -- --host "$WEB_LISTEN_HOST" --port "$WEB_PORT") >"$LOG_DIR/web.log" 2>&1 &
+(cd frontend && VITE_API_BASE_URL="" VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" npm run dev -- --host "$WEB_LISTEN_HOST" --port "$WEB_PORT") >"$LOG_DIR/web.log" 2>&1 &
 WEB_PID="$!"
 wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend" "$WEB_PID" "$LOG_DIR/web.log"
 

@@ -35,6 +35,7 @@
 - [x] 已优化 Ubuntu 启动脚本：`start.sh` 生产启动 API 不使用 reload，失败时直接打印日志尾部
 - [x] 已修复 start.sh API 端口误判：端口检测改为真实 bind 探测，8000 被占用时会选择 8001
 - [x] 已修复 Ubuntu 前端 API 访问口径：浏览器固定走同源 `/api`，由 Vite 代理到实际 API 端口，并提示局域网防火墙放通 Web 端口
+- [x] 已修复 `.env` 残留 `VITE_API_BASE_URL` 污染前端：`start.sh` 启动前端时强制清空浏览器端绝对 API 地址
 
 ## 开发原则
 
@@ -833,3 +834,21 @@ TuShare 全市场初始化验证：
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 - `.venv/bin/pytest`：98 passed，1 个 LibreSSL/urllib3 warning。
 - 真实启动验证：本地占住 `0.0.0.0:8000` 后运行 `bash start.sh`，脚本选择 API `8001`、前端 `5173`；`curl http://127.0.0.1:5173/api/health` 通过 Vite 代理返回 API 健康检查 JSON。
+
+### 28. 清理 `.env` 残留前端 API 端口污染
+
+- 修复 `.env` 中残留 `VITE_API_BASE_URL=http://127.0.0.1:8000` 时，Vite 仍把旧地址暴露给浏览器，导致局域网电脑访问页面后请求自己本机 `127.0.0.1:8000` 并报 `Failed to fetch` 的问题。
+- `start.sh` 启动前端时显式传入 `VITE_API_BASE_URL=""`，即使 `.env` 或外部 shell 里有旧值，也不会进入浏览器端 bundle。
+- `frontend/vite.config.ts` 不再把 `VITE_API_BASE_URL` 作为 dev proxy fallback，代理目标只使用 `VITE_DEV_API_PROXY_TARGET` 或默认 `127.0.0.1:8000`。
+- `.env.example` 删除 `VITE_API_BASE_URL`，避免后续部署继续生成固定 8000 的旧配置。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_deployment_scripts.py`：8 passed。
+- `bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- `.venv/bin/pytest`：98 passed，1 个 LibreSSL/urllib3 warning。
+- 真实启动验证：显式带入 `VITE_API_BASE_URL=http://127.0.0.1:8000` 且占住 `8000` 后运行 `bash start.sh`，脚本选择 API `8001`；`curl http://127.0.0.1:5173/src/api/dashboard.ts` 的转换结果不含 `127.0.0.1:8000`，`curl http://127.0.0.1:5173/api/health` 通过代理返回 API 健康检查 JSON。
