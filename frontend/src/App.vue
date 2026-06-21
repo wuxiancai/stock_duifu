@@ -17,7 +17,7 @@ import {
   fetchLatestTradeReviews,
   fetchMarketLatest,
   fetchTopSectors,
-  runSimulation,
+  runSimulationWorkflow,
   trackTradePlans,
   updateTradePlanStatus,
   type MarketLatestResponse,
@@ -246,8 +246,10 @@ async function runSimulationForTarget() {
   error.value = ''
 
   try {
-    simulation.value = await runSimulation(tradePlans.value.target_trade_date)
-    ElMessage.success(`模拟交易已运行到 ${simulation.value.as_of_date}`)
+    const result = await runSimulationWorkflow(tradePlans.value.target_trade_date)
+    simulation.value = result.simulation
+    await loadDashboard()
+    ElMessage.success(`已跟踪 ${result.tracking.length} 条计划，并模拟到 ${result.simulation.as_of_date}`)
   } catch (err) {
     error.value = err instanceof Error ? err.message : '模拟交易运行失败'
   } finally {
@@ -482,10 +484,10 @@ onMounted(loadDashboard)
         <div class="section-heading table-heading">
           <div>
             <h2>模拟交易</h2>
-            <p>模拟日：{{ simulation?.as_of_date ?? '-' }}，只执行计划内股票，按保守成交和费用规则计算。</p>
+            <p>模拟日：{{ simulation?.as_of_date ?? '-' }}，先跟踪计划触发，再按保守成交和费用规则模拟。</p>
           </div>
           <el-button :loading="simulationLoading" :disabled="!tradePlans?.target_trade_date" @click="runSimulationForTarget">
-            运行模拟交易
+            跟踪并模拟交易
           </el-button>
         </div>
 

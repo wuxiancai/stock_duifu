@@ -220,6 +220,12 @@ export interface SimulationLatestResponse {
   messages: string[]
 }
 
+export interface SimulationWorkflowResponse {
+  target_trade_date: string
+  tracking: TradePlanTrackingResponse['items']
+  simulation: SimulationLatestResponse
+}
+
 export function fetchMarketLatest(): Promise<MarketLatestResponse> {
   return fetchJson<MarketLatestResponse>('/api/market/latest')
 }
@@ -243,6 +249,16 @@ export function fetchLatestSimulation(): Promise<SimulationLatestResponse> {
 export function runSimulation(tradeDate: string): Promise<SimulationLatestResponse> {
   return sendJson<SimulationLatestResponse>('/api/simulation/run', 'POST', {
     trade_date: tradeDate
+  })
+}
+
+export function runSimulationWorkflow(
+  tradeDate: string,
+  markUntriggeredAtClose = false
+): Promise<SimulationWorkflowResponse> {
+  return sendJson<SimulationWorkflowResponse>('/api/simulation/run-workflow', 'POST', {
+    trade_date: tradeDate,
+    mark_untriggered_at_close: markUntriggeredAtClose
   })
 }
 

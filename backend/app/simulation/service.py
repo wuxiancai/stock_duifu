@@ -15,6 +15,7 @@ from backend.app.db.models import (
     StockDaily,
     TradePlan,
 )
+from backend.app.trade.service import TradePlanTrackingResult, track_trade_plans
 
 DEFAULT_ACCOUNT_NAME = "默认模拟账户"
 DEFAULT_INITIAL_CASH = 1_000_000.0
@@ -109,6 +110,23 @@ class SimulationSummary:
     equity_curve: list[SimulationEquityPoint]
     risk: SimulationRiskSnapshot
     messages: list[str]
+
+
+@dataclass(frozen=True)
+class SimulationWorkflowSummary:
+    target_trade_date: date
+    tracking: list[TradePlanTrackingResult]
+    simulation: SimulationSummary
+
+
+def run_simulation_workflow(
+    engine: Engine,
+    trade_date: date,
+    mark_untriggered_at_close: bool = False,
+) -> SimulationWorkflowSummary:
+    tracking = track_trade_plans(engine, trade_date, mark_untriggered_at_close=mark_untriggered_at_close)
+    simulation = run_simulation(engine, trade_date)
+    return SimulationWorkflowSummary(target_trade_date=trade_date, tracking=tracking, simulation=simulation)
 
 
 def run_simulation(engine: Engine, trade_date: date) -> SimulationSummary:

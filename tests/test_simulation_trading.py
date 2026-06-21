@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from typing import Optional
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -7,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.app.db.models import SimulationAccount, SimulationEquity, SimulationPosition, SimulationTrade, StockDaily, TradePlan, metadata
 from backend.app.main import create_app
-from backend.app.simulation.service import load_latest_simulation, run_simulation
+from backend.app.simulation.service import load_latest_simulation, run_simulation, run_simulation_workflow
 
 
 def _engine():
@@ -20,7 +21,13 @@ def _engine():
     return engine
 
 
-def _seed_trade_plan(session: Session, stock_code: str = "000001") -> TradePlan:
+def _seed_trade_plan(
+    session: Session,
+    stock_code: str = "000001",
+    status: str = "已触发",
+    trigger_price: Optional[float] = 10.2,
+    tracking_note: str = "目标交易日价格触达计划买入区间",
+) -> TradePlan:
     plan = TradePlan(
         plan_date=date(2026, 6, 18),
         target_trade_date=date(2026, 6, 19),
@@ -37,9 +44,9 @@ def _seed_trade_plan(session: Session, stock_code: str = "000001") -> TradePlan:
         stop_loss_price=9.5,
         take_profit_price=13.2,
         position_ratio=0.4,
-        status="已触发",
-        trigger_price=10.2,
-        tracking_note="目标交易日价格触达计划买入区间",
+        status=status,
+        trigger_price=trigger_price,
+        tracking_note=tracking_note,
         risk_note="严格执行止损",
     )
     session.add(plan)
@@ -142,6 +149,29 @@ def test_run_simulation_sells_position_when_stop_loss_is_hit() -> None:
     assert summary.risk.max_drawdown > 0
 
 
+def test_run_simulation_workflow_tracks_pending_plan_then_buys() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_trade_plan(session, status="待触发", trigger_price=None, tracking_note="")
+        _add_daily(session, "000001", date(2026, 6, 19), 10.1, 10.8, 10.0, 10.5)
+        session.commit()
+
+    workflow = run_simulation_workflow(engine, date(2026, 6, 19))
+
+    assert workflow.target_trade_date == date(2026, 6, 19)
+    assert workflow.tracking[0].status == "已触发"
+    assert workflow.tracking[0].trigger_price is not None
+    assert workflow.simulation.positions[0].stock_code == "000001"
+    assert workflow.simulation.trades[0].trade_type == "买入"
+    assert workflow.simulation.trades[0].reason == "目标交易日价格触达计划买入区间"
+
+    with Session(engine) as session:
+        plan = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
+        assert plan.status == "已触发"
+        assert plan.trigger_price is not None
+        assert session.query(SimulationTrade).count() == 1
+
+
 def test_simulation_api_runs_and_returns_latest_summary() -> None:
     engine = _engine()
     with Session(engine) as session:
@@ -162,6 +192,24 @@ def test_simulation_api_runs_and_returns_latest_summary() -> None:
     latest = client.get("/api/simulation/latest")
     assert latest.status_code == 200
     assert latest.json()["as_of_date"] == "2026-06-19"
+
+
+def test_simulation_workflow_api_tracks_and_runs_simulation() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_trade_plan(session, status="待触发", trigger_price=None, tracking_note="")
+        _add_daily(session, "000001", date(2026, 6, 19), 10.1, 10.8, 10.0, 10.5)
+        session.commit()
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.post("/api/simulation/run-workflow", json={"trade_date": "2026-06-19"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["target_trade_date"] == "2026-06-19"
+    assert payload["tracking"][0]["status"] == "已触发"
+    assert payload["simulation"]["positions"][0]["stock_code"] == "000001"
+    assert payload["simulation"]["trades"][0]["trade_type"] == "买入"
 
 
 def test_load_latest_simulation_returns_none_without_account() -> None:

@@ -1,7 +1,7 @@
 from datetime import date
 
 from backend.app.simulation.cli import main as cli_main
-from backend.app.simulation.service import SimulationAccountSnapshot, SimulationRiskSnapshot, SimulationSummary
+from backend.app.simulation.service import SimulationAccountSnapshot, SimulationRiskSnapshot, SimulationSummary, SimulationWorkflowSummary
 
 
 def test_simulation_cli_runs_trade_date(monkeypatch, capsys) -> None:
@@ -19,6 +19,28 @@ def test_simulation_cli_runs_trade_date(monkeypatch, capsys) -> None:
 
     assert calls == [("engine", date(2026, 6, 19))]
     assert '"as_of_date": "2026-06-19"' in capsys.readouterr().out
+
+
+def test_simulation_cli_runs_workflow(monkeypatch, capsys) -> None:
+    calls = []
+
+    def fake_run_simulation_workflow(engine, trade_date, mark_untriggered_at_close=False):
+        calls.append((engine, trade_date, mark_untriggered_at_close))
+        return SimulationWorkflowSummary(target_trade_date=trade_date, tracking=[], simulation=_summary(trade_date))
+
+    monkeypatch.setattr("backend.app.simulation.cli.create_database_engine", lambda: "engine")
+    monkeypatch.setattr("backend.app.simulation.cli.run_simulation_workflow", fake_run_simulation_workflow)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["simulation", "run-workflow", "--trade-date", "2026-06-19", "--mark-untriggered-at-close"],
+    )
+
+    cli_main()
+
+    assert calls == [("engine", date(2026, 6, 19), True)]
+    output = capsys.readouterr().out
+    assert '"target_trade_date": "2026-06-19"' in output
+    assert '"simulation"' in output
 
 
 def test_simulation_cli_prints_latest(monkeypatch, capsys) -> None:

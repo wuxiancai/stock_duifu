@@ -17,6 +17,7 @@
 - [x] 已完成交易计划盘中跟踪、手动状态更新、命令/API/Web 展示
 - [x] 已完成交易复盘生成、最近复盘 API 和 Web 展示
 - [x] 已完成模拟交易账户、买卖撮合、资金曲线、API/CLI/Web 展示
+- [x] 已完成模拟交易盘中实盘化基础链路：先跟踪计划触发，再自动运行模拟交易
 
 ## 开发原则
 
@@ -406,6 +407,36 @@ TuShare 全市场初始化验证：
 - 真实数据库当前 `2026-06-19` 两条交易计划仍为 `待触发`，因此模拟交易没有伪造买入，`simulation_trade=0`、持仓为 `0`。
 - 真实 API 快验：`GET /api/simulation/latest` 返回 200，`as_of_date=2026-06-19`、`total_assets=1000000.0`、资金曲线 `1` 条。
 
+### 12. 模拟交易盘中实盘化基础链路
+
+- 将盘中跟踪和模拟交易串成一键流程。
+- 先更新交易计划触发状态，再基于触发结果执行模拟买入/卖出。
+- 保留独立跟踪和独立模拟入口，便于排查数据问题。
+- Web 模拟交易按钮默认运行连续流程。
+
+验收：目标交易日日线满足买入条件时，待触发计划会先变为已触发，再生成模拟买入、持仓、交易记录和资金曲线；缺少真实日线时必须明确说明，不伪造成交。
+
+状态：已完成。
+
+已完成：
+
+- 新增服务入口：`run_simulation_workflow(engine, trade_date, mark_untriggered_at_close=False)`。
+- 新增 API：`POST /api/simulation/run-workflow`。
+- 新增 CLI：`python -m backend.app.simulation.cli run-workflow --trade-date YYYY-MM-DD`。
+- `scripts/run-simulation.sh` 保持旧用法，同时支持 `run-workflow` 和 `latest` 子命令。
+- Web 模拟交易按钮改为“跟踪并模拟交易”，调用新 workflow，并刷新交易计划状态和模拟结果。
+
+验证：
+
+- `.venv/bin/pytest`：60 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 Element Plus / chunk size warning。
+- `bash -n scripts/run-simulation.sh`：通过。
+- 真实 PostgreSQL：`docker compose ps postgres` 显示 `stock-postgres` healthy，端口 `127.0.0.1:5432->5432`。
+- 真实 PostgreSQL：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-current.sh` 输出 `0005_simulation_trading_tables (head)`。
+- 真实 workflow：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/run-simulation.sh run-workflow --trade-date 2026-06-19` 返回 `tracking=2`、总资产 `1000000.0`、交易 `0` 笔；原因是两只计划股目标日日线缺失，状态保持 `待触发` 并写入明确备注。
+- 真实 API 快验：`POST /api/simulation/run-workflow` 返回 200，`target_trade_date=2026-06-19`、`tracking=2`、`total_assets=1000000.0`、`trades=0`。
+
 ## 下一步
 
-下一次开发进入任务 12：完善模拟交易盘中实盘化链路。优先补齐“计划触发后自动模拟成交”的连续流程、分批止盈/移动止损、以及实时或延迟行情轮询。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次开发进入任务 13：补真实目标交易日日线/延迟行情数据接入，让 `2026-06-19` 这类目标日计划可以被真实数据触发并进入模拟成交；随后完善分批止盈、移动止损和交易时段轮询。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

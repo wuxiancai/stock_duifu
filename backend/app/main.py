@@ -13,7 +13,7 @@ from backend.app.core.config import get_settings
 from backend.app.db.session import create_database_engine
 from backend.app.market.service import load_latest_market_environment
 from backend.app.sector.service import load_latest_sector_rankings
-from backend.app.simulation.service import load_latest_simulation, run_simulation
+from backend.app.simulation.service import load_latest_simulation, run_simulation, run_simulation_workflow
 from backend.app.trade.service import (
     generate_trade_reviews,
     load_latest_trade_plans,
@@ -34,6 +34,11 @@ class TradeReviewGenerateRequest(BaseModel):
 
 class SimulationRunRequest(BaseModel):
     trade_date: str
+
+
+class SimulationWorkflowRunRequest(BaseModel):
+    trade_date: str
+    mark_untriggered_at_close: bool = False
 
 
 class TradePlanStatusUpdate(BaseModel):
@@ -295,6 +300,20 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="trade_date must be YYYY-MM-DD") from exc
         return asdict(run_simulation(database_engine, trade_date))
+
+    @app.post("/api/simulation/run-workflow", tags=["simulation"])
+    def run_simulation_workflow_api(payload: SimulationWorkflowRunRequest) -> dict:
+        try:
+            trade_date = date.fromisoformat(payload.trade_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="trade_date must be YYYY-MM-DD") from exc
+        return asdict(
+            run_simulation_workflow(
+                database_engine,
+                trade_date,
+                mark_untriggered_at_close=payload.mark_untriggered_at_close,
+            )
+        )
 
     @app.get("/api/simulation/latest", tags=["simulation"])
     def latest_simulation() -> dict:

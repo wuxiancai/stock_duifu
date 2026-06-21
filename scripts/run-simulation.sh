@@ -9,4 +9,11 @@ if [ ! -x ".venv/bin/python" ]; then
   exit 1
 fi
 
-exec .venv/bin/python -m backend.app.simulation.cli run "$@"
+case "${1:-}" in
+  run|run-workflow|latest)
+    exec .venv/bin/python -m backend.app.simulation.cli "$@"
+    ;;
+  *)
+    exec .venv/bin/python -m backend.app.simulation.cli run "$@"
+    ;;
+esac

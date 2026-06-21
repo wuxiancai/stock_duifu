@@ -5,7 +5,7 @@ from datetime import date
 from typing import Optional
 
 from backend.app.db.session import create_database_engine
-from backend.app.simulation.service import load_latest_simulation, run_simulation
+from backend.app.simulation.service import load_latest_simulation, run_simulation, run_simulation_workflow
 
 
 def parse_date(value: Optional[str]) -> Optional[date]:
@@ -21,6 +21,14 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser("run", help="Run simulated trading for a trade date")
     run.add_argument("--trade-date", help="Trade date in YYYY-MM-DD format")
 
+    workflow = subparsers.add_parser("run-workflow", help="Track trade plans, then run simulated trading")
+    workflow.add_argument("--trade-date", help="Trade date in YYYY-MM-DD format")
+    workflow.add_argument(
+        "--mark-untriggered-at-close",
+        action="store_true",
+        help="Mark still-untriggered plans as 未触发 before running simulation",
+    )
+
     subparsers.add_parser("latest", help="Print latest simulation summary")
     return parser
 
@@ -33,6 +41,24 @@ def main() -> None:
     if args.command == "run":
         trade_date = parse_date(args.trade_date) or date.today()
         print(json.dumps(asdict(run_simulation(engine, trade_date)), ensure_ascii=False, default=str, sort_keys=True))
+        return
+
+    if args.command == "run-workflow":
+        trade_date = parse_date(args.trade_date) or date.today()
+        print(
+            json.dumps(
+                asdict(
+                    run_simulation_workflow(
+                        engine,
+                        trade_date,
+                        mark_untriggered_at_close=args.mark_untriggered_at_close,
+                    )
+                ),
+                ensure_ascii=False,
+                default=str,
+                sort_keys=True,
+            )
+        )
         return
 
     if args.command == "latest":
