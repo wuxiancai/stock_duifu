@@ -274,8 +274,6 @@ describe('App', () => {
     expect(wrapper.text()).toContain('强势板块')
     expect(wrapper.text()).toContain('科技风格')
     expect(wrapper.text()).toContain('5日涨幅')
-    expect(wrapper.text()).toContain('候选股票池')
-    expect(wrapper.text()).toContain('板块共振，趋势多头排列，量价健康')
     expect(wrapper.text()).toContain('今日交易计划')
     expect(wrapper.text()).toContain('中际旭创')
     expect(wrapper.text()).toContain('40%')
@@ -298,5 +296,18 @@ describe('App', () => {
     expect(wrapper.text()).toContain('复盘日：2026-06-19')
     expect(wrapper.text()).toContain('当日均收益')
     expect(wrapper.text()).toContain('盈利')
+
+    expect(wrapper.text()).not.toContain('板块详情：科技风格')
+    const sectorButton = wrapper.findAll('button').find((button) => button.text() === '科技风格')
+    expect(sectorButton).toBeTruthy()
+
+    await sectorButton?.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(window.location.pathname).toBe('/sectors/%E7%A7%91%E6%8A%80%E9%A3%8E%E6%A0%BC')
+    expect(wrapper.text()).toContain('板块详情：科技风格')
+    expect(wrapper.text()).toContain('板块共振，趋势多头排列，量价健康')
+    expect(wrapper.text()).toContain('该板块交易计划')
+    expect(wrapper.text()).toContain('返回强势板块')
   })
 })

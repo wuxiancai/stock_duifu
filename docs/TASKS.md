@@ -28,6 +28,7 @@
 - [x] 已补齐 PRD 市场环境遗漏项：连板高度结构化、评分加分、入库、API 和 Web 展示
 - [x] 已补齐 PRD 强势板块和候选股票页面遗漏项：真实 5 日涨幅、板块点击筛选候选、候选股票池展示和导出
 - [x] 已补齐 Ubuntu 一键部署与数据初始化脚本：`deploy_ubuntu.sh`、`get_data.sh`、LAN 监听启动口径
+- [x] 已优化强势板块浏览体验：点击板块进入独立详情页，候选股票和交易计划按板块分页面展示
 
 ## 开发原则
 
@@ -705,3 +706,22 @@ TuShare 全市场初始化验证：
 ## 下一步
 
 下一次部署时优先在 Ubuntu 服务器执行 `bash deploy_ubuntu.sh`，确认空库迁移成功后再执行 `TRADE_DATE=YYYY-MM-DD bash get_data.sh` 拉取真实数据并生成交易计划。目标交易日当天继续用 `scripts/run-realtime-workflow.sh --provider auto --target-trade-date YYYY-MM-DD` 验证真实实时快照写入、跟踪和模拟。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+
+### 21. 强势板块独立详情页
+
+- 主页不再把所有候选股票池堆在同一个长页面中。
+- 点击强势板块名称会进入 `/sectors/<板块名>` 独立详情页。
+- 板块详情页集中展示该板块排名、评分、今日 / 5 日涨幅、涨停 / 强势股数量。
+- 板块详情页只展示该板块候选股票、入选理由、风险提示和该板块交易计划。
+- 板块详情页保留候选 CSV 导出和“返回强势板块”操作。
+- 浏览器前进 / 后退会同步页面路径，便于把单个板块页面发给别人直接查看。
+
+状态：已完成。
+
+验证：
+
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- `.venv/bin/pytest`：93 passed，1 个 LibreSSL/urllib3 warning。
+- `bash start.sh`：API 启动于 `0.0.0.0:8000`，前端启动于 `0.0.0.0:5173`，并打印 LAN URL。
+- `curl http://127.0.0.1:5173/sectors/%E7%A7%91%E6%8A%80%E9%A3%8E%E6%A0%BC`：返回 `200 text/html`。

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   Calendar,
@@ -52,10 +52,10 @@ const trackingItems = ref<TradePlanTrackingResponse['items']>([])
 const loading = ref(true)
 const error = ref('')
 const sectorKeyword = ref('')
-const selectedSectorName = ref('')
 const planKeyword = ref('')
 const planTrackingLoading = ref(false)
 const simulationLoading = ref(false)
+const routePath = ref(window.location.pathname)
 
 const statusType = computed(() => {
   if (error.value) return 'danger'
@@ -86,6 +86,19 @@ const filteredSectors = computed(() => {
   return items.filter((item) => item.sector_name.toLowerCase().includes(keyword))
 })
 
+const selectedSectorName = computed(() => {
+  const prefix = '/sectors/'
+  if (!routePath.value.startsWith(prefix)) return ''
+  return decodeURIComponent(routePath.value.slice(prefix.length))
+})
+
+const isSectorDetailPage = computed(() => Boolean(selectedSectorName.value))
+
+const selectedSector = computed(() => {
+  if (!selectedSectorName.value) return null
+  return (sectors.value?.items ?? []).find((item) => item.sector_name === selectedSectorName.value) ?? null
+})
+
 const filteredCandidates = computed(() => {
   const sectorName = selectedSectorName.value.trim()
   const items = candidates.value?.items ?? []
@@ -93,6 +106,12 @@ const filteredCandidates = computed(() => {
   if (!sectorName) return items
 
   return items.filter((item) => item.sector_name === sectorName)
+})
+
+const sectorTradePlans = computed(() => {
+  const sectorName = selectedSectorName.value.trim()
+  if (!sectorName) return []
+  return (tradePlans.value?.items ?? []).filter((item) => item.sector_name === sectorName)
 })
 
 const filteredTradePlans = computed(() => {
@@ -167,15 +186,37 @@ async function loadDashboard() {
   }
 }
 
-function focusSector(sectorName: string) {
-  selectedSectorName.value = sectorName
-  planKeyword.value = sectorName
-  document.querySelector('#candidates')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+function navigateToSector(sectorName: string) {
+  window.history.pushState({}, '', `/sectors/${encodeURIComponent(sectorName)}`)
+  routePath.value = window.location.pathname
+  scrollToTop()
 }
 
-function clearFocusedSector() {
-  selectedSectorName.value = ''
+function navigateToDashboardSection(sectionId = 'sectors') {
+  window.history.pushState({}, '', '/')
+  routePath.value = window.location.pathname
   planKeyword.value = ''
+  window.setTimeout(() => {
+    document.querySelector(`#${sectionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, 0)
+}
+
+function syncRoutePath() {
+  routePath.value = window.location.pathname
+}
+
+function scrollToTop() {
+  if (navigator.userAgent.toLowerCase().includes('jsdom')) {
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+    return
+  }
+  try {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  } catch {
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+  }
 }
 
 async function loadPlanDetail(planId: number | undefined) {
@@ -406,14 +447,20 @@ async function setPlanStatus(row: TradePlanItem, status: string) {
 
 function navigateToSimulation() {
   window.history.pushState({}, '', '/simulation')
+  routePath.value = window.location.pathname
   document.querySelector('#simulation')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 onMounted(async () => {
+  window.addEventListener('popstate', syncRoutePath)
   await loadDashboard()
   if (window.location.pathname === '/simulation') {
     document.querySelector('#simulation')?.scrollIntoView({ block: 'start' })
   }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('popstate', syncRoutePath)
 })
 </script>
 
@@ -435,10 +482,6 @@ onMounted(async () => {
         <a class="nav-item" href="#sectors">
           <el-icon><TrendCharts /></el-icon>
           <span>强势板块</span>
-        </a>
-        <a class="nav-item" href="#candidates">
-          <el-icon><DataAnalysis /></el-icon>
-          <span>候选股票</span>
         </a>
         <a class="nav-item" href="#plans">
           <el-icon><Finished /></el-icon>
@@ -485,6 +528,133 @@ onMounted(async () => {
         :closable="false"
       />
 
+      <template v-if="isSectorDetailPage">
+        <section class="panel sector-detail-panel">
+          <div class="section-heading table-heading">
+            <div>
+              <h2>板块详情：{{ selectedSectorName }}</h2>
+              <p>交易日：{{ sectors?.trade_date ?? '-' }}，集中查看该板块候选股票和交易计划。</p>
+            </div>
+            <div class="table-tools">
+              <el-button @click="navigateToDashboardSection('sectors')">返回强势板块</el-button>
+              <el-button :icon="Download" :disabled="!filteredCandidates.length" @click="exportCandidates">导出候选</el-button>
+            </div>
+          </div>
+
+          <section v-if="selectedSector" class="metric-grid sector-detail-grid">
+            <article class="metric primary-metric">
+              <el-icon><TrendCharts /></el-icon>
+              <div>
+                <span>板块排名</span>
+                <strong>{{ selectedSector.rank_no }}</strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><DataAnalysis /></el-icon>
+              <div>
+                <span>板块评分</span>
+                <strong>{{ selectedSector.sector_score }}</strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><Finished /></el-icon>
+              <div>
+                <span>今日 / 5日涨幅</span>
+                <strong>{{ formatPercent(selectedSector.daily_return) }} / {{ formatPercent(selectedSector.five_day_return) }}</strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><Connection /></el-icon>
+              <div>
+                <span>涨停 / 强势股</span>
+                <strong>{{ selectedSector.limit_up_count }} / {{ selectedSector.strong_stock_count }}</strong>
+              </div>
+            </article>
+          </section>
+          <el-alert
+            v-else
+            title="当前板块不在最新 Top 10 中，请返回强势板块选择。"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+        </section>
+
+        <section class="panel">
+          <div class="section-heading table-heading">
+            <div>
+              <h2>该板块候选股票</h2>
+              <p>展示候选股票、策略、评分、入选理由和风险提示。</p>
+            </div>
+          </div>
+
+          <el-table :data="filteredCandidates" border stripe empty-text="暂无该板块候选股票">
+            <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+              <template #default="{ row }: { row: CandidateItem }">
+                <strong>{{ row.stock_name }}</strong>
+                <small class="muted-code">{{ row.stock_code }}</small>
+              </template>
+            </el-table-column>
+            <el-table-column prop="sector_rank" label="板块排名" min-width="110" sortable />
+            <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
+            <el-table-column label="评分" min-width="110" sortable prop="stock_score">
+              <template #default="{ row }: { row: CandidateItem }">{{ row.stock_score }} / {{ row.sector_score }}</template>
+            </el-table-column>
+            <el-table-column label="收盘价" min-width="110" sortable prop="close_price">
+              <template #default="{ row }: { row: CandidateItem }">{{ formatPrice(row.close_price) }}</template>
+            </el-table-column>
+            <el-table-column label="成交额" min-width="130" sortable prop="amount">
+              <template #default="{ row }: { row: CandidateItem }">{{ formatLargeAmount(row.amount) }}</template>
+            </el-table-column>
+            <el-table-column prop="reason" label="入选理由" min-width="300" show-overflow-tooltip />
+            <el-table-column prop="risk_note" label="风险提示" min-width="260" show-overflow-tooltip />
+          </el-table>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading table-heading">
+            <div>
+              <h2>该板块交易计划</h2>
+              <p>只展示目标交易日属于 {{ selectedSectorName }} 的交易计划。</p>
+            </div>
+          </div>
+
+          <el-table :data="sectorTradePlans" border stripe empty-text="暂无该板块交易计划">
+            <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+              <template #default="{ row }: { row: TradePlanItem }">
+                <strong>{{ row.stock_name }}</strong>
+                <small class="muted-code">{{ row.stock_code }}</small>
+              </template>
+            </el-table-column>
+            <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
+            <el-table-column label="评分" min-width="110" sortable prop="stock_score">
+              <template #default="{ row }: { row: TradePlanItem }">{{ row.stock_score }} / {{ row.sector_score }}</template>
+            </el-table-column>
+            <el-table-column prop="buy_condition" label="买入条件" min-width="260" show-overflow-tooltip />
+            <el-table-column label="买入区间" min-width="150">
+              <template #default="{ row }: { row: TradePlanItem }">
+                {{ formatPrice(row.buy_price_low) }} - {{ formatPrice(row.buy_price_high) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="止损/止盈" min-width="150">
+              <template #default="{ row }: { row: TradePlanItem }">
+                {{ formatPrice(row.stop_loss_price) }} / {{ formatPrice(row.take_profit_price) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="仓位" min-width="90" sortable prop="position_ratio">
+              <template #default="{ row }: { row: TradePlanItem }">{{ formatPosition(row.position_ratio) }}</template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" min-width="100" sortable>
+              <template #default="{ row }: { row: TradePlanItem }">
+                <el-tag :type="planStatusType(row.status)">{{ row.status }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="risk_note" label="风险提示" min-width="260" show-overflow-tooltip />
+          </el-table>
+        </section>
+      </template>
+
+      <template v-else>
       <section id="decision" class="panel">
         <div class="section-heading">
           <div>
@@ -568,7 +738,7 @@ onMounted(async () => {
           </el-table-column>
           <el-table-column prop="sector_name" label="板块" min-width="150" sortable>
             <template #default="{ row }: { row: SectorTopItem }">
-              <el-button link type="primary" @click="focusSector(row.sector_name)">{{ row.sector_name }}</el-button>
+              <el-button link type="primary" @click="navigateToSector(row.sector_name)">{{ row.sector_name }}</el-button>
             </template>
           </el-table-column>
           <el-table-column prop="daily_return" label="今日涨幅" min-width="120" sortable>
@@ -583,44 +753,6 @@ onMounted(async () => {
           <el-table-column prop="limit_up_count" label="涨停" min-width="90" sortable />
           <el-table-column prop="strong_stock_count" label="强势股" min-width="100" sortable />
           <el-table-column prop="sector_score" label="评分" min-width="90" sortable />
-        </el-table>
-      </section>
-
-      <section id="candidates" class="panel">
-        <div class="section-heading table-heading">
-          <div>
-            <h2>候选股票池</h2>
-            <p>
-              交易日：{{ candidates?.trade_date ?? '-' }}，{{ selectedSectorName ? `当前板块：${selectedSectorName}` : '展示全部候选' }}
-            </p>
-          </div>
-          <div class="table-tools">
-            <el-button v-if="selectedSectorName" @click="clearFocusedSector">清除板块筛选</el-button>
-            <el-button :icon="Download" :disabled="!filteredCandidates.length" @click="exportCandidates">导出候选</el-button>
-          </div>
-        </div>
-
-        <el-table :data="filteredCandidates" border stripe empty-text="暂无候选股票数据">
-          <el-table-column label="股票" min-width="150" sortable prop="stock_name">
-            <template #default="{ row }: { row: CandidateItem }">
-              <strong>{{ row.stock_name }}</strong>
-              <small class="muted-code">{{ row.stock_code }}</small>
-            </template>
-          </el-table-column>
-          <el-table-column prop="sector_name" label="板块" min-width="130" sortable />
-          <el-table-column prop="sector_rank" label="板块排名" min-width="110" sortable />
-          <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
-          <el-table-column label="评分" min-width="110" sortable prop="stock_score">
-            <template #default="{ row }: { row: CandidateItem }">{{ row.stock_score }} / {{ row.sector_score }}</template>
-          </el-table-column>
-          <el-table-column label="收盘价" min-width="110" sortable prop="close_price">
-            <template #default="{ row }: { row: CandidateItem }">{{ formatPrice(row.close_price) }}</template>
-          </el-table-column>
-          <el-table-column label="成交额" min-width="130" sortable prop="amount">
-            <template #default="{ row }: { row: CandidateItem }">{{ formatLargeAmount(row.amount) }}</template>
-          </el-table-column>
-          <el-table-column prop="reason" label="入选理由" min-width="300" show-overflow-tooltip />
-          <el-table-column prop="risk_note" label="风险提示" min-width="260" show-overflow-tooltip />
         </el-table>
       </section>
 
@@ -1043,6 +1175,7 @@ onMounted(async () => {
         </template>
         <el-empty v-else description="暂无复盘统计数据，请先运行复盘生成命令" />
       </section>
+      </template>
     </section>
   </main>
 </template>
