@@ -12,7 +12,7 @@ if [ -f ".env" ]; then
 fi
 
 CONFIGURED_POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-}"
-POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-${POSTGRES_HOST_PORT:-5432}}"
+POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-${POSTGRES_HOST_PORT:-15432}}"
 API_BASE_PORT="${API_BASE_PORT:-8000}"
 WEB_BASE_PORT="${WEB_BASE_PORT:-5173}"
 API_LISTEN_HOST="${API_LISTEN_HOST:-0.0.0.0}"
@@ -28,28 +28,27 @@ info() {
 }
 
 is_port_available() {
-  local port="$1"
-  if command -v lsof >/dev/null 2>&1; then
-    ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
-  elif command -v python3 >/dev/null 2>&1; then
-    python3 - "$HEALTHCHECK_HOST" "$port" <<'PY'
+  local host="$1"
+  local port="$2"
+  python3 - "$host" "$port" <<'PY'
 import socket
 import sys
 
 host = sys.argv[1]
 port = int(sys.argv[2])
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-    sock.settimeout(0.2)
-    sys.exit(1 if sock.connect_ex((host, port)) == 0 else 0)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, port))
+    except OSError:
+        sys.exit(1)
 PY
-  else
-    ! nc -z "$HEALTHCHECK_HOST" "$port" >/dev/null 2>&1
-  fi
 }
 
 next_available_port() {
-  local port="$1"
-  while ! is_port_available "$port"; do
+  local host="$1"
+  local port="$2"
+  while ! is_port_available "$host" "$port"; do
     port=$((port + 1))
   done
   printf '%s' "$port"
@@ -147,10 +146,10 @@ fi
 if [ -n "$CONFIGURED_POSTGRES_HOST_PORT" ]; then
   POSTGRES_HOST_PORT="$CONFIGURED_POSTGRES_HOST_PORT"
 else
-  POSTGRES_HOST_PORT="$(next_available_port "$POSTGRES_BASE_PORT")"
+  POSTGRES_HOST_PORT="$(next_available_port "$DB_HOST" "$POSTGRES_BASE_PORT")"
 fi
-API_PORT="$(next_available_port "$API_BASE_PORT")"
-WEB_PORT="$(next_available_port "$WEB_BASE_PORT")"
+API_PORT="$(next_available_port "$API_LISTEN_HOST" "$API_BASE_PORT")"
+WEB_PORT="$(next_available_port "$WEB_LISTEN_HOST" "$WEB_BASE_PORT")"
 PUBLIC_HOST="$(detect_public_host)"
 DATABASE_URL="postgresql+psycopg://stock:stock@$DB_HOST:$POSTGRES_HOST_PORT/stock"
 VITE_API_BASE_URL="http://$PUBLIC_HOST:$API_PORT"

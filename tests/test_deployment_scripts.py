@@ -184,10 +184,13 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
     script = (ROOT / "start.sh").read_text()
 
     assert "CONFIGURED_POSTGRES_HOST_PORT=\"${POSTGRES_HOST_PORT:-}\"" in script
-    assert 'POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-${POSTGRES_HOST_PORT:-5432}}"' in script
+    assert 'POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-${POSTGRES_HOST_PORT:-15432}}"' in script
     assert 'API_LISTEN_HOST="${API_LISTEN_HOST:-0.0.0.0}"' in script
     assert 'WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-0.0.0.0}"' in script
     assert 'HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"' in script
     assert "VITE_API_BASE_URL=\"http://$PUBLIC_HOST:$API_PORT\"" in script
     assert "API_RELOAD=0" in script
     assert 'tail -n 80 "$log_file"' in script
+    assert "sock.bind((host, port))" in script
+    assert 'API_PORT="$(next_available_port "$API_LISTEN_HOST" "$API_BASE_PORT")"' in script
+    assert 'WEB_PORT="$(next_available_port "$WEB_LISTEN_HOST" "$WEB_BASE_PORT")"' in script

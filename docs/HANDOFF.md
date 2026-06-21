@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」、任务 18「市场环境连板高度补口」、任务 19「强势板块 5 日涨幅与候选股票页面补口」、任务 20「Ubuntu 部署与数据拉取脚本」、任务 21「强势板块独立详情页」、任务 22「部署 PostgreSQL 端口占用顺延」、任务 23「部署迁移数据库端口同步」、任务 24「部署默认避开 5432」和任务 25「Ubuntu 启动脚本诊断与 API 非 reload 启动」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」、任务 18「市场环境连板高度补口」、任务 19「强势板块 5 日涨幅与候选股票页面补口」、任务 20「Ubuntu 部署与数据拉取脚本」、任务 21「强势板块独立详情页」、任务 22「部署 PostgreSQL 端口占用顺延」、任务 23「部署迁移数据库端口同步」、任务 24「部署默认避开 5432」、任务 25「Ubuntu 启动脚本诊断与 API 非 reload 启动」和任务 26「start.sh API 端口 bind 探测」。
 - `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
@@ -16,6 +16,7 @@
 - `deploy_ubuntu.sh` 会覆盖旧的本地 stock `DATABASE_URL`，并在容器启动后按 Docker 实际 published port 再同步一次迁移 URL。
 - `deploy_ubuntu.sh` 默认从 `15432` 启动项目 PostgreSQL，不再碰系统常用 `5432`。
 - `start.sh` 启动 API 时使用 `API_RELOAD=0`，并在 API/前端启动失败时直接打印日志尾部。
+- `start.sh` 使用真实 socket bind 探测 API/Web/PostgreSQL 宿主机端口；`8000` 被占用时会自动改用 `8001`。
 
 ## 已完成
 
@@ -242,6 +243,11 @@
   - `start.sh` 启动 API 时显式使用 `API_RELOAD=0`，部署启动不再使用 `uvicorn --reload`。
   - `start.sh` 启动前清空 `.logs/api.log` / `.logs/web.log`。
   - API 或前端进程提前退出、健康检查超时时，会在终端打印对应日志最后 80 行。
+- 已完成任务 26 start.sh API 端口 bind 探测：
+  - 修复 Ubuntu 上 `8000` 已占用但旧检测误判可用，导致 uvicorn 报 `address already in use` 的问题。
+  - 端口检测改为用 Python socket 实际尝试 bind 到监听地址。
+  - API 使用 `API_LISTEN_HOST` 检测，Web 使用 `WEB_LISTEN_HOST` 检测，PostgreSQL 使用 `DB_HOST` 检测。
+  - `start.sh` PostgreSQL 默认起始端口同步为 `15432`。
 
 ## 未完成
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股；任务 6 已在基础过滤中处理缺失日线、ST/退市风险和非 active 股票。
@@ -256,6 +262,10 @@
 
 ## 本轮验证
 
+- 任务 26 真实端口占用验证：本地占住 `0.0.0.0:8000` 后运行 `bash start.sh`，脚本选择 `API on 0.0.0.0:8001`，并走到 `API is ready` 和 `Frontend is ready`。
+- 任务 26 脚本语法：`bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
+- 任务 26 回归验证：`.venv/bin/pytest tests/test_deployment_scripts.py`：7 passed。
+- 任务 26 全量验证：`.venv/bin/pytest`：97 passed，1 个 LibreSSL/urllib3 warning。
 - 任务 25 脚本语法：`bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
 - 任务 25 回归验证：`.venv/bin/pytest tests/test_deployment_scripts.py`：7 passed。
 - 任务 25 全量验证：`.venv/bin/pytest`：97 passed，1 个 LibreSSL/urllib3 warning。

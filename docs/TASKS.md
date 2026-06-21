@@ -33,6 +33,7 @@
 - [x] 已修复部署迁移连错旧端口：旧本地 `DATABASE_URL` 会按 Docker 实际端口重写
 - [x] 已避开系统 PostgreSQL 默认端口：部署默认从 `15432` 启动项目 PostgreSQL
 - [x] 已优化 Ubuntu 启动脚本：`start.sh` 生产启动 API 不使用 reload，失败时直接打印日志尾部
+- [x] 已修复 start.sh API 端口误判：端口检测改为真实 bind 探测，8000 被占用时会选择 8001
 
 ## 开发原则
 
@@ -795,3 +796,19 @@ TuShare 全市场初始化验证：
 - `.venv/bin/pytest tests/test_deployment_scripts.py`：7 passed。
 - `.venv/bin/pytest`：97 passed，1 个 LibreSSL/urllib3 warning。
 - 本地真实启动：`bash start.sh` 已走到 `API is ready` 和 `Frontend is ready`，随后手动 Ctrl-C 停止前端/API。
+
+### 26. start.sh API 端口 bind 探测
+
+- 修复 `start.sh` 在 Ubuntu 上误判 `8000` 可用，随后 uvicorn 报 `address already in use` 的问题。
+- 端口检测不再依赖“能否连接 `127.0.0.1:<port>`”，改为用 Python socket 实际尝试 `bind(<listen_host>, <port>)`。
+- API 端口检测使用 `API_LISTEN_HOST`，前端端口检测使用 `WEB_LISTEN_HOST`，PostgreSQL 端口检测使用 `DB_HOST`。
+- `start.sh` 的 PostgreSQL 默认起始端口同步改为 `15432`。
+
+状态：已完成。
+
+验证：
+
+- 本地占住 `0.0.0.0:8000` 后运行 `bash start.sh`，脚本选择 `API on 0.0.0.0:8001`，并走到 `API is ready`、`Frontend is ready`。
+- `bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
+- `.venv/bin/pytest tests/test_deployment_scripts.py`：7 passed。
+- `.venv/bin/pytest`：97 passed，1 个 LibreSSL/urllib3 warning。
