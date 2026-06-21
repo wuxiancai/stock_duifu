@@ -24,6 +24,7 @@ class MarketEnvironmentResult:
     down_count: int
     limit_up_count: int
     limit_down_count: int
+    limit_up_height: int
     total_amount: float
     suggestion: str
 
@@ -41,6 +42,7 @@ def generate_market_environment(engine: Engine, trade_date: date) -> MarketEnvir
                 down_count=result.down_count,
                 limit_up_count=result.limit_up_count,
                 limit_down_count=result.limit_down_count,
+                limit_up_height=result.limit_up_height,
                 total_amount=result.total_amount,
                 suggestion=result.suggestion,
             )
@@ -58,6 +60,7 @@ def calculate_market_environment(session: Session, trade_date: date) -> MarketEn
     down_count = _stock_count(session, trade_date, StockDaily.pct_chg < 0)
     limit_up_count = _limit_count(session, trade_date, "limit_up")
     limit_down_count = _limit_count(session, trade_date, "limit_down")
+    limit_up_height = _limit_up_height(session, trade_date)
     total_amount = _total_amount(session, trade_date)
     previous_amount = _previous_total_amount(session, trade_date)
 
@@ -99,7 +102,11 @@ def calculate_market_environment(session: Session, trade_date: date) -> MarketEn
     else:
         reasons.append("全市场成交额未放大或缺少上一交易日数据，+0")
 
-    reasons.append("连板高度暂无结构化数据，未计入评分")
+    if limit_up_height >= 3:
+        score += 15
+        reasons.append(f"连板高度达到 {limit_up_height} 板，+15")
+    else:
+        reasons.append(f"连板高度 {limit_up_height} 板，未达到 3 板，+0")
     status, position, action = _status_for_score(score)
     suggestion = f"{action}；" + "；".join(reasons)
 
@@ -112,6 +119,7 @@ def calculate_market_environment(session: Session, trade_date: date) -> MarketEn
         down_count=down_count,
         limit_up_count=limit_up_count,
         limit_down_count=limit_down_count,
+        limit_up_height=limit_up_height,
         total_amount=total_amount,
         suggestion=suggestion,
     )
@@ -132,6 +140,7 @@ def load_latest_market_environment(engine: Engine) -> Optional[MarketEnvironment
             down_count=record.down_count,
             limit_up_count=record.limit_up_count,
             limit_down_count=record.limit_down_count,
+            limit_up_height=record.limit_up_height,
             total_amount=float(record.total_amount),
             suggestion=record.suggestion,
         )
@@ -177,6 +186,48 @@ def _limit_count(session: Session, trade_date: date, status: str) -> int:
         )
         or 0
     )
+
+
+def _limit_up_height(session: Session, trade_date: date) -> int:
+    current_codes = set(
+        session.scalars(
+            select(LimitSnapshot.stock_code).where(
+                LimitSnapshot.trade_date == trade_date,
+                LimitSnapshot.limit_status == "limit_up",
+            )
+        ).all()
+    )
+    if not current_codes:
+        return 0
+
+    limit_dates = session.scalars(
+        select(LimitSnapshot.trade_date)
+        .where(LimitSnapshot.trade_date <= trade_date, LimitSnapshot.limit_status == "limit_up")
+        .group_by(LimitSnapshot.trade_date)
+        .order_by(desc(LimitSnapshot.trade_date))
+        .limit(10)
+    ).all()
+    if not limit_dates:
+        return 0
+
+    max_height = 0
+    for code in current_codes:
+        height = 0
+        for limit_date in limit_dates:
+            hit = session.scalar(
+                select(LimitSnapshot.id)
+                .where(
+                    LimitSnapshot.trade_date == limit_date,
+                    LimitSnapshot.stock_code == code,
+                    LimitSnapshot.limit_status == "limit_up",
+                )
+                .limit(1)
+            )
+            if hit is None:
+                break
+            height += 1
+        max_height = max(max_height, height)
+    return max_height
 
 
 def _total_amount(session: Session, trade_date: date) -> float:

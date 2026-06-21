@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」和任务 17「扩展模块 / 模拟交易模块开发补齐」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」和任务 18「市场环境连板高度补口」。
 - `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
@@ -194,10 +194,14 @@
   - 交易记录和 Web 展示补齐交易时间、交易后现金、交易后仓位、当日盈亏、胜率、盈亏比和持仓状态。
   - Web 导航支持 `/simulation` 模拟交易入口。
   - `scripts/run-simulation.sh loop --trade-date YYYY-MM-DD --interval-seconds 60 --max-iterations 1` 可用于受控轮询验收。
+- 已完成任务 18 市场环境连板高度补口：
+  - 新增 `market_daily.limit_up_height` 字段和迁移 `0007_market_limit_up_height`。
+  - 基于真实 `limit_snapshot` 涨停池连续出现天数计算连板高度。
+  - 连板高度不少于 3 板时按 PRD 市场评分规则增加 15 分。
+  - `GET /api/market/latest`、`GET /api/market/today` 和今日决策面板均展示 `limit_up_height`。
 
 ## 未完成
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股；任务 6 已在基础过滤中处理缺失日线、ST/退市风险和非 active 股票。
-- 连板高度暂无结构化数据，任务 4 中未计入市场评分；后续需要补连板高度数据源后再纳入评分。
 - AkShare/Eastmoney 板块接口在本机网络环境下仍断连；任务 5 已采用 TuShare `dc_index` 作为真实可运行路径。
 - `sector_daily.five_day_return` 字段当前保存近 3 日累计涨幅；后续如改为 5 日，应同步迁移字段命名或 API 展示。
 - `amount_change` 当前使用 TuShare `dc_index.total_mv * turnover_rate / 100` 作为成交额代理值；后续若取得板块真实成交额字段，应替换为真实成交额。
@@ -209,6 +213,14 @@
 - 本机本轮 PostgreSQL 映射为 `127.0.0.1:5432 -> postgres:5432`；真实验收命令使用了 `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock`。
 
 ## 本轮验证
+
+- 任务 18 验证：`.venv/bin/pytest tests/test_market_environment.py tests/test_database_schema.py`：12 passed。
+- 任务 18 验证：`cd frontend && npm test -- --run`：1 passed。
+- 任务 18 验证：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-upgrade.sh` 已升级到 `0007_market_limit_up_height (head)`。
+- 任务 18 真实库重算：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/generate-market-environment.sh --trade-date 2026-06-18` 返回 `limit_up_height=4`、`market_score=70`、`market_status=中性`。
+- 本轮全量验证：`.venv/bin/pytest`：90 passed，1 个 LibreSSL/urllib3 warning。
+- 本轮前端验证：`cd frontend && npm test -- --run`：1 passed。
+- 本轮前端构建：`cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 
 - 任务 17 验证：`.venv/bin/pytest`：89 passed，1 个 LibreSSL/urllib3 warning。
 - 任务 17 验证：`cd frontend && npm test -- --run`：1 passed。
@@ -360,9 +372,9 @@
   - `scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-18 --all-stocks`：成功，`stock_daily_rows=5507`、`index_daily_rows=96`、`limit_snapshot_rows=103`。
   - 指数历史覆盖：`000001.SH`、`399001.SZ`、`399006.SZ` 均为 32 条，范围 `2026-05-06` 到 `2026-06-18`。
   - `scripts/generate-market-environment.sh --trade-date 2026-06-18`：成功生成 `market_daily`。
-  - PostgreSQL 最新 `market_daily`：`trade_date=2026-06-18`、`market_score=55`、`market_status=中性`、`up_count=2023`、`down_count=3395`、`limit_up_count=91`、`limit_down_count=12`、`total_amount=3331719013167.0800`。
+  - PostgreSQL 最新 `market_daily`：`trade_date=2026-06-18`、`market_score=70`、`market_status=中性`、`up_count=2023`、`down_count=3395`、`limit_up_count=91`、`limit_down_count=12`、`limit_up_height=4`、`total_amount=3331719013167.0800`。
   - `GET /api/market/latest`：返回 200，最新结果与数据库一致。
-  - 评分解释：上证指数站上 MA20 `+15`、创业板指站上 MA20 `+15`、上涨家数未超过下跌家数 `+0`、涨停家数不少于 40 `+15`、跌停家数超过 10 `+0`、成交额较上一交易日放大 `+10`、连板高度暂无结构化数据未计分。
+  - 评分解释：当时版本尚未计入连板高度；当前版本已在任务 18 补齐 `limit_up_height` 结构化字段和评分逻辑。
 - 任务 5 真实数据验证：
   - AkShare/Eastmoney 板块接口在当前网络下报 `RemoteDisconnected` / `ProxyError`，未作为验收路径。
   - TuShare `dc_index(trade_date=20260618)`：返回 `1021` 条板块数据。
@@ -440,13 +452,11 @@
 
 ## 验收口径
 
-当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
+当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
 
 仍不得把以下事项宣称为已完成：
 
 - `2026-06-22` 目标交易日当天真实实时快照写入和模拟成交尚未完成当天验收；此前日期保护正确阻止了把未来目标日行情写入库。
-- 分批止盈、移动止损和交易时段轮询仍是后续增强，不属于当前 PRD MVP 已完成项。
-- 连板高度仍无结构化数据，市场评分未计入连板高度。
 
 ## 下一步
 
@@ -454,7 +464,7 @@
 
 1. `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/run-realtime-workflow.sh --provider auto --target-trade-date 2026-06-22`
 2. 确认真实实时快照能写入 `2026-06-22` 的计划股，并驱动跟踪/模拟。
-3. 若通过，再继续完善分批止盈、移动止损和交易时段轮询。
+3. 若通过，再执行 `scripts/run-simulation.sh loop --trade-date 2026-06-22 --interval-seconds 60 --max-iterations 1` 做受控轮询验收。
 4. 每轮完成前继续更新 `docs/HANDOFF.md` 并提交 git commit。
 
 ## 必须保留的约束

@@ -45,6 +45,7 @@ class MarketDaily(Base):
     down_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     limit_up_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     limit_down_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    limit_up_height: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_amount: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
     suggestion: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

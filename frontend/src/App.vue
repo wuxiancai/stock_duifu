@@ -468,6 +468,13 @@ onMounted(async () => {
           <article class="metric">
             <el-icon><Finished /></el-icon>
             <div>
+              <span>连板高度</span>
+              <strong>{{ market?.limit_up_height ?? '-' }}</strong>
+            </div>
+          </article>
+          <article class="metric">
+            <el-icon><Finished /></el-icon>
+            <div>
               <span>上涨 / 下跌家数</span>
               <strong>{{ market?.up_count ?? '-' }} / {{ market?.down_count ?? '-' }}</strong>
             </div>

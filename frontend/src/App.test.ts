@@ -24,6 +24,7 @@ describe('App', () => {
         down_count: 3395,
         limit_up_count: 91,
         limit_down_count: 12,
+        limit_up_height: 3,
         total_amount: 3331719013167.08,
         suggestion: '市场震荡，轻仓参与，优先选择强势板块。'
       },
@@ -250,6 +251,7 @@ describe('App', () => {
     expect(wrapper.text()).toContain('今日决策面板')
     expect(wrapper.text()).toContain('中性')
     expect(wrapper.text()).toContain('91 / 12')
+    expect(wrapper.text()).toContain('连板高度')
     expect(wrapper.text()).toContain('强势板块')
     expect(wrapper.text()).toContain('科技风格')
     expect(wrapper.text()).toContain('今日交易计划')

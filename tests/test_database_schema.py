@@ -43,6 +43,7 @@ def test_market_daily_has_required_columns_and_trade_date_uniqueness() -> None:
         "down_count",
         "limit_up_count",
         "limit_down_count",
+        "limit_up_height",
         "total_amount",
         "suggestion",
         "created_at",

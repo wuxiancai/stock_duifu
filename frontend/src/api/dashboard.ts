@@ -35,6 +35,7 @@ export interface MarketLatestResponse {
   down_count: number
   limit_up_count: number
   limit_down_count: number
+  limit_up_height: number
   total_amount: number
   suggestion: string
 }

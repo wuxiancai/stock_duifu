@@ -118,6 +118,23 @@ def _seed_market_width(session: Session, trade_date: date) -> None:
         )
 
 
+def _seed_limit_streak(session: Session, trade_date: date, stock_code: str = "688888", days: int = 3) -> None:
+    for offset in range(days):
+        day = trade_date - timedelta(days=offset)
+        session.add(
+            LimitSnapshot(
+                trade_date=day,
+                stock_code=stock_code,
+                stock_name="连板股",
+                close_price=10 + offset,
+                pct_chg=10,
+                limit_status="limit_up",
+                amount=10000000,
+                source="unit-test",
+            )
+        )
+
+
 def test_generate_market_environment_scores_and_persists_real_metrics() -> None:
     engine = _engine()
     trade_date = date(2026, 6, 18)
@@ -136,14 +153,36 @@ def test_generate_market_environment_scores_and_persists_real_metrics() -> None:
     assert result.down_count == 3
     assert result.limit_up_count == 40
     assert result.limit_down_count == 10
+    assert result.limit_up_height == 1
     assert result.total_amount == 1200000000
-    assert "连板高度暂无结构化数据，未计入评分" in result.suggestion
+    assert "连板高度 1 板，未达到 3 板，+0" in result.suggestion
 
     with Session(engine) as session:
         saved = session.scalar(select(MarketDaily).where(MarketDaily.trade_date == trade_date))
         assert saved is not None
-        assert saved.market_score == 85
-        assert saved.market_status == "强势"
+    assert saved.market_score == 85
+    assert saved.market_status == "强势"
+
+
+def test_generate_market_environment_counts_limit_up_height_in_score() -> None:
+    engine = _engine()
+    trade_date = date(2026, 6, 18)
+    with Session(engine) as session:
+        _seed_index_history(session, trade_date)
+        _seed_market_width(session, trade_date)
+        _seed_limit_streak(session, trade_date, days=3)
+        session.commit()
+
+    result = generate_market_environment(engine, trade_date)
+
+    assert result.limit_up_height == 3
+    assert result.market_score == 100
+    assert "连板高度达到 3 板，+15" in result.suggestion
+
+    with Session(engine) as session:
+        saved = session.scalar(select(MarketDaily).where(MarketDaily.trade_date == trade_date))
+        assert saved is not None
+        assert saved.limit_up_height == 3
 
 
 def test_generate_market_environment_is_idempotent_for_same_trade_date() -> None:
@@ -179,6 +218,7 @@ def test_market_latest_api_returns_persisted_environment() -> None:
     assert payload["market_score"] == 85
     assert payload["market_status"] == "强势"
     assert payload["suggested_position"] == "80% - 100%"
+    assert payload["limit_up_height"] == 1
 
 
 def test_prd_market_today_api_returns_latest_environment() -> None:

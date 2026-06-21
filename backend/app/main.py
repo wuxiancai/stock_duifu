@@ -195,6 +195,7 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
             "down_count": result.down_count,
             "limit_up_count": result.limit_up_count,
             "limit_down_count": result.limit_down_count,
+            "limit_up_height": result.limit_up_height,
             "total_amount": result.total_amount,
             "suggestion": result.suggestion,
         }

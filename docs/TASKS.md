@@ -25,6 +25,7 @@
 - [x] 已完成 PRD MVP 操作补口：交易计划关注标记、`POST /api/reviews` 和复盘 CSV 导出
 - [x] 已完成 PRD MVP 盘后工作流入口：按顺序执行采集、市场、板块、候选和交易计划生成
 - [x] 已补齐 PRD 第 17 章任务映射：扩展模块 / 模拟交易模块逐小节状态和缺口
+- [x] 已补齐 PRD 市场环境遗漏项：连板高度结构化、评分加分、入库、API 和 Web 展示
 
 ## 开发原则
 
@@ -135,7 +136,7 @@ TuShare 全市场初始化验证：
 - 新增最新市场环境 API：`GET /api/market/latest`。
 - TuShare 采集已为三大指数补足 MA20 所需历史日线。
 - 修复真实 PostgreSQL 下重复采集多日交易日历时的幂等写入顺序问题。
-- 连板高度目前没有结构化字段，评分中明确不计分，不伪造结果。
+- 已补齐连板高度结构化字段 `market_daily.limit_up_height`，基于真实涨停池连续出现天数计算，连板高度不少于 3 板时按 PRD 加 15 分。
 
 验证：
 
@@ -145,13 +146,12 @@ TuShare 全市场初始化验证：
 - `scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-17 --all-stocks`
 - `scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-18 --all-stocks`
 - `scripts/generate-market-environment.sh --trade-date 2026-06-18`
-- PostgreSQL `market_daily` 最新结果：`trade_date=2026-06-18`、`market_score=55`、`market_status=中性`、`up_count=2023`、`down_count=3395`、`limit_up_count=91`、`limit_down_count=12`、`total_amount=3331719013167.0800`。
+- PostgreSQL `market_daily` 最新结果：`trade_date=2026-06-18`、`market_score=70`、`market_status=中性`、`up_count=2023`、`down_count=3395`、`limit_up_count=91`、`limit_down_count=12`、`limit_up_height=4`、`total_amount=3331719013167.0800`。
 - API `GET /api/market/latest` 返回 200，最新结果与数据库一致。
 
 说明：
 
-- 评分项已覆盖上证指数 MA20、创业板指 MA20、上涨/下跌家数、涨停/跌停家数、成交额环比。
-- 连板高度需要后续增加连板结构化数据后再纳入评分。
+- 评分项已覆盖上证指数 MA20、创业板指 MA20、上涨/下跌家数、涨停/跌停家数、成交额环比和连板高度。
 
 ### 5. 强势板块排序
 
@@ -300,7 +300,7 @@ TuShare 全市场初始化验证：
 已完成：
 
 - 前端首页已改为 P0 业务工作台，包含今日决策面板、强势板块、今日交易计划和交易复盘入口。
-- 今日决策面板接入 `GET /api/market/latest`，展示交易日、市场状态、评分、建议仓位、涨跌停、上涨/下跌家数、成交额和系统建议。
+- 今日决策面板接入 `GET /api/market/latest`，展示交易日、市场状态、评分、建议仓位、涨跌停、连板高度、上涨/下跌家数、成交额和系统建议。
 - 强势板块页面接入 `GET /api/sectors/top`，展示 Top 10 排名、涨幅、3 日涨幅、成交额代理、涨停数、强势股数和评分；支持表格排序、关键词筛选和 CSV 导出。
 - 今日交易计划页面接入 `GET /api/trade-plans/latest`，展示股票、板块、策略、评分、买入条件、买入区间、止损/止盈、仓位、状态和风险提示；支持表格排序、关键词筛选和 CSV 导出。
 - 交易复盘页面当前展示明确空态，等待任务 10 接入真实 `trade_review` 后显示复盘统计，不伪造复盘数据。
@@ -310,7 +310,7 @@ TuShare 全市场初始化验证：
 - `.venv/bin/pytest`：42 passed，1 个 LibreSSL/urllib3 warning。
 - `cd frontend && npm test -- --run`：1 passed。
 - `cd frontend && npm run build`：通过；仍有 Element Plus 相关 chunk size warning。
-- 真实 API 快验：`/api/market/latest` 返回 200，`trade_date=2026-06-18`、`market_status=中性`、`market_score=55`。
+- 真实 API 快验：`/api/market/latest` 返回 200；当时快验 `market_score=55`，任务 18 补齐连板高度后，同一真实库重算为 `market_score=70`、`limit_up_height=4`。
 - 真实 API 快验：`/api/sectors/top` 返回 200，`trade_date=2026-06-18`、`items=10`。
 - 真实 API 快验：`/api/trade-plans/latest` 返回 200，`plan_date=2026-06-18`、`items=2`。
 - Playwright 浏览器快验：`http://127.0.0.1:5173/` 展示 `今日决策面板`、`科技风格`、`中际旭创`、`40%` 和 `交易复盘`；console 仅有缺少 `favicon.ico` 的 404。
@@ -453,7 +453,7 @@ TuShare 全市场初始化验证：
 
 验收：目标日有真实日线时可进入后续跟踪和模拟；目标日闭市或数据源未返回日线时必须明确说明，不伪造成交。
 
-状态：第三阶段基础链路和备用实时源已完成；真实成交验收仍需在目标交易日当天重跑。后续仍需完善分批止盈、移动止损和交易时段轮询。
+状态：第三阶段基础链路和备用实时源已完成；真实成交验收仍需在目标交易日当天重跑。分批止盈、移动止损和交易时段轮询已在任务 17 补齐。
 
 已完成：
 
@@ -624,6 +624,24 @@ TuShare 全市场初始化验证：
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 - `bash -n scripts/run-simulation.sh`：通过。
 - `.venv/bin/python -m backend.app.simulation.cli loop --help`：正常展示 `--trade-date`、`--interval-seconds`、`--max-iterations`。
+
+### 18. PRD MVP 市场环境连板高度补口
+
+- 新增 `market_daily.limit_up_height` 字段和迁移 `0007_market_limit_up_height`。
+- 市场环境计算从真实 `limit_snapshot` 涨停池中计算连板高度：当前交易日涨停股票向前连续出现在涨停池的最大天数。
+- 连板高度不少于 3 板时，市场评分按 PRD 增加 15 分。
+- `GET /api/market/latest` 和 `GET /api/market/today` 返回 `limit_up_height`。
+- 今日决策面板展示“连板高度”。
+
+状态：已完成开发；真实数据库迁移和真实数据重算见本任务验证。
+
+验证：
+
+- `.venv/bin/pytest tests/test_market_environment.py tests/test_database_schema.py`：12 passed。
+- `cd frontend && npm test -- --run`：1 passed。
+- `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-upgrade.sh`：已升级到 `0007_market_limit_up_height (head)`。
+- `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/generate-market-environment.sh --trade-date 2026-06-18`：真实库重算返回 `limit_up_height=4`、`market_score=70`、`market_status=中性`。
+- 后续全量验证见本轮交接文档。
 
 ## 下一步
 
