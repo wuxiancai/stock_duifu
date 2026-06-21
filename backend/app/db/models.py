@@ -144,6 +144,7 @@ class TradePlan(Base):
     trigger_price: Mapped[Optional[float]] = mapped_column(Numeric(12, 4))
     trigger_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     tracking_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    is_watched: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     risk_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

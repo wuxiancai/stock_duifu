@@ -343,6 +343,28 @@ def test_trade_plan_status_api_updates_manual_status_and_note() -> None:
     assert payload["tracking_note"] == "板块退潮，手动取消"
 
 
+def test_trade_plan_status_api_updates_attention_flag_without_changing_status() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        plan_id = session.scalar(select(TradePlan.id).where(TradePlan.stock_code == "000001"))
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.patch(
+        f"/api/trade-plans/{plan_id}/status",
+        json={"status": "待触发", "note": "重点关注", "is_watched": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "待触发"
+    assert payload["is_watched"] is True
+    with Session(engine) as session:
+        saved = session.get(TradePlan, plan_id)
+        assert saved.is_watched is True
+
+
 def test_trade_plan_tracking_api_returns_updated_items() -> None:
     engine = _engine()
     plan_date = _seed_fixture(engine)
@@ -471,6 +493,23 @@ def test_trade_review_api_generates_and_returns_latest_summary() -> None:
     latest = client.get("/api/trade-reviews/latest")
     assert latest.status_code == 200
     assert latest.json()["win_rate"] == 1.0
+
+
+def test_prd_review_post_api_generates_review_records() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    _seed_review_target_day(engine)
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.post("/api/reviews", json={"trade_date": "2026-06-19"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["review_date"] == "2026-06-19"
+    assert payload["total_count"] == 2
+    with Session(engine) as session:
+        assert session.query(TradeReview).count() == 2
 
 
 def test_prd_review_api_returns_by_date_and_updates_manual_fields() -> None:

@@ -74,6 +74,7 @@ export interface TradePlanItem {
   trigger_price: number | null
   trigger_time: string | null
   tracking_note: string
+  is_watched: boolean
   risk_note: string
 }
 
@@ -289,11 +290,13 @@ export function updateTradePlanStatus(
   planId: number,
   status: string,
   note: string,
-  triggerPrice?: number
+  triggerPrice?: number,
+  isWatched?: boolean
 ): Promise<TradePlanItem> {
   return sendJson<TradePlanItem>(`/api/trade-plans/${planId}/status`, 'PATCH', {
     status,
     note,
-    trigger_price: triggerPrice
+    trigger_price: triggerPrice,
+    is_watched: isWatched
   })
 }

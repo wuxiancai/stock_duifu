@@ -119,6 +119,7 @@ def test_trade_plan_has_required_columns_indexes_and_duplicate_guards() -> None:
         "trigger_price",
         "trigger_time",
         "tracking_note",
+        "is_watched",
         "risk_note",
         "created_at",
         "updated_at",

@@ -33,6 +33,7 @@ class TradePlanResult:
     trigger_price: Optional[float] = None
     trigger_time: Optional[datetime] = None
     tracking_note: str = ""
+    is_watched: bool = False
 
 
 @dataclass(frozen=True)
@@ -427,6 +428,7 @@ def update_trade_plan_status(
     status: str,
     trigger_price: Optional[float] = None,
     note: str = "",
+    is_watched: Optional[bool] = None,
 ) -> TradePlanResult:
     allowed_statuses = {"待触发", "已触发", "未触发", "取消"}
     if status not in allowed_statuses:
@@ -444,6 +446,8 @@ def update_trade_plan_status(
         elif status != "已触发":
             plan.trigger_price = None
             plan.trigger_time = None
+        if is_watched is not None:
+            plan.is_watched = is_watched
         session.commit()
         session.refresh(plan)
         return _plan_result(plan)
@@ -668,6 +672,7 @@ def _plan_result(record: TradePlan) -> TradePlanResult:
         trigger_price=_optional_number(record.trigger_price),
         trigger_time=record.trigger_time,
         tracking_note=record.tracking_note,
+        is_watched=record.is_watched,
     )
 
 

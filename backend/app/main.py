@@ -49,6 +49,7 @@ class TradePlanStatusUpdate(BaseModel):
     status: str
     trigger_price: Optional[float] = None
     note: str = ""
+    is_watched: Optional[bool] = None
 
 
 class TradeReviewUpdate(BaseModel):
@@ -129,6 +130,7 @@ def _trade_plan_payload(item) -> dict:
         "trigger_price": item.trigger_price,
         "trigger_time": item.trigger_time.isoformat() if item.trigger_time else None,
         "tracking_note": item.tracking_note,
+        "is_watched": item.is_watched,
         "risk_note": item.risk_note,
     }
 
@@ -343,6 +345,7 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
                 payload.status,
                 trigger_price=payload.trigger_price,
                 note=payload.note,
+                is_watched=payload.is_watched,
             )
         except ValueError as exc:
             message = str(exc)
@@ -373,6 +376,11 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
         if result is None:
             raise HTTPException(status_code=404, detail="trade reviews are not generated")
         return _trade_review_payload(result)
+
+    @app.post("/api/reviews", tags=["trade"])
+    def create_trade_reviews(payload: TradeReviewGenerateRequest) -> dict:
+        trade_date = _parse_iso_date(payload.trade_date, "trade_date")
+        return _trade_review_payload(generate_trade_reviews(database_engine, trade_date))
 
     @app.patch("/api/reviews/{review_id}", tags=["trade"])
     def update_trade_review_api(review_id: int, payload: TradeReviewUpdate) -> dict:

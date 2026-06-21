@@ -229,7 +229,7 @@ function exportSectors() {
 function exportPlans() {
   exportCsv(
     `trade-plans-${tradePlans.value?.target_trade_date ?? 'latest'}.csv`,
-    ['股票代码', '股票名称', '板块', '策略', '个股评分', '板块评分', '买入条件', '买入下限', '买入上限', '止损价', '止盈价', '仓位', '状态', '触发价', '跟踪备注', '风险提示'],
+    ['股票代码', '股票名称', '板块', '策略', '个股评分', '板块评分', '买入条件', '买入下限', '买入上限', '止损价', '止盈价', '仓位', '状态', '关注', '触发价', '跟踪备注', '风险提示'],
     filteredTradePlans.value.map((item) => [
       item.stock_code,
       item.stock_name,
@@ -244,9 +244,35 @@ function exportPlans() {
       item.take_profit_price,
       item.position_ratio,
       item.status,
+      item.is_watched ? '是' : '否',
       item.trigger_price ?? '',
       item.tracking_note,
       item.risk_note
+    ])
+  )
+}
+
+function exportReviews() {
+  exportCsv(
+    `trade-reviews-${tradeReviews.value?.review_date ?? 'latest'}.csv`,
+    ['日期', '股票代码', '股票名称', '板块', '策略', '是否触发', '触发价', '收盘价', '当日收益', 'T+5收益', '最大浮盈', '最大浮亏', '结果', '失败原因', '纪律检查', '备注'],
+    (tradeReviews.value?.items ?? []).map((item) => [
+      item.trade_date,
+      item.stock_code,
+      item.stock_name,
+      item.sector_name,
+      item.strategy_type,
+      item.triggered ? '是' : '否',
+      item.trigger_price ?? '',
+      item.close_price ?? '',
+      item.day_return ?? '',
+      item.t5_return ?? '',
+      item.max_profit ?? '',
+      item.max_loss ?? '',
+      item.result,
+      item.failure_reason ?? '',
+      item.discipline_check ? '是' : '否',
+      item.note
     ])
   )
 }
@@ -263,6 +289,28 @@ async function runPlanTracking(markUntriggeredAtClose = false) {
     ElMessage.success(`已更新 ${result.items.length} 条计划状态`)
   } catch (err) {
     error.value = err instanceof Error ? err.message : '计划跟踪失败'
+  } finally {
+    planTrackingLoading.value = false
+  }
+}
+
+async function togglePlanWatch(row: TradePlanItem) {
+  planTrackingLoading.value = true
+  error.value = ''
+
+  try {
+    const nextValue = !row.is_watched
+    await updateTradePlanStatus(
+      row.id,
+      row.status,
+      nextValue ? '前端手动标记为关注' : '前端手动取消关注',
+      row.trigger_price ?? undefined,
+      nextValue
+    )
+    await loadDashboard()
+    ElMessage.success(`${row.stock_name} 已${nextValue ? '加入关注' : '取消关注'}`)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '关注状态更新失败'
   } finally {
     planTrackingLoading.value = false
   }
@@ -502,13 +550,21 @@ onMounted(loadDashboard)
               <el-tag :type="planStatusType(row.status)">{{ row.status }}</el-tag>
             </template>
           </el-table-column>
+          <el-table-column label="关注" min-width="90" sortable prop="is_watched">
+            <template #default="{ row }: { row: TradePlanItem }">
+              <el-tag :type="row.is_watched ? 'success' : 'info'">{{ row.is_watched ? '已关注' : '未关注' }}</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="触发价" min-width="100" sortable prop="trigger_price">
             <template #default="{ row }: { row: TradePlanItem }">{{ formatPrice(row.trigger_price) }}</template>
           </el-table-column>
           <el-table-column prop="tracking_note" label="跟踪备注" min-width="220" show-overflow-tooltip />
-          <el-table-column label="手动" width="180" fixed="right">
+          <el-table-column label="手动" width="250" fixed="right">
             <template #default="{ row }: { row: TradePlanItem }">
               <el-button size="small" :disabled="planTrackingLoading" @click="loadPlanDetail(row.id)">详情</el-button>
+              <el-button size="small" :disabled="planTrackingLoading" @click="togglePlanWatch(row)">
+                {{ row.is_watched ? '取消关注' : '关注' }}
+              </el-button>
               <el-button size="small" :disabled="planTrackingLoading" @click="setPlanStatus(row, '已触发')">触发</el-button>
               <el-button size="small" type="danger" :disabled="planTrackingLoading" @click="setPlanStatus(row, '取消')">取消</el-button>
             </template>
@@ -757,6 +813,7 @@ onMounted(loadDashboard)
             <h2>交易复盘</h2>
             <p>复盘日：{{ tradeReviews?.review_date ?? '-' }}，展示触发、收益和失败原因。</p>
           </div>
+          <el-button :icon="Download" :disabled="!(tradeReviews?.items.length)" @click="exportReviews">导出复盘</el-button>
         </div>
 
         <template v-if="tradeReviews">

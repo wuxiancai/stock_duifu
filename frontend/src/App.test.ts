@@ -65,6 +65,7 @@ describe('App', () => {
             trigger_price: null,
             trigger_time: null,
             tracking_note: '',
+            is_watched: false,
             risk_note: '高位强势股，严格执行止损。'
           }
         ]
@@ -88,6 +89,7 @@ describe('App', () => {
         trigger_price: null,
         trigger_time: null,
         tracking_note: '',
+        is_watched: false,
         risk_note: '高位强势股，严格执行止损。',
         selection_reason: '板块排名 Top 10，趋势多头排列',
         key_indicators: {
@@ -250,6 +252,7 @@ describe('App', () => {
     expect(wrapper.text()).toContain('今日交易计划')
     expect(wrapper.text()).toContain('中际旭创')
     expect(wrapper.text()).toContain('40%')
+    expect(wrapper.text()).toContain('关注')
     expect(wrapper.text()).toContain('模拟交易')
     expect(wrapper.text()).toContain('当前总资产')
     expect(wrapper.text()).toContain('买入')
@@ -260,6 +263,7 @@ describe('App', () => {
     expect(wrapper.text()).toContain('盘中跟踪')
     expect(wrapper.text()).toContain('当前价')
     expect(wrapper.text()).toContain('交易复盘')
+    expect(wrapper.text()).toContain('导出复盘')
     expect(wrapper.text()).toContain('复盘日：2026-06-19')
     expect(wrapper.text()).toContain('当日均收益')
     expect(wrapper.text()).toContain('盈利')
