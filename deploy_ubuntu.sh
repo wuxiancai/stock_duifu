@@ -5,9 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 DRY_RUN="${STOCK_DEPLOY_DRY_RUN:-0}"
-POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-5432}"
+POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-15432}"
 POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-}"
 EXPLICIT_DATABASE_URL=""
+EXPLICIT_POSTGRES_HOST_PORT=""
 EXPLICIT_TUSHARE_TOKEN=""
 
 info() {
@@ -204,6 +205,7 @@ ensure_env_file() {
 
 load_env_file() {
   EXPLICIT_DATABASE_URL="${DATABASE_URL:-}"
+  EXPLICIT_POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-}"
   EXPLICIT_TUSHARE_TOKEN="${TUSHARE_TOKEN:-}"
   if [ -f ".env" ]; then
     set -a
@@ -218,7 +220,7 @@ load_env_file() {
 }
 
 select_postgres_port() {
-  local base_port="${POSTGRES_HOST_PORT:-$POSTGRES_BASE_PORT}"
+  local base_port="${EXPLICIT_POSTGRES_HOST_PORT:-$POSTGRES_BASE_PORT}"
   POSTGRES_HOST_PORT="$(next_available_port "$base_port")"
   info "selected PostgreSQL host port: $POSTGRES_HOST_PORT"
   export POSTGRES_HOST_PORT

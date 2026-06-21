@@ -42,6 +42,43 @@ def test_deploy_script_has_dry_run_and_keeps_database_empty() -> None:
     assert "get_data.sh" in result.stdout
 
 
+def test_deploy_script_uses_high_default_postgres_port_instead_of_5432() -> None:
+    script = ROOT / "deploy_ubuntu.sh"
+
+    result = run_script(
+        str(script),
+        {
+            "STOCK_DEPLOY_DRY_RUN": "1",
+            "FORCE_INSTALL": "1",
+            "TUSHARE_TOKEN": "token-for-dry-run",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "selected PostgreSQL host port: 15432" in result.stdout
+    assert "POSTGRES_HOST_PORT=15432 docker compose up -d postgres" in result.stdout
+    assert "127.0.0.1:15432/stock" in result.stdout
+
+
+def test_deploy_script_honors_explicit_postgres_host_port() -> None:
+    script = ROOT / "deploy_ubuntu.sh"
+
+    result = run_script(
+        str(script),
+        {
+            "STOCK_DEPLOY_DRY_RUN": "1",
+            "FORCE_INSTALL": "1",
+            "TUSHARE_TOKEN": "token-for-dry-run",
+            "POSTGRES_HOST_PORT": "16432",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "selected PostgreSQL host port: 16432" in result.stdout
+    assert "POSTGRES_HOST_PORT=16432 docker compose up -d postgres" in result.stdout
+    assert "127.0.0.1:16432/stock" in result.stdout
+
+
 def test_deploy_script_advances_postgres_port_when_base_port_is_busy() -> None:
     busy_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:

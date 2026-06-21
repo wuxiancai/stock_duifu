@@ -31,6 +31,7 @@
 - [x] 已优化强势板块浏览体验：点击板块进入独立详情页，候选股票和交易计划按板块分页面展示
 - [x] 已修复部署 PostgreSQL 端口占用：`deploy_ubuntu.sh` 会顺延宿主机端口并写回 `.env`
 - [x] 已修复部署迁移连错旧端口：旧本地 `DATABASE_URL` 会按 Docker 实际端口重写
+- [x] 已避开系统 PostgreSQL 默认端口：部署默认从 `15432` 启动项目 PostgreSQL
 
 ## 开发原则
 
@@ -761,3 +762,18 @@ TuShare 全市场初始化验证：
 - `.venv/bin/pytest tests/test_deployment_scripts.py`：5 passed。
 - `bash -n deploy_ubuntu.sh get_data.sh start.sh scripts/dev-web.sh`：通过。
 - `STOCK_DEPLOY_DRY_RUN=1 FORCE_INSTALL=1 TUSHARE_TOKEN=token-for-dry-run POSTGRES_BASE_PORT=5432 DATABASE_URL='postgresql+psycopg://stock:stock@127.0.0.1:5432/stock' bash deploy_ubuntu.sh`：当前本机 `5432` 被占用时，迁移命令使用 `127.0.0.1:5433/stock`。
+
+### 24. 部署默认避开 5432
+
+- `deploy_ubuntu.sh` 默认 `POSTGRES_BASE_PORT=15432`，不再从系统 PostgreSQL 常用端口 `5432` 起步。
+- 部署时不再沿用 `.env` 里残留的 `POSTGRES_HOST_PORT=5432`；除非本次命令显式传入 `POSTGRES_HOST_PORT=...`，否则都会从 `15432` 开始找可用端口。
+- `.env.example` 默认 PostgreSQL 端口改为 `15432`，`DATABASE_URL` 同步为 `127.0.0.1:15432/stock`。
+- 如果必须指定端口，可显式运行：`POSTGRES_HOST_PORT=16432 bash deploy_ubuntu.sh`。
+
+状态：已完成。
+
+验证：
+
+- `STOCK_DEPLOY_DRY_RUN=1 FORCE_INSTALL=1 TUSHARE_TOKEN=token-for-dry-run bash deploy_ubuntu.sh`：输出 `selected PostgreSQL host port: 15432`，并以 `POSTGRES_HOST_PORT=15432 docker compose up -d postgres` 启动。
+- `.venv/bin/pytest tests/test_deployment_scripts.py`：7 passed。
+- `bash -n deploy_ubuntu.sh get_data.sh start.sh scripts/dev-web.sh`：通过。
