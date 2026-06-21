@@ -78,6 +78,15 @@ def _row_value(row, *names: str):
     return None
 
 
+def normalize_stock_code(value) -> str:
+    text = str(value or "").strip().lower()
+    if text.startswith(("sh", "sz", "bj")):
+        text = text[2:]
+    if "." in text:
+        text = text.split(".", 1)[0]
+    return text.zfill(6) if text else ""
+
+
 class AkShareSinaMarketDataProvider:
     name = "akshare_sina"
 
@@ -253,7 +262,8 @@ class AkShareRealtimeQuoteProvider:
         stock_codes: Iterable[str],
         trade_date: date,
     ) -> list[StockDailyRecord]:
-        wanted = {str(code).zfill(6) for code in stock_codes}
+        wanted = {normalize_stock_code(code) for code in stock_codes}
+        wanted.discard("")
         if not wanted:
             return []
 
@@ -264,7 +274,7 @@ class AkShareRealtimeQuoteProvider:
 
         records: list[StockDailyRecord] = []
         for _, row in frame.iterrows():
-            code = str(_row_value(row, "代码", "code", "symbol") or "").zfill(6)
+            code = normalize_stock_code(_row_value(row, "代码", "code", "symbol"))
             if code not in wanted:
                 continue
             record = self._quote_row_to_daily(row, code, trade_date)
@@ -273,18 +283,18 @@ class AkShareRealtimeQuoteProvider:
         return records
 
     def _quote_row_to_daily(self, row, stock_code: str, trade_date: date) -> Optional[StockDailyRecord]:
-        close = as_float(_row_value(row, "最新价", "最新", "close"), default=None)
+        close = as_float(_row_value(row, "最新价", "最新", "close", "trade"), default=None)
         open_price = as_float(_row_value(row, "今开", "开盘", "open"), default=None)
         high = as_float(_row_value(row, "最高", "high"), default=None)
         low = as_float(_row_value(row, "最低", "low"), default=None)
-        pre_close = as_float(_row_value(row, "昨收", "pre_close"), default=None)
+        pre_close = as_float(_row_value(row, "昨收", "pre_close", "settlement"), default=None)
         if not close or not open_price or not high or not low:
             return None
         if close <= 0 or open_price <= 0 or high <= 0 or low <= 0:
             return None
         pre_close = pre_close or close
-        change = as_float(_row_value(row, "涨跌额", "change"), default=close - pre_close)
-        pct_chg = as_float(_row_value(row, "涨跌幅", "pct_chg"), default=0.0)
+        change = as_float(_row_value(row, "涨跌额", "change", "pricechange"), default=close - pre_close)
+        pct_chg = as_float(_row_value(row, "涨跌幅", "pct_chg", "changepercent"), default=0.0)
         return StockDailyRecord(
             stock_code=stock_code,
             trade_date=trade_date,
@@ -297,9 +307,45 @@ class AkShareRealtimeQuoteProvider:
             pct_chg=pct_chg,
             volume=as_float(_row_value(row, "成交量", "volume"), default=0.0),
             amount=as_float(_row_value(row, "成交额", "amount"), default=0.0),
-            turnover_rate=as_float(_row_value(row, "换手率", "turnover_rate"), default=None),
+            turnover_rate=as_float(_row_value(row, "换手率", "turnover_rate", "turnoverratio"), default=None),
             source=self.name,
         )
+
+
+class AkShareSinaRealtimeQuoteProvider(AkShareRealtimeQuoteProvider):
+    name = "akshare_sina_realtime"
+
+    def __init__(self, spot_fetcher=None):
+        self._spot_fetcher = spot_fetcher or ak.stock_zh_a_spot
+
+
+class FallbackRealtimeQuoteProvider:
+    name = "auto_realtime"
+
+    def __init__(self, providers: Iterable[AkShareRealtimeQuoteProvider]):
+        self.providers = list(providers)
+        self.last_provider_name: Optional[str] = None
+        self.errors: list[str] = []
+
+    def fetch_realtime_stock_daily(
+        self,
+        stock_codes: Iterable[str],
+        trade_date: date,
+    ) -> list[StockDailyRecord]:
+        self.last_provider_name = None
+        self.errors = []
+        for provider in self.providers:
+            try:
+                records = provider.fetch_realtime_stock_daily(stock_codes, trade_date)
+            except Exception as exc:
+                self.errors.append(f"{provider.name}: {exc.__class__.__name__}: {exc}")
+                continue
+            self.last_provider_name = provider.name
+            self.name = provider.name
+            if records:
+                return records
+            self.errors.append(f"{provider.name}: 返回 0 行实时行情")
+        raise RuntimeError("；".join(self.errors) or "所有实时行情源均未返回数据")
 
 
 class MissingTushareTokenError(RuntimeError):

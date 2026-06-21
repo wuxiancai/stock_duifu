@@ -449,7 +449,7 @@ TuShare 全市场初始化验证：
 
 验收：目标日有真实日线时可进入后续跟踪和模拟；目标日闭市或数据源未返回日线时必须明确说明，不伪造成交。
 
-状态：第三阶段基础链路已完成；真实成交验收仍需在目标交易日当天且实时数据源可用时重跑。后续仍需补备用实时源、分批止盈、移动止损和交易时段轮询。
+状态：第三阶段基础链路和备用实时源已完成；真实成交验收仍需在目标交易日当天重跑。后续仍需完善分批止盈、移动止损和交易时段轮询。
 
 已完成：
 
@@ -463,6 +463,8 @@ TuShare 全市场初始化验证：
 - 新增脚本和 Makefile 入口：`scripts/retarget-closed-trade-plans.sh` / `make retarget-closed-trade-plans`。
 - 闭市目标日会把旧计划标记为 `取消` 并写入顺延备注，再用原计划日重新生成到目标日之后的下一开市日；缺少下一开市日历时会明确提示先采集更晚交易日历。
 - 新增 AkShare/Eastmoney 延迟实时行情 provider：`AkShareRealtimeQuoteProvider`，将 `stock_zh_a_spot_em` 快照映射为 `StockDailyRecord`。
+- 新增 AkShare/Sina 备用实时行情 provider：`AkShareSinaRealtimeQuoteProvider`，将 `stock_zh_a_spot` 快照映射为 `StockDailyRecord`。
+- 新增 `FallbackRealtimeQuoteProvider`，`run-realtime-workflow --provider auto` 会先尝试 Eastmoney，失败或返回空行后再尝试 Sina；CLI 默认 provider 已改为 `auto`。
 - 新增服务：`backend/app/data/realtime_quotes.py`，只针对目标日交易计划股回补实时快照，并串联 `run_simulation_workflow`。
 - 新增 CLI：`python -m backend.app.data.cli run-realtime-workflow --target-trade-date YYYY-MM-DD`。
 - 新增脚本和 Makefile 入口：`scripts/run-realtime-workflow.sh` / `make run-realtime-workflow`。
@@ -486,15 +488,17 @@ TuShare 全市场初始化验证：
 - 第二阶段真实日历补充：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/ingest-market-data.sh --provider tushare --trade-date 2026-06-22 --stock-code 300308 --stock-code 603986` 返回 `trading_calendar_rows=173`、`stock_daily_rows=0`。
 - 第二阶段真实顺延：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/retarget-closed-trade-plans.sh --target-trade-date 2026-06-19` 返回 `target_is_open=false`、`new_target_trade_date=2026-06-22`、`closed_plan_count=2`、`generated_plan_count=2`。
 - 第二阶段真实库确认：`2026-06-19` 两条计划状态为 `取消` 且备注为已重新生成到 `2026-06-22`；`2026-06-22` 两条计划状态为 `待触发`。
-- 第三阶段验证：`.venv/bin/pytest`：71 passed，1 个 LibreSSL/urllib3 warning。
-- 第三阶段验证：`cd frontend && npm test -- --run`：1 passed。
-- 第三阶段验证：`cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
-- 第三阶段脚本验证：`bash -n scripts/run-realtime-workflow.sh scripts/backfill-target-daily.sh scripts/run-simulation.sh`：通过。
-- 第三阶段 CLI 验证：`.venv/bin/python -m backend.app.data.cli run-realtime-workflow --help` 正常展示参数。
+- 第三阶段备用源验证：`.venv/bin/pytest`：73 passed，1 个 LibreSSL/urllib3 warning。
+- 第三阶段备用源验证：`cd frontend && npm test -- --run`：1 passed。
+- 第三阶段备用源验证：`cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 第三阶段备用源脚本验证：`bash -n scripts/run-realtime-workflow.sh scripts/backfill-target-daily.sh scripts/run-simulation.sh`：通过。
+- 第三阶段备用源 CLI 验证：`.venv/bin/python -m backend.app.data.cli run-realtime-workflow --help` 正常展示 `--provider {auto,akshare,sina}`。
+- 第三阶段备用源真实只读验证：`AkShareSinaRealtimeQuoteProvider` 成功返回 `300308`、`603986` 两只目标计划股实时快照，source 为 `akshare_sina_realtime`。
+- 第三阶段备用源真实命令：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/run-realtime-workflow.sh --provider auto --target-trade-date 2026-06-22` 返回 `planned_stock_count=2`、`requested_stock_count=2`、`target_is_open=true`，但因本机判断 `china_today=2026-06-21`，触发日期保护，未写入 `2026-06-22` 行情，`workflow=null`。
 - 第三阶段真实 PostgreSQL：`docker compose ps postgres` 显示 `stock-postgres` healthy，端口 `127.0.0.1:5432->5432`；`scripts/db-current.sh` 输出 `0005_simulation_trading_tables (head)`。
 - 第三阶段真实命令：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/run-realtime-workflow.sh --provider akshare --target-trade-date 2026-06-22` 返回 `planned_stock_count=2`、`requested_stock_count=2`、`target_is_open=true`，但因本机判断 `china_today=2026-06-21`，触发日期保护，未写入 `2026-06-22` 行情，`workflow=null`。
-- 第三阶段只读实时源验证：AkShare/Eastmoney `stock_zh_a_spot_em` 当前在本机网络下返回 `RemoteDisconnected`，需要在目标交易日当天重试或接入腾讯/新浪等备用实时源。
+- 第三阶段只读实时源验证：AkShare/Eastmoney `stock_zh_a_spot_em` 当前在本机网络下返回 `RemoteDisconnected`；Sina `stock_zh_a_spot` 本轮可作为目标计划股备用实时源。
 
 ## 下一步
 
-下一次优先在 `2026-06-22` 目标交易日当天重跑 `scripts/run-realtime-workflow.sh --provider akshare --target-trade-date 2026-06-22`；如果 AkShare/Eastmoney 仍断连，则继续补腾讯/新浪实时行情备用源。再往后完善分批止盈、移动止损和交易时段轮询。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次优先在 `2026-06-22` 目标交易日当天重跑 `scripts/run-realtime-workflow.sh --provider auto --target-trade-date 2026-06-22`，确认真实实时快照能写入目标日并驱动跟踪/模拟。再往后完善分批止盈、移动止损和交易时段轮询。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

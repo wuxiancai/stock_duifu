@@ -5,7 +5,11 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from backend.app.data.providers import AkShareRealtimeQuoteProvider
+from backend.app.data.providers import (
+    AkShareRealtimeQuoteProvider,
+    AkShareSinaRealtimeQuoteProvider,
+    FallbackRealtimeQuoteProvider,
+)
 from backend.app.data.realtime_quotes import run_realtime_quote_workflow
 from backend.app.data.types import StockDailyRecord
 from backend.app.db.models import SimulationTrade, StockDaily, TradePlan, TradingCalendar, metadata
@@ -79,6 +83,17 @@ class FakeRealtimeProvider:
         return [row for row in self.rows if row.stock_code in wanted and row.trade_date == trade_date]
 
 
+class FailingRealtimeProvider:
+    name = "failing-realtime"
+
+    def __init__(self):
+        self.calls = []
+
+    def fetch_realtime_stock_daily(self, stock_codes, trade_date):
+        self.calls.append((list(stock_codes), trade_date))
+        raise RuntimeError("primary disconnected")
+
+
 def test_akshare_realtime_quote_provider_maps_spot_rows_to_stock_daily_records() -> None:
     frame = pd.DataFrame(
         [
@@ -122,6 +137,57 @@ def test_akshare_realtime_quote_provider_maps_spot_rows_to_stock_daily_records()
     assert record.pct_chg == 5.0
     assert record.turnover_rate == 3.0
     assert record.source == "akshare_realtime"
+
+
+def test_akshare_sina_realtime_quote_provider_maps_sina_spot_rows() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "symbol": "sh600000",
+                "code": "600000",
+                "name": "浦发银行",
+                "trade": 8.88,
+                "open": 8.8,
+                "high": 9.0,
+                "low": 8.7,
+                "settlement": 8.6,
+                "pricechange": 0.28,
+                "changepercent": 3.25,
+                "volume": 123456,
+                "amount": 12345678,
+                "turnoverratio": 1.23,
+            }
+        ]
+    )
+    provider = AkShareSinaRealtimeQuoteProvider(spot_fetcher=lambda: frame)
+
+    records = provider.fetch_realtime_stock_daily(["600000"], date(2026, 6, 19))
+
+    assert len(records) == 1
+    record = records[0]
+    assert record.stock_code == "600000"
+    assert record.close == 8.88
+    assert record.pre_close == 8.6
+    assert record.change == 0.28
+    assert record.pct_chg == 3.25
+    assert record.turnover_rate == 1.23
+    assert record.source == "akshare_sina_realtime"
+
+
+def test_fallback_realtime_quote_provider_uses_sina_after_primary_error() -> None:
+    primary = FailingRealtimeProvider()
+    fallback = FakeRealtimeProvider([_daily("600000")])
+    provider = FallbackRealtimeQuoteProvider([primary, fallback])
+
+    records = provider.fetch_realtime_stock_daily(["600000"], date(2026, 6, 19))
+
+    assert len(records) == 1
+    assert records[0].stock_code == "600000"
+    assert primary.calls == [(["600000"], date(2026, 6, 19))]
+    assert fallback.calls == [(["600000"], date(2026, 6, 19))]
+    assert provider.last_provider_name == "unit-test-realtime"
+    assert provider.name == "unit-test-realtime"
+    assert provider.errors == ["failing-realtime: RuntimeError: primary disconnected"]
 
 
 def test_run_realtime_quote_workflow_backfills_quotes_tracks_plan_and_buys() -> None:
