@@ -18,6 +18,7 @@
 - [x] 已完成交易复盘生成、最近复盘 API 和 Web 展示
 - [x] 已完成模拟交易账户、买卖撮合、资金曲线、API/CLI/Web 展示
 - [x] 已完成模拟交易盘中实盘化基础链路：先跟踪计划触发，再自动运行模拟交易
+- [x] 已完成任务 13 第一阶段：按目标交易日交易计划回补真实个股日线，并识别目标日闭市
 
 ## 开发原则
 
@@ -437,6 +438,36 @@ TuShare 全市场初始化验证：
 - 真实 workflow：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/run-simulation.sh run-workflow --trade-date 2026-06-19` 返回 `tracking=2`、总资产 `1000000.0`、交易 `0` 笔；原因是两只计划股目标日日线缺失，状态保持 `待触发` 并写入明确备注。
 - 真实 API 快验：`POST /api/simulation/run-workflow` 返回 200，`target_trade_date=2026-06-19`、`tracking=2`、`total_assets=1000000.0`、`trades=0`。
 
+### 13. 真实目标交易日日线回补入口
+
+- 为目标交易日的交易计划补齐真实 `stock_daily` 数据。
+- 只拉取计划内且目标日缺失日线的股票，避免为了少数计划股重复全市场采集。
+- 输出计划股票数、已有日线数、请求股票数、实际回补日线数、仍缺失股票和目标日是否开市。
+- 盘中跟踪在目标日明确非开市时，写入“目标交易日不是开市日，未产生行情数据，计划需重新生成到下一开市日”，不伪造成交。
+
+验收：目标日有真实日线时可进入后续跟踪和模拟；目标日闭市或数据源未返回日线时必须明确说明，不伪造成交。
+
+状态：第一阶段已完成；后续仍需补闭市目标日自动顺延/重生成、延迟实时行情、分批止盈、移动止损和交易时段轮询。
+
+已完成：
+
+- 新增服务：`backend/app/data/target_daily.py`。
+- 新增 CLI：`python -m backend.app.data.cli backfill-target-daily --target-trade-date YYYY-MM-DD`。
+- 新增脚本和 Makefile 入口：`scripts/backfill-target-daily.sh` / `make backfill-target-daily`。
+- 回补结果新增 `target_is_open`，用于区分“数据源缺日线”和“目标日不是开市日”。
+- `track_trade_plans` 在目标日闭市且无日线时输出闭市备注，保持不触发、不模拟买入。
+
+验证：
+
+- `.venv/bin/pytest`：65 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 Element Plus / chunk size warning。
+- `bash -n scripts/backfill-target-daily.sh scripts/ingest-market-data.sh scripts/run-simulation.sh`：通过。
+- 真实 PostgreSQL：`docker compose ps postgres` 显示 `stock-postgres` healthy，端口 `127.0.0.1:5432->5432`。
+- 真实 PostgreSQL：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-current.sh` 输出 `0005_simulation_trading_tables (head)`。
+- 真实回补：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/backfill-target-daily.sh --provider tushare --target-trade-date 2026-06-19` 返回 `planned_stock_count=2`、`requested_stock_count=2`、`fetched_stock_daily_rows=0`、`missing_stock_codes=["300308", "603986"]`、`target_is_open=false`。
+- 真实 workflow：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/run-simulation.sh run-workflow --trade-date 2026-06-19` 返回 `tracking=2`、总资产 `1000000.0`、交易 `0` 笔；两只计划股保持 `待触发`，备注为目标日不是开市日。
+
 ## 下一步
 
-下一次开发进入任务 13：补真实目标交易日日线/延迟行情数据接入，让 `2026-06-19` 这类目标日计划可以被真实数据触发并进入模拟成交；随后完善分批止盈、移动止损和交易时段轮询。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次继续任务 13 第二阶段：当交易计划目标日被真实日历确认非开市时，自动顺延或重新生成到下一开市日；随后接入延迟实时行情，让开市目标日计划可基于真实数据触发并进入模拟成交。再往后完善分批止盈、移动止损和交易时段轮询。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

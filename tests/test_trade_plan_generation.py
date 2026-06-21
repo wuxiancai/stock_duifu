@@ -232,6 +232,22 @@ def test_track_trade_plans_can_mark_untriggered_after_close() -> None:
     assert item.status == "未触发"
 
 
+def test_track_trade_plans_reports_closed_target_date_without_daily_data() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        calendar = session.scalar(select(TradingCalendar).where(TradingCalendar.trade_date == date(2026, 6, 19)))
+        calendar.is_open = False
+        session.commit()
+
+    results = track_trade_plans(engine, date(2026, 6, 19))
+
+    assert len(results) == 2
+    assert all(item.status == "待触发" for item in results)
+    assert all("不是开市日" in item.tracking_note for item in results)
+
+
 def test_trade_plan_status_api_updates_manual_status_and_note() -> None:
     engine = _engine()
     plan_date = _seed_fixture(engine)

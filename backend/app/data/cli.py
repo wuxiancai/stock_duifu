@@ -1,11 +1,13 @@
 import argparse
 import json
 import os
+from dataclasses import asdict
 from datetime import date
 from typing import Optional
 
 from backend.app.data.audit import audit_market_data_coverage
 from backend.app.data.ingest import ingest_market_snapshot
+from backend.app.data.target_daily import backfill_trade_plan_target_daily
 from backend.app.data.providers import (
     AkShareSinaMarketDataProvider,
     MissingTushareTokenError,
@@ -34,6 +36,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     audit = subparsers.add_parser("audit", help="Report market data coverage")
     audit.add_argument("--trade-date", required=True, help="Target trade date in YYYY-MM-DD format")
+
+    backfill = subparsers.add_parser(
+        "backfill-target-daily",
+        help="Fetch missing stock_daily rows for trade plans on a target trade date",
+    )
+    backfill.add_argument("--provider", choices=["auto", "tushare", "akshare"], default="auto")
+    backfill.add_argument("--target-trade-date", required=True, help="Target trade date in YYYY-MM-DD format")
+    backfill.add_argument(
+        "--include-existing",
+        action="store_true",
+        help="Refetch plan stocks even when stock_daily already exists",
+    )
     return parser
 
 
@@ -75,6 +89,20 @@ def main() -> None:
     if args.command == "audit":
         audit = audit_market_data_coverage(create_database_engine(), parse_date(args.trade_date))
         print(json.dumps(audit.__dict__, ensure_ascii=False, default=str, sort_keys=True))
+        return
+
+    if args.command == "backfill-target-daily":
+        provider = load_provider(args.provider)
+        try:
+            result = backfill_trade_plan_target_daily(
+                create_database_engine(),
+                parse_date(args.target_trade_date),
+                provider,
+                include_existing=args.include_existing,
+            )
+        except MissingTushareTokenError as exc:
+            parser.error(str(exc))
+        print(json.dumps(asdict(result), ensure_ascii=False, default=str, sort_keys=True))
         return
 
     parser.error(f"Unsupported command: {args.command}")

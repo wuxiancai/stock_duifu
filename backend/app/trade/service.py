@@ -182,6 +182,7 @@ def track_trade_plans(
         ).all()
         results: list[TradePlanTrackingResult] = []
         now = datetime.now(timezone.utc)
+        target_is_open = _target_is_open(session, target_trade_date)
 
         for plan in plans:
             daily = session.scalar(
@@ -200,8 +201,13 @@ def track_trade_plans(
                 if trigger_price is not None:
                     plan.trigger_price = trigger_price
                     plan.trigger_time = now
-            elif daily is None and not plan.tracking_note:
-                plan.tracking_note = "目标交易日暂无日线数据，保持待触发状态"
+            elif daily is None and (
+                not plan.tracking_note or plan.tracking_note == "目标交易日暂无日线数据，保持待触发状态"
+            ):
+                if target_is_open is False:
+                    plan.tracking_note = "目标交易日不是开市日，未产生行情数据，计划需重新生成到下一开市日"
+                else:
+                    plan.tracking_note = "目标交易日暂无日线数据，保持待触发状态"
 
             results.append(
                 TradePlanTrackingResult(
@@ -442,6 +448,13 @@ def _average(values: list[float]) -> Optional[float]:
     if not values:
         return None
     return round(sum(values) / len(values), 4)
+
+
+def _target_is_open(session: Session, target_trade_date: date) -> Optional[bool]:
+    calendar = session.scalar(
+        select(TradingCalendar).where(TradingCalendar.trade_date == target_trade_date)
+    )
+    return calendar.is_open if calendar is not None else None
 
 
 def _evaluate_plan_tracking(
