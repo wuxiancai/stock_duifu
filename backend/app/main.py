@@ -1,8 +1,10 @@
+from datetime import date
 from typing import Optional
 
 from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlalchemy.engine import Engine
 
 from backend.app.candidate.service import load_latest_candidates
@@ -10,7 +12,44 @@ from backend.app.core.config import get_settings
 from backend.app.db.session import create_database_engine
 from backend.app.market.service import load_latest_market_environment
 from backend.app.sector.service import load_latest_sector_rankings
-from backend.app.trade.service import load_latest_trade_plans
+from backend.app.trade.service import load_latest_trade_plans, track_trade_plans, update_trade_plan_status
+
+
+class TradePlanTrackingRequest(BaseModel):
+    target_trade_date: str
+    mark_untriggered_at_close: bool = False
+
+
+class TradePlanStatusUpdate(BaseModel):
+    status: str
+    trigger_price: Optional[float] = None
+    note: str = ""
+
+
+def _trade_plan_payload(item) -> dict:
+    return {
+        "id": item.id,
+        "plan_date": item.plan_date.isoformat(),
+        "target_trade_date": item.target_trade_date.isoformat(),
+        "stock_code": item.stock_code,
+        "stock_name": item.stock_name,
+        "sector_name": item.sector_name,
+        "strategy_type": item.strategy_type,
+        "stock_score": item.stock_score,
+        "sector_score": item.sector_score,
+        "market_status": item.market_status,
+        "buy_condition": item.buy_condition,
+        "buy_price_low": item.buy_price_low,
+        "buy_price_high": item.buy_price_high,
+        "stop_loss_price": item.stop_loss_price,
+        "take_profit_price": item.take_profit_price,
+        "position_ratio": item.position_ratio,
+        "status": item.status,
+        "trigger_price": item.trigger_price,
+        "trigger_time": item.trigger_time.isoformat() if item.trigger_time else None,
+        "tracking_note": item.tracking_note,
+        "risk_note": item.risk_note,
+    }
 
 
 def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = None) -> FastAPI:
@@ -121,27 +160,53 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
         return {
             "plan_date": plan_date.isoformat(),
             "target_trade_date": target_trade_date.isoformat(),
+            "items": [_trade_plan_payload(item) for item in items],
+        }
+
+    @app.post("/api/trade-plans/track", tags=["trade"])
+    def track_trade_plans_api(payload: TradePlanTrackingRequest) -> dict:
+        try:
+            target_trade_date = date.fromisoformat(payload.target_trade_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="target_trade_date must be YYYY-MM-DD") from exc
+        items = track_trade_plans(
+            database_engine,
+            target_trade_date,
+            mark_untriggered_at_close=payload.mark_untriggered_at_close,
+        )
+        return {
+            "target_trade_date": target_trade_date.isoformat(),
             "items": [
                 {
+                    "id": item.id,
                     "stock_code": item.stock_code,
                     "stock_name": item.stock_name,
-                    "sector_name": item.sector_name,
-                    "strategy_type": item.strategy_type,
-                    "stock_score": item.stock_score,
-                    "sector_score": item.sector_score,
-                    "market_status": item.market_status,
-                    "buy_condition": item.buy_condition,
-                    "buy_price_low": item.buy_price_low,
-                    "buy_price_high": item.buy_price_high,
-                    "stop_loss_price": item.stop_loss_price,
-                    "take_profit_price": item.take_profit_price,
-                    "position_ratio": item.position_ratio,
                     "status": item.status,
-                    "risk_note": item.risk_note,
+                    "current_price": item.current_price,
+                    "pct_chg": item.pct_chg,
+                    "trigger_price": item.trigger_price,
+                    "tracking_note": item.tracking_note,
                 }
                 for item in items
             ],
         }
+
+    @app.patch("/api/trade-plans/{plan_id}/status", tags=["trade"])
+    def update_trade_plan_status_api(plan_id: int, payload: TradePlanStatusUpdate) -> dict:
+        try:
+            item = update_trade_plan_status(
+                database_engine,
+                plan_id,
+                payload.status,
+                trigger_price=payload.trigger_price,
+                note=payload.note,
+            )
+        except ValueError as exc:
+            message = str(exc)
+            if "not found" in message:
+                raise HTTPException(status_code=404, detail=message) from exc
+            raise HTTPException(status_code=400, detail=message) from exc
+        return _trade_plan_payload(item)
 
     return app
 

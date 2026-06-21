@@ -141,6 +141,9 @@ class TradePlan(Base):
     take_profit_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
     position_ratio: Mapped[float] = mapped_column(Numeric(8, 4), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="待触发")
+    trigger_price: Mapped[Optional[float]] = mapped_column(Numeric(12, 4))
+    trigger_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    tracking_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
     risk_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

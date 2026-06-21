@@ -10,6 +10,22 @@ async function fetchJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>
 }
 
+async function sendJson<T>(path: string, method: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  })
+
+  if (!response.ok) {
+    throw new Error(`${path} failed: ${response.status}`)
+  }
+
+  return response.json() as Promise<T>
+}
+
 export interface MarketLatestResponse {
   trade_date: string
   market_score: number
@@ -40,6 +56,7 @@ export interface SectorTopResponse {
 }
 
 export interface TradePlanItem {
+  id: number
   stock_code: string
   stock_name: string
   sector_name: string
@@ -54,6 +71,9 @@ export interface TradePlanItem {
   take_profit_price: number
   position_ratio: number
   status: string
+  trigger_price: number | null
+  trigger_time: string | null
+  tracking_note: string
   risk_note: string
 }
 
@@ -61,6 +81,20 @@ export interface TradePlansLatestResponse {
   plan_date: string
   target_trade_date: string
   items: TradePlanItem[]
+}
+
+export interface TradePlanTrackingResponse {
+  target_trade_date: string
+  items: Array<{
+    id: number
+    stock_code: string
+    stock_name: string
+    status: string
+    current_price: number | null
+    pct_chg: number | null
+    trigger_price: number | null
+    tracking_note: string
+  }>
 }
 
 export function fetchMarketLatest(): Promise<MarketLatestResponse> {
@@ -73,4 +107,24 @@ export function fetchTopSectors(): Promise<SectorTopResponse> {
 
 export function fetchLatestTradePlans(): Promise<TradePlansLatestResponse> {
   return fetchJson<TradePlansLatestResponse>('/api/trade-plans/latest')
+}
+
+export function trackTradePlans(targetTradeDate: string, markUntriggeredAtClose = false): Promise<TradePlanTrackingResponse> {
+  return sendJson<TradePlanTrackingResponse>('/api/trade-plans/track', 'POST', {
+    target_trade_date: targetTradeDate,
+    mark_untriggered_at_close: markUntriggeredAtClose
+  })
+}
+
+export function updateTradePlanStatus(
+  planId: number,
+  status: string,
+  note: string,
+  triggerPrice?: number
+): Promise<TradePlanItem> {
+  return sendJson<TradePlanItem>(`/api/trade-plans/${planId}/status`, 'PATCH', {
+    status,
+    note,
+    trigger_price: triggerPrice
+  })
 }

@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.app.db.models import CandidateStock, MarketDaily, StockDaily, TradePlan, TradingCalendar, metadata
 from backend.app.main import create_app
-from backend.app.trade.service import generate_trade_plans
+from backend.app.trade.service import generate_trade_plans, track_trade_plans
 
 
 def _engine():
@@ -158,3 +158,129 @@ def test_trade_plans_latest_api_returns_persisted_plans() -> None:
     assert payload["target_trade_date"] == "2026-06-19"
     assert len(payload["items"]) == 2
     assert all(item["stop_loss_price"] for item in payload["items"])
+    assert all("id" in item for item in payload["items"])
+    assert all("tracking_note" in item for item in payload["items"])
+
+
+def test_track_trade_plans_marks_triggered_from_target_day_daily_data() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        plan = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
+        trigger_price = max(float(plan.buy_price_low), float(plan.stop_loss_price) + 0.01)
+        session.add(
+            StockDaily(
+                stock_code="000001",
+                trade_date=date(2026, 6, 19),
+                open=trigger_price,
+                high=float(plan.buy_price_high),
+                low=trigger_price,
+                close=float(plan.buy_price_high),
+                pre_close=trigger_price,
+                change=1.0,
+                pct_chg=3.0,
+                volume=1000,
+                amount=1000000000,
+                turnover_rate=3.0,
+                source="unit-test",
+            )
+        )
+        session.commit()
+
+    results = track_trade_plans(engine, date(2026, 6, 19))
+
+    assert len(results) == 2
+    triggered = next(item for item in results if item.stock_code == "000001")
+    assert triggered.status == "已触发"
+    assert triggered.trigger_price is not None
+    with Session(engine) as session:
+        saved = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
+        assert saved.status == "已触发"
+        assert saved.tracking_note == "目标交易日价格触达计划买入区间"
+
+
+def test_track_trade_plans_can_mark_untriggered_after_close() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        plan = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
+        price = float(plan.buy_price_high) * 1.01
+        session.add(
+            StockDaily(
+                stock_code="000001",
+                trade_date=date(2026, 6, 19),
+                open=price,
+                high=price,
+                low=price,
+                close=price,
+                pre_close=price,
+                change=0.0,
+                pct_chg=0.0,
+                volume=1000,
+                amount=1000000000,
+                turnover_rate=3.0,
+                source="unit-test",
+            )
+        )
+        session.commit()
+
+    results = track_trade_plans(engine, date(2026, 6, 19), mark_untriggered_at_close=True)
+
+    item = next(row for row in results if row.stock_code == "000001")
+    assert item.status == "未触发"
+
+
+def test_trade_plan_status_api_updates_manual_status_and_note() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        plan_id = session.scalar(select(TradePlan.id).where(TradePlan.stock_code == "000001"))
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.patch(
+        f"/api/trade-plans/{plan_id}/status",
+        json={"status": "取消", "note": "板块退潮，手动取消"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "取消"
+    assert payload["tracking_note"] == "板块退潮，手动取消"
+
+
+def test_trade_plan_tracking_api_returns_updated_items() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        plan = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
+        trigger_price = max(float(plan.buy_price_low), float(plan.stop_loss_price) + 0.01)
+        session.add(
+            StockDaily(
+                stock_code="000001",
+                trade_date=date(2026, 6, 19),
+                open=trigger_price,
+                high=float(plan.buy_price_high),
+                low=trigger_price,
+                close=float(plan.buy_price_high),
+                pre_close=trigger_price,
+                change=1.0,
+                pct_chg=3.0,
+                volume=1000,
+                amount=1000000000,
+                turnover_rate=3.0,
+                source="unit-test",
+            )
+        )
+        session.commit()
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.post("/api/trade-plans/track", json={"target_trade_date": "2026-06-19"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["target_trade_date"] == "2026-06-19"
+    assert any(item["status"] == "已触发" for item in payload["items"])

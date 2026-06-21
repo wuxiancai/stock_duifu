@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -29,6 +29,23 @@ class TradePlanResult:
     position_ratio: float
     status: str
     risk_note: str
+    id: Optional[int] = None
+    trigger_price: Optional[float] = None
+    trigger_time: Optional[datetime] = None
+    tracking_note: str = ""
+
+
+@dataclass(frozen=True)
+class TradePlanTrackingResult:
+    id: int
+    stock_code: str
+    stock_name: str
+    target_trade_date: date
+    status: str
+    current_price: Optional[float]
+    pct_chg: Optional[float]
+    trigger_price: Optional[float]
+    tracking_note: str
 
 
 def generate_trade_plans(
@@ -48,7 +65,8 @@ def generate_trade_plans(
         )
         session.flush()
         for plan in plans:
-            session.add(TradePlan(**plan.__dict__))
+            payload = {key: value for key, value in plan.__dict__.items() if key != "id"}
+            session.add(TradePlan(**payload))
         session.commit()
         return plans
 
@@ -101,32 +119,138 @@ def load_latest_trade_plans(engine: Engine) -> Optional[tuple[date, date, list[T
             )
             .order_by(desc(TradePlan.stock_score), TradePlan.stock_code)
         ).all()
-        return (
-            latest_plan_date,
-            latest_target_date,
-            [
-                TradePlanResult(
-                    plan_date=record.plan_date,
-                    target_trade_date=record.target_trade_date,
-                    stock_code=record.stock_code,
-                    stock_name=record.stock_name,
-                    sector_name=record.sector_name,
-                    strategy_type=record.strategy_type,
-                    stock_score=record.stock_score,
-                    sector_score=record.sector_score,
-                    market_status=record.market_status,
-                    buy_condition=record.buy_condition,
-                    buy_price_low=_number(record.buy_price_low),
-                    buy_price_high=_number(record.buy_price_high),
-                    stop_loss_price=_number(record.stop_loss_price),
-                    take_profit_price=_number(record.take_profit_price),
-                    position_ratio=_number(record.position_ratio),
-                    status=record.status,
-                    risk_note=record.risk_note,
+        return (latest_plan_date, latest_target_date, [_plan_result(record) for record in records])
+
+
+def track_trade_plans(
+    engine: Engine,
+    target_trade_date: date,
+    mark_untriggered_at_close: bool = False,
+) -> list[TradePlanTrackingResult]:
+    with Session(engine) as session:
+        plans = session.scalars(
+            select(TradePlan)
+            .where(TradePlan.target_trade_date == target_trade_date)
+            .order_by(desc(TradePlan.stock_score), TradePlan.stock_code)
+        ).all()
+        results: list[TradePlanTrackingResult] = []
+        now = datetime.now(timezone.utc)
+
+        for plan in plans:
+            daily = session.scalar(
+                select(StockDaily).where(
+                    StockDaily.stock_code == plan.stock_code,
+                    StockDaily.trade_date == target_trade_date,
                 )
-                for record in records
-            ],
-        )
+            )
+            current_price = _number(daily.close) if daily else None
+            pct_chg = _number(daily.pct_chg) if daily else None
+
+            if daily and plan.status in {"待触发", "未触发"}:
+                status, trigger_price, note = _evaluate_plan_tracking(plan, daily, mark_untriggered_at_close)
+                plan.status = status
+                plan.tracking_note = note
+                if trigger_price is not None:
+                    plan.trigger_price = trigger_price
+                    plan.trigger_time = now
+            elif daily is None and not plan.tracking_note:
+                plan.tracking_note = "目标交易日暂无日线数据，保持待触发状态"
+
+            results.append(
+                TradePlanTrackingResult(
+                    id=plan.id,
+                    stock_code=plan.stock_code,
+                    stock_name=plan.stock_name,
+                    target_trade_date=plan.target_trade_date,
+                    status=plan.status,
+                    current_price=current_price,
+                    pct_chg=pct_chg,
+                    trigger_price=_optional_number(plan.trigger_price),
+                    tracking_note=plan.tracking_note,
+                )
+            )
+
+        session.commit()
+        return results
+
+
+def update_trade_plan_status(
+    engine: Engine,
+    plan_id: int,
+    status: str,
+    trigger_price: Optional[float] = None,
+    note: str = "",
+) -> TradePlanResult:
+    allowed_statuses = {"待触发", "已触发", "未触发", "取消"}
+    if status not in allowed_statuses:
+        raise ValueError(f"Unsupported trade plan status: {status}")
+
+    with Session(engine) as session:
+        plan = session.get(TradePlan, plan_id)
+        if plan is None:
+            raise ValueError(f"trade plan not found: {plan_id}")
+        plan.status = status
+        plan.tracking_note = note
+        if trigger_price is not None:
+            plan.trigger_price = round(float(trigger_price), 4)
+            plan.trigger_time = datetime.now(timezone.utc)
+        elif status != "已触发":
+            plan.trigger_price = None
+            plan.trigger_time = None
+        session.commit()
+        session.refresh(plan)
+        return _plan_result(plan)
+
+
+def _evaluate_plan_tracking(
+    plan: TradePlan,
+    daily: StockDaily,
+    mark_untriggered_at_close: bool,
+) -> tuple[str, Optional[float], str]:
+    open_price = _number(daily.open)
+    high = _number(daily.high)
+    low = _number(daily.low)
+    close = _number(daily.close)
+    buy_low = _number(plan.buy_price_low)
+    buy_high = _number(plan.buy_price_high)
+    stop_loss = _number(plan.stop_loss_price)
+
+    if open_price > buy_high * 1.03:
+        return "取消", None, "目标交易日高开超过计划买入上限 3%，按纪律取消追高"
+    if open_price < stop_loss or low < stop_loss:
+        return "取消", None, "目标交易日跌破计划止损价，按纪律取消计划"
+    if low <= buy_high and high >= buy_low:
+        trigger_price = round(min(max(open_price, buy_low), buy_high), 4)
+        return "已触发", trigger_price, "目标交易日价格触达计划买入区间"
+    if mark_untriggered_at_close:
+        return "未触发", None, f"收盘价 {close:.2f} 未触达计划买入区间"
+    return "待触发", None, "目标交易日尚未触达计划买入区间"
+
+
+def _plan_result(record: TradePlan) -> TradePlanResult:
+    return TradePlanResult(
+        id=record.id,
+        plan_date=record.plan_date,
+        target_trade_date=record.target_trade_date,
+        stock_code=record.stock_code,
+        stock_name=record.stock_name,
+        sector_name=record.sector_name,
+        strategy_type=record.strategy_type,
+        stock_score=record.stock_score,
+        sector_score=record.sector_score,
+        market_status=record.market_status,
+        buy_condition=record.buy_condition,
+        buy_price_low=_number(record.buy_price_low),
+        buy_price_high=_number(record.buy_price_high),
+        stop_loss_price=_number(record.stop_loss_price),
+        take_profit_price=_number(record.take_profit_price),
+        position_ratio=_number(record.position_ratio),
+        status=record.status,
+        risk_note=record.risk_note,
+        trigger_price=_optional_number(record.trigger_price),
+        trigger_time=record.trigger_time,
+        tracking_note=record.tracking_note,
+    )
 
 
 def _select_candidates(
@@ -161,7 +285,6 @@ def _build_plan(
     plan_date: date,
     target_trade_date: date,
 ) -> Optional[TradePlanResult]:
-    latest = history[-1]
     closes = [_number(row.close) for row in history]
     highs = [_number(row.high) for row in history]
     ma5 = _ma(closes, 5)
@@ -268,6 +391,12 @@ def _atr14(history: list[StockDaily]) -> float:
         previous_close = _number(row.pre_close)
         true_ranges.append(max(high - low, abs(high - previous_close), abs(low - previous_close)))
     return sum(true_ranges) / len(true_ranges)
+
+
+def _optional_number(value) -> Optional[float]:
+    if value is None:
+        return None
+    return _number(value)
 
 
 def _number(value) -> float:

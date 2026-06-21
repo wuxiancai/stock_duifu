@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」和任务 8「P0 Web 页面」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」和任务 9「盘中跟踪」。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
 
@@ -122,6 +122,12 @@
   - 强势板块页面接入 `GET /api/sectors/top`，支持排序、筛选和 CSV 导出。
   - 今日交易计划页面接入 `GET /api/trade-plans/latest`，支持排序、筛选和 CSV 导出。
   - 交易复盘页面保留真实空态，等待任务 10 接入 `trade_review`。
+- 已完成任务 9 盘中跟踪：
+  - `trade_plan` 新增 `trigger_price`、`trigger_time`、`tracking_note`。
+  - 新增迁移 `0004_trade_plan_tracking_fields`。
+  - 新增 `scripts/track-trade-plans.sh` 和 `make track-trade-plans`。
+  - 新增 `POST /api/trade-plans/track` 和 `PATCH /api/trade-plans/{plan_id}/status`。
+  - 今日交易计划页面支持跟踪触发、收盘确认、手动标记触发/取消，展示触发价和跟踪备注。
 
 ## 未完成
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股；任务 6 已在基础过滤中处理缺失日线、ST/退市风险和非 active 股票。
@@ -130,10 +136,18 @@
 - `sector_daily.five_day_return` 字段当前保存近 3 日累计涨幅；后续如改为 5 日，应同步迁移字段命名或 API 展示。
 - `amount_change` 当前使用 TuShare `dc_index.total_mv * turnover_rate / 100` 作为成交额代理值；后续若取得板块真实成交额字段，应替换为真实成交额。
 - 工作区存在未跟踪文件 `prd_by_glm.md`，不是本轮任务创建或修改，未纳入提交。
+- 本机一键启动时 PostgreSQL 当前映射为 `127.0.0.1:5433 -> postgres:5432`；真实验收命令使用了 `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5433/stock`。
 
 ## 本轮验证
 
 - `bash -n start.sh scripts/check-dev-environment.sh`：通过。
+- `bash -n scripts/track-trade-plans.sh`：通过。
+- `.venv/bin/pytest`：47 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；Element Plus 相关 bundle 仍有 chunk size warning。
+- `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5433/stock scripts/db-upgrade.sh`：迁移到 `0004_trade_plan_tracking_fields (head)`。
+- `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5433/stock scripts/track-trade-plans.sh --target-trade-date 2026-06-19 --mark-untriggered-at-close`：返回 2 条真实计划；因 `2026-06-19` 日线暂无数据，状态保持 `待触发` 并写入明确备注。
+- 运行中 API 快验：`POST /api/trade-plans/track` 返回 200，`target_trade_date=2026-06-19`、`items=2`。
 - `.venv/bin/pytest`：18 passed。
 - `cd frontend && npm test -- --run`：1 passed。
 - `cd frontend && npm run build`：通过。当前 Element Plus 全量引入触发 chunk size warning，属于后续优化项，不影响任务 1 验收。

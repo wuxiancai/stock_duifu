@@ -27,6 +27,9 @@ def test_trade_plan_cli_generates_json_summary(monkeypatch, capsys) -> None:
                 take_profit_price=12.6,
                 position_ratio=0.4,
                 status="待触发",
+                trigger_price=None,
+                trigger_time=None,
+                tracking_note="",
                 risk_note="测试风险",
             )
         ]
@@ -51,3 +54,41 @@ def test_trade_plan_cli_generates_json_summary(monkeypatch, capsys) -> None:
 
     assert calls == [("engine", date(2026, 6, 18), date(2026, 6, 19), 2)]
     assert '"stock_code": "000001"' in capsys.readouterr().out
+
+
+def test_trade_plan_cli_tracks_trade_plans(monkeypatch, capsys) -> None:
+    calls = []
+
+    def fake_track_trade_plans(engine, target_trade_date, mark_untriggered_at_close=False):
+        calls.append((engine, target_trade_date, mark_untriggered_at_close))
+        return [
+            SimpleNamespace(
+                id=1,
+                stock_code="000001",
+                stock_name="平安银行",
+                target_trade_date=target_trade_date,
+                status="已触发",
+                current_price=10.5,
+                pct_chg=3.0,
+                trigger_price=10.2,
+                tracking_note="触达买入区间",
+            )
+        ]
+
+    monkeypatch.setattr("backend.app.trade.cli.create_database_engine", lambda: "engine")
+    monkeypatch.setattr("backend.app.trade.cli.track_trade_plans", fake_track_trade_plans)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "trade",
+            "track",
+            "--target-trade-date",
+            "2026-06-19",
+            "--mark-untriggered-at-close",
+        ],
+    )
+
+    cli_main()
+
+    assert calls == [("engine", date(2026, 6, 19), True)]
+    assert '"status": "已触发"' in capsys.readouterr().out

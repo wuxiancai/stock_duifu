@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import {
   Calendar,
   Connection,
@@ -14,6 +15,8 @@ import {
   fetchLatestTradePlans,
   fetchMarketLatest,
   fetchTopSectors,
+  trackTradePlans,
+  updateTradePlanStatus,
   type MarketLatestResponse,
   type SectorTopItem,
   type SectorTopResponse,
@@ -29,6 +32,7 @@ const loading = ref(true)
 const error = ref('')
 const sectorKeyword = ref('')
 const planKeyword = ref('')
+const planTrackingLoading = ref(false)
 
 const statusType = computed(() => {
   if (error.value) return 'danger'
@@ -74,6 +78,19 @@ const filteredTradePlans = computed(() => {
 })
 
 const totalAmountText = computed(() => formatLargeAmount(market.value?.total_amount))
+
+function planStatusType(status: string) {
+  switch (status) {
+    case '已触发':
+      return 'success'
+    case '取消':
+      return 'danger'
+    case '未触发':
+      return 'info'
+    default:
+      return 'warning'
+  }
+}
 
 async function loadDashboard() {
   loading.value = true
@@ -158,7 +175,7 @@ function exportSectors() {
 function exportPlans() {
   exportCsv(
     `trade-plans-${tradePlans.value?.target_trade_date ?? 'latest'}.csv`,
-    ['股票代码', '股票名称', '板块', '策略', '个股评分', '板块评分', '买入条件', '买入下限', '买入上限', '止损价', '止盈价', '仓位', '状态', '风险提示'],
+    ['股票代码', '股票名称', '板块', '策略', '个股评分', '板块评分', '买入条件', '买入下限', '买入上限', '止损价', '止盈价', '仓位', '状态', '触发价', '跟踪备注', '风险提示'],
     filteredTradePlans.value.map((item) => [
       item.stock_code,
       item.stock_name,
@@ -173,9 +190,42 @@ function exportPlans() {
       item.take_profit_price,
       item.position_ratio,
       item.status,
+      item.trigger_price ?? '',
+      item.tracking_note,
       item.risk_note
     ])
   )
+}
+
+async function runPlanTracking(markUntriggeredAtClose = false) {
+  if (!tradePlans.value?.target_trade_date) return
+  planTrackingLoading.value = true
+  error.value = ''
+
+  try {
+    const result = await trackTradePlans(tradePlans.value.target_trade_date, markUntriggeredAtClose)
+    await loadDashboard()
+    ElMessage.success(`已更新 ${result.items.length} 条计划状态`)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '计划跟踪失败'
+  } finally {
+    planTrackingLoading.value = false
+  }
+}
+
+async function setPlanStatus(row: TradePlanItem, status: string) {
+  planTrackingLoading.value = true
+  error.value = ''
+
+  try {
+    await updateTradePlanStatus(row.id, status, `前端手动标记为${status}`, row.trigger_price ?? undefined)
+    await loadDashboard()
+    ElMessage.success(`${row.stock_name} 已标记为${status}`)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '计划状态更新失败'
+  } finally {
+    planTrackingLoading.value = false
+  }
 }
 
 onMounted(loadDashboard)
@@ -331,6 +381,8 @@ onMounted(loadDashboard)
           </div>
           <div class="table-tools">
             <el-input v-model="planKeyword" clearable placeholder="筛选股票/板块/策略" />
+            <el-button :loading="planTrackingLoading" :disabled="!tradePlans?.target_trade_date" @click="runPlanTracking(false)">跟踪触发</el-button>
+            <el-button :loading="planTrackingLoading" :disabled="!tradePlans?.target_trade_date" @click="runPlanTracking(true)">收盘确认</el-button>
             <el-button :icon="Download" :disabled="!filteredTradePlans.length" @click="exportPlans">导出</el-button>
           </div>
         </div>
@@ -363,7 +415,17 @@ onMounted(loadDashboard)
           </el-table-column>
           <el-table-column prop="status" label="状态" min-width="100" sortable>
             <template #default="{ row }: { row: TradePlanItem }">
-              <el-tag type="warning">{{ row.status }}</el-tag>
+              <el-tag :type="planStatusType(row.status)">{{ row.status }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="触发价" min-width="100" sortable prop="trigger_price">
+            <template #default="{ row }: { row: TradePlanItem }">{{ formatPrice(row.trigger_price) }}</template>
+          </el-table-column>
+          <el-table-column prop="tracking_note" label="跟踪备注" min-width="220" show-overflow-tooltip />
+          <el-table-column label="手动" width="180" fixed="right">
+            <template #default="{ row }: { row: TradePlanItem }">
+              <el-button size="small" :disabled="planTrackingLoading" @click="setPlanStatus(row, '已触发')">触发</el-button>
+              <el-button size="small" type="danger" :disabled="planTrackingLoading" @click="setPlanStatus(row, '取消')">取消</el-button>
             </template>
           </el-table-column>
           <el-table-column prop="risk_note" label="风险提示" min-width="260" show-overflow-tooltip />

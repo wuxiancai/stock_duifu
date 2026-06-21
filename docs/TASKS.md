@@ -14,6 +14,7 @@
 - [x] 已完成候选股票筛选、入库命令和最新结果 API
 - [x] 已完成交易计划生成、入库命令和最新结果 API
 - [x] 已完成 P0 Web 页面，展示真实市场、板块和交易计划 API 结果
+- [x] 已完成交易计划盘中跟踪、手动状态更新、命令/API/Web 展示
 
 ## 开发原则
 
@@ -312,6 +313,30 @@ TuShare 全市场初始化验证：
 
 验收：能基于真实或延迟行情更新计划状态，页面/API 有证据。
 
+状态：已完成。
+
+已完成：
+
+- `trade_plan` 新增 `trigger_price`、`trigger_time`、`tracking_note` 字段。
+- 新增迁移：`migrations/versions/0004_trade_plan_tracking_fields.py`。
+- 新增自动跟踪服务：`track_trade_plans`。
+- 新增手动状态更新服务：`update_trade_plan_status`。
+- 新增 CLI：`scripts/track-trade-plans.sh --target-trade-date YYYY-MM-DD [--mark-untriggered-at-close]`。
+- 新增 Makefile 入口：`make track-trade-plans`。
+- 新增 API：
+  - `POST /api/trade-plans/track`
+  - `PATCH /api/trade-plans/{plan_id}/status`
+- 今日交易计划页面新增“跟踪触发”“收盘确认”按钮，支持手动标记触发/取消，展示触发价和跟踪备注。
+
+验证：
+
+- `.venv/bin/pytest`：47 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 Element Plus 相关 chunk size warning。
+- `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5433/stock scripts/db-upgrade.sh`：迁移到 `0004_trade_plan_tracking_fields (head)`。
+- `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5433/stock scripts/track-trade-plans.sh --target-trade-date 2026-06-19 --mark-untriggered-at-close`：返回 2 条真实计划；因目标交易日日线暂无数据，状态保持 `待触发` 并写入 `目标交易日暂无日线数据，保持待触发状态`。
+- 运行中 API 快验：`POST /api/trade-plans/track` 返回 200，`target_trade_date=2026-06-19`、`items=2`。
+
 ### 10. 复盘统计
 
 - 生成 `trade_review` 记录。
@@ -331,4 +356,4 @@ TuShare 全市场初始化验证：
 
 ## 下一步
 
-下一次开发进入任务 9：盘中跟踪。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次开发进入任务 10：复盘统计。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
