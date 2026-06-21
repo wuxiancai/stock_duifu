@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」和任务 13 备用实时源「Sina 实时快照与 auto 降级」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」和任务 14「PRD MVP 接口与页面对齐补口」。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
 
@@ -114,6 +114,14 @@
   - `make generate-trade-plans`
 - 已新增交易计划查询 API：
   - `GET /api/trade-plans/latest`
+- 已补齐 PRD MVP 指定查询接口：
+  - `GET /api/market/today`
+  - `GET /api/sectors/strong?date=YYYY-MM-DD`
+  - `GET /api/trade-plans?date=YYYY-MM-DD`
+  - `GET /api/trade-plans/{id}`
+  - `GET /api/reviews?date=YYYY-MM-DD`
+  - `PATCH /api/reviews/{id}`
+- `GET /api/trade-plans/{id}` 会返回交易计划、候选入选理由和 MA5/MA10/MA20/ATR14/成交额/换手率等关键指标。
 - 交易计划已从 `candidate_stock`、`market_daily`、`stock_daily` 和 `trading_calendar` 生成次日条件单计划。
 - 交易计划已实现市场状态仓位限制：强势最多 3 只，中性最多 2 只，弱势最多 1 只，风险不生成新计划。
 - 交易计划已实现止损价硬约束：止损价无效或高于计划买入参考价时不入库。
@@ -382,26 +390,36 @@
   - 真实 API 快验：`/api/sectors/top 200 2026-06-18 10`。
   - 真实 API 快验：`/api/trade-plans/latest 200 2026-06-18 2`。
   - Playwright 浏览器快验：`http://127.0.0.1:5173/` 展示 `今日决策面板`、`科技风格`、`中际旭创`、`40%` 和 `交易复盘`；console 仅有缺少 `favicon.ico` 的 404。
+- 任务 14 PRD MVP 接口与页面对齐验证：
+  - `.venv/bin/pytest`：77 passed，1 个 LibreSSL/urllib3 warning。
+  - `cd frontend && npm test -- --run`：1 passed。
+  - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+  - 真实 PostgreSQL：`docker compose ps postgres` 显示 `stock-postgres` healthy，端口 `127.0.0.1:5432->5432`。
+  - 真实 PostgreSQL：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-current.sh` 输出 `0005_simulation_trading_tables (head)`。
+  - 真实 API 快验：`GET /api/market/today` 返回 200，`market_status=中性`。
+  - 真实 API 快验：`GET /api/sectors/strong?date=2026-06-18` 返回 200，`items=10`。
+  - 真实 API 快验：`GET /api/trade-plans?date=2026-06-22` 返回 200，`items=2`。
+  - 真实 API 快验：`GET /api/trade-plans/{id}` 返回 200，真实计划 `300308 中际旭创`，返回入选理由和关键指标：`ma5=1257.216`、`ma10=1207.206`、`ma20=1182.6685`、`atr14=78.4679`。
+  - 真实 API 快验：`GET /api/reviews?date=2026-06-19` 返回 200，`items=2`。
 
 ## 验收口径
 
-当前阶段已完成任务 1-12，并完成任务 13 第一阶段真实目标交易日日线回补入口。模拟交易基础链路可运行，但真实成交仍依赖目标交易日开市且有真实日线或延迟行情数据；闭市日和缺数据时不得宣称已触发或已成交。
+当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面和复盘人工更新接口。
 
-在以下事项完成前，不得宣称任务 13 全部完成：
+仍不得把以下事项宣称为已完成：
 
-- 闭市目标日计划可自动顺延或重新生成到下一开市日。
-- 开市目标日能通过真实日线或延迟行情触发计划并进入模拟成交。
-- 分批止盈、移动止损和交易时段轮询完成。
+- `2026-06-22` 目标交易日当天真实实时快照写入和模拟成交尚未完成当天验收；此前日期保护正确阻止了把未来目标日行情写入库。
+- 分批止盈、移动止损和交易时段轮询仍是后续增强，不属于当前 PRD MVP 已完成项。
+- 连板高度仍无结构化数据，市场评分未计入连板高度。
 
 ## 下一步
 
-继续 `docs/TASKS.md` 的任务 13 第二阶段：
+下一次优先在 `2026-06-22` 目标交易日当天重跑：
 
-1. 当交易计划目标日被真实日历确认非开市时，自动顺延或重新生成到下一开市日。
-2. 接入延迟实时行情，让开市目标日计划能基于真实数据触发并进入模拟成交。
-3. 后续完善分批止盈、移动止损和交易时段轮询。
-4. 更新 `docs/HANDOFF.md`。
-5. 提交 git commit。
+1. `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/run-realtime-workflow.sh --provider auto --target-trade-date 2026-06-22`
+2. 确认真实实时快照能写入 `2026-06-22` 的计划股，并驱动跟踪/模拟。
+3. 若通过，再继续完善分批止盈、移动止损和交易时段轮询。
+4. 每轮完成前继续更新 `docs/HANDOFF.md` 并提交 git commit。
 
 ## 必须保留的约束
 

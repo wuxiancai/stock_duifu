@@ -167,6 +167,30 @@ def test_trade_plans_latest_api_returns_persisted_plans() -> None:
     assert all("tracking_note" in item for item in payload["items"])
 
 
+def test_prd_trade_plan_api_returns_plans_by_date_and_detail_reason() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        plan_id = session.scalar(select(TradePlan.id).where(TradePlan.stock_code == "000001"))
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+
+    list_response = client.get("/api/trade-plans?date=2026-06-19")
+    assert list_response.status_code == 200
+    list_payload = list_response.json()
+    assert list_payload["target_trade_date"] == "2026-06-19"
+    assert {item["stock_code"] for item in list_payload["items"]} == {"000001", "000002"}
+
+    detail_response = client.get(f"/api/trade-plans/{plan_id}")
+    assert detail_response.status_code == 200
+    detail_payload = detail_response.json()
+    assert detail_payload["stock_code"] == "000001"
+    assert detail_payload["selection_reason"] == "板块排名 Top 10"
+    assert detail_payload["key_indicators"]["ma5"] > detail_payload["key_indicators"]["ma20"]
+    assert detail_payload["key_indicators"]["atr14"] > 0
+
+
 def test_track_trade_plans_marks_triggered_from_target_day_daily_data() -> None:
     engine = _engine()
     plan_date = _seed_fixture(engine)
@@ -447,3 +471,37 @@ def test_trade_review_api_generates_and_returns_latest_summary() -> None:
     latest = client.get("/api/trade-reviews/latest")
     assert latest.status_code == 200
     assert latest.json()["win_rate"] == 1.0
+
+
+def test_prd_review_api_returns_by_date_and_updates_manual_fields() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    _seed_review_target_day(engine)
+    generate_trade_reviews(engine, date(2026, 6, 19))
+    with Session(engine) as session:
+        review_id = session.scalar(select(TradeReview.id).where(TradeReview.stock_code == "000001"))
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.get("/api/reviews?date=2026-06-19")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["review_date"] == "2026-06-19"
+    assert payload["total_count"] == 2
+
+    update_response = client.patch(
+        f"/api/reviews/{review_id}",
+        json={
+            "result": "失败",
+            "failure_reason": "板块退潮",
+            "discipline_check": False,
+            "note": "人工复盘：突破失败",
+        },
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["result"] == "失败"
+    assert updated["failure_reason"] == "板块退潮"
+    assert updated["discipline_check"] is False
+    assert updated["note"] == "人工复盘：突破失败"

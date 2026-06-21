@@ -12,13 +12,17 @@ from backend.app.candidate.service import load_latest_candidates
 from backend.app.core.config import get_settings
 from backend.app.db.session import create_database_engine
 from backend.app.market.service import load_latest_market_environment
-from backend.app.sector.service import load_latest_sector_rankings
+from backend.app.sector.service import load_latest_sector_rankings, load_sector_rankings_by_date
 from backend.app.simulation.service import load_latest_simulation, run_simulation, run_simulation_workflow
 from backend.app.trade.service import (
     generate_trade_reviews,
+    load_trade_plan_detail,
+    load_trade_plans_by_target_date,
     load_latest_trade_plans,
     load_latest_trade_reviews,
+    load_trade_reviews_by_date,
     track_trade_plans,
+    update_trade_review,
     update_trade_plan_status,
 )
 
@@ -45,6 +49,13 @@ class TradePlanStatusUpdate(BaseModel):
     status: str
     trigger_price: Optional[float] = None
     note: str = ""
+
+
+class TradeReviewUpdate(BaseModel):
+    result: Optional[str] = None
+    failure_reason: Optional[str] = None
+    discipline_check: Optional[bool] = None
+    note: Optional[str] = None
 
 
 def _review_group_payload(item) -> dict:
@@ -122,6 +133,20 @@ def _trade_plan_payload(item) -> dict:
     }
 
 
+def _trade_plan_detail_payload(item: dict) -> dict:
+    payload = _trade_plan_payload(type("TradePlanLike", (), item)())
+    payload["selection_reason"] = item["selection_reason"]
+    payload["key_indicators"] = item["key_indicators"]
+    return payload
+
+
+def _parse_iso_date(value: str, field_name: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be YYYY-MM-DD") from exc
+
+
 def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = None) -> FastAPI:
     settings = get_settings()
     database_engine = engine or create_database_engine(database_url)
@@ -172,9 +197,37 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
             "suggestion": result.suggestion,
         }
 
+    @app.get("/api/market/today", tags=["market"])
+    def today_market_environment() -> dict:
+        return latest_market_environment()
+
     @app.get("/api/sectors/top", tags=["sector"])
     def top_sectors() -> dict:
         result = load_latest_sector_rankings(database_engine)
+        if result is None:
+            raise HTTPException(status_code=404, detail="sector rankings are not generated")
+        trade_date, items = result
+        return {
+            "trade_date": trade_date.isoformat(),
+            "items": [
+                {
+                    "rank_no": item.rank_no,
+                    "sector_name": item.sector_name,
+                    "daily_return": item.daily_return,
+                    "three_day_return": item.three_day_return,
+                    "amount_change": item.amount_change,
+                    "limit_up_count": item.limit_up_count,
+                    "strong_stock_count": item.strong_stock_count,
+                    "sector_score": item.sector_score,
+                }
+                for item in items
+            ],
+        }
+
+    @app.get("/api/sectors/strong", tags=["sector"])
+    def strong_sectors(date: str) -> dict:
+        trade_date = _parse_iso_date(date, "date")
+        result = load_sector_rankings_by_date(database_engine, trade_date)
         if result is None:
             raise HTTPException(status_code=404, detail="sector rankings are not generated")
         trade_date, items = result
@@ -232,6 +285,26 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
             "target_trade_date": target_trade_date.isoformat(),
             "items": [_trade_plan_payload(item) for item in items],
         }
+
+    @app.get("/api/trade-plans", tags=["trade"])
+    def trade_plans_by_date(date: str) -> dict:
+        target_trade_date = _parse_iso_date(date, "date")
+        result = load_trade_plans_by_target_date(database_engine, target_trade_date)
+        if result is None:
+            raise HTTPException(status_code=404, detail="trade plans are not generated")
+        plan_date, target_trade_date, items = result
+        return {
+            "plan_date": plan_date.isoformat(),
+            "target_trade_date": target_trade_date.isoformat(),
+            "items": [_trade_plan_payload(item) for item in items],
+        }
+
+    @app.get("/api/trade-plans/{plan_id}", tags=["trade"])
+    def trade_plan_detail(plan_id: int) -> dict:
+        result = load_trade_plan_detail(database_engine, plan_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"trade plan not found: {plan_id}")
+        return _trade_plan_detail_payload(result)
 
     @app.post("/api/trade-plans/track", tags=["trade"])
     def track_trade_plans_api(payload: TradePlanTrackingRequest) -> dict:
@@ -292,6 +365,48 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
         if result is None:
             raise HTTPException(status_code=404, detail="trade reviews are not generated")
         return _trade_review_payload(result)
+
+    @app.get("/api/reviews", tags=["trade"])
+    def trade_reviews_by_date(date: str) -> dict:
+        trade_date = _parse_iso_date(date, "date")
+        result = load_trade_reviews_by_date(database_engine, trade_date)
+        if result is None:
+            raise HTTPException(status_code=404, detail="trade reviews are not generated")
+        return _trade_review_payload(result)
+
+    @app.patch("/api/reviews/{review_id}", tags=["trade"])
+    def update_trade_review_api(review_id: int, payload: TradeReviewUpdate) -> dict:
+        try:
+            item = update_trade_review(
+                database_engine,
+                review_id,
+                result=payload.result,
+                failure_reason=payload.failure_reason,
+                discipline_check=payload.discipline_check,
+                note=payload.note,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {
+            "id": item.id,
+            "trade_plan_id": item.trade_plan_id,
+            "trade_date": item.trade_date.isoformat(),
+            "stock_code": item.stock_code,
+            "stock_name": item.stock_name,
+            "sector_name": item.sector_name,
+            "strategy_type": item.strategy_type,
+            "triggered": item.triggered,
+            "trigger_price": item.trigger_price,
+            "close_price": item.close_price,
+            "day_return": item.day_return,
+            "t5_return": item.t5_return,
+            "max_profit": item.max_profit,
+            "max_loss": item.max_loss,
+            "result": item.result,
+            "failure_reason": item.failure_reason,
+            "discipline_check": item.discipline_check,
+            "note": item.note,
+        }
 
     @app.post("/api/simulation/run", tags=["simulation"])
     def run_simulation_api(payload: SimulationRunRequest) -> dict:

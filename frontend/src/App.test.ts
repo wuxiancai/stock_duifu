@@ -69,6 +69,36 @@ describe('App', () => {
           }
         ]
       },
+      '/api/trade-plans/1': {
+        id: 1,
+        stock_code: '300308',
+        stock_name: '中际旭创',
+        sector_name: '科技风格',
+        strategy_type: '趋势强势',
+        stock_score: 100,
+        sector_score: 100,
+        market_status: '中性',
+        buy_condition: '盘中回踩 MA5 或放量突破前高',
+        buy_price_low: 1207.206,
+        buy_price_high: 1367.88,
+        stop_loss_price: 1299.486,
+        take_profit_price: 1641.456,
+        position_ratio: 0.4,
+        status: '待触发',
+        trigger_price: null,
+        trigger_time: null,
+        tracking_note: '',
+        risk_note: '高位强势股，严格执行止损。',
+        selection_reason: '板块排名 Top 10，趋势多头排列',
+        key_indicators: {
+          ma5: 1302.5,
+          ma10: 1276.2,
+          ma20: 1210.1,
+          amount: 18000000000,
+          turnover_rate: 3.6,
+          atr14: 52.8
+        }
+      },
       '/api/simulation/latest': {
         as_of_date: '2026-06-19',
         account: {
@@ -224,6 +254,11 @@ describe('App', () => {
     expect(wrapper.text()).toContain('当前总资产')
     expect(wrapper.text()).toContain('买入')
     expect(wrapper.text()).toContain('目标交易日价格触达计划买入区间')
+    expect(wrapper.text()).toContain('股票详情')
+    expect(wrapper.text()).toContain('入选理由')
+    expect(wrapper.text()).toContain('板块排名 Top 10，趋势多头排列')
+    expect(wrapper.text()).toContain('盘中跟踪')
+    expect(wrapper.text()).toContain('当前价')
     expect(wrapper.text()).toContain('交易复盘')
     expect(wrapper.text()).toContain('复盘日：2026-06-19')
     expect(wrapper.text()).toContain('当日均收益')

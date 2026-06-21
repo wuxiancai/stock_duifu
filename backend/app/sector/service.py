@@ -173,28 +173,39 @@ def load_latest_sector_rankings(engine: Engine) -> Optional[tuple[date, list[Sec
         latest_date = session.scalar(select(func.max(SectorDaily.trade_date)))
         if latest_date is None:
             return None
-        records = session.scalars(
-            select(SectorDaily)
-            .where(SectorDaily.trade_date == latest_date)
-            .order_by(SectorDaily.rank_no)
-        ).all()
-        return (
-            latest_date,
-            [
-                SectorRankingResult(
-                    trade_date=record.trade_date,
-                    sector_name=record.sector_name,
-                    rank_no=record.rank_no,
-                    daily_return=_number(record.daily_return),
-                    three_day_return=_number(record.five_day_return),
-                    amount_change=_number(record.amount_change),
-                    limit_up_count=record.limit_up_count,
-                    strong_stock_count=record.strong_stock_count,
-                    sector_score=record.sector_score,
-                )
-                for record in records
-            ],
-        )
+        return _load_sector_rankings_for_date(session, latest_date)
+
+
+def load_sector_rankings_by_date(engine: Engine, trade_date: date) -> Optional[tuple[date, list[SectorRankingResult]]]:
+    with Session(engine) as session:
+        return _load_sector_rankings_for_date(session, trade_date)
+
+
+def _load_sector_rankings_for_date(session: Session, trade_date: date) -> Optional[tuple[date, list[SectorRankingResult]]]:
+    records = session.scalars(
+        select(SectorDaily)
+        .where(SectorDaily.trade_date == trade_date)
+        .order_by(SectorDaily.rank_no)
+    ).all()
+    if not records:
+        return None
+    return (
+        trade_date,
+        [
+            SectorRankingResult(
+                trade_date=record.trade_date,
+                sector_name=record.sector_name,
+                rank_no=record.rank_no,
+                daily_return=_number(record.daily_return),
+                three_day_return=_number(record.five_day_return),
+                amount_change=_number(record.amount_change),
+                limit_up_count=record.limit_up_count,
+                strong_stock_count=record.strong_stock_count,
+                sector_score=record.sector_score,
+            )
+            for record in records
+        ],
+    )
 
 
 def _top_codes(candidates: list[dict], key, size: int) -> set[str]:

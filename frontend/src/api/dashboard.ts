@@ -77,6 +77,18 @@ export interface TradePlanItem {
   risk_note: string
 }
 
+export interface TradePlanDetail extends TradePlanItem {
+  selection_reason: string
+  key_indicators: {
+    ma5: number | null
+    ma10: number | null
+    ma20: number | null
+    amount: number | null
+    turnover_rate: number | null
+    atr14: number | null
+  }
+}
+
 export interface TradePlansLatestResponse {
   plan_date: string
   target_trade_date: string
@@ -236,6 +248,10 @@ export function fetchTopSectors(): Promise<SectorTopResponse> {
 
 export function fetchLatestTradePlans(): Promise<TradePlansLatestResponse> {
   return fetchJson<TradePlansLatestResponse>('/api/trade-plans/latest')
+}
+
+export function fetchTradePlanDetail(planId: number): Promise<TradePlanDetail> {
+  return fetchJson<TradePlanDetail>(`/api/trade-plans/${planId}`)
 }
 
 export function fetchLatestTradeReviews(): Promise<TradeReviewLatestResponse> {

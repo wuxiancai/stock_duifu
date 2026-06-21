@@ -179,3 +179,22 @@ def test_market_latest_api_returns_persisted_environment() -> None:
     assert payload["market_score"] == 85
     assert payload["market_status"] == "强势"
     assert payload["suggested_position"] == "80% - 100%"
+
+
+def test_prd_market_today_api_returns_latest_environment() -> None:
+    engine = _engine()
+    trade_date = date(2026, 6, 18)
+    with Session(engine) as session:
+        _seed_index_history(session, trade_date)
+        _seed_market_width(session, trade_date)
+        session.commit()
+    generate_market_environment(engine, trade_date)
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.get("/api/market/today")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["trade_date"] == "2026-06-18"
+    assert payload["market_status"] == "强势"
+    assert payload["suggested_position"] == "80% - 100%"

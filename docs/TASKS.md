@@ -21,6 +21,7 @@
 - [x] 已完成任务 13 第一阶段：按目标交易日交易计划回补真实个股日线，并识别目标日闭市
 - [x] 已完成任务 13 第二阶段：闭市目标日交易计划自动顺延/重生成到下一开市日
 - [x] 已完成任务 13 第三阶段基础链路：延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow
+- [x] 已完成 PRD MVP 接口和页面对齐补口：按日期查询接口、交易计划详情、盘中跟踪页面和复盘人工更新接口
 
 ## 开发原则
 
@@ -498,6 +499,37 @@ TuShare 全市场初始化验证：
 - 第三阶段真实 PostgreSQL：`docker compose ps postgres` 显示 `stock-postgres` healthy，端口 `127.0.0.1:5432->5432`；`scripts/db-current.sh` 输出 `0005_simulation_trading_tables (head)`。
 - 第三阶段真实命令：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/run-realtime-workflow.sh --provider akshare --target-trade-date 2026-06-22` 返回 `planned_stock_count=2`、`requested_stock_count=2`、`target_is_open=true`，但因本机判断 `china_today=2026-06-21`，触发日期保护，未写入 `2026-06-22` 行情，`workflow=null`。
 - 第三阶段只读实时源验证：AkShare/Eastmoney `stock_zh_a_spot_em` 当前在本机网络下返回 `RemoteDisconnected`；Sina `stock_zh_a_spot` 本轮可作为目标计划股备用实时源。
+
+### 14. PRD MVP 接口与页面对齐补口
+
+- 补齐 PRD 后端接口路径：
+  - `GET /api/market/today`
+  - `GET /api/sectors/strong?date=YYYY-MM-DD`
+  - `GET /api/trade-plans?date=YYYY-MM-DD`
+  - `GET /api/trade-plans/{id}`
+  - `GET /api/reviews?date=YYYY-MM-DD`
+  - `PATCH /api/reviews/{id}`
+- `GET /api/trade-plans/{id}` 返回交易计划、候选入选理由和 MA5/MA10/MA20/ATR14/成交额/换手率等关键指标。
+- Web 工作台补齐 PRD 页面入口：
+  - 股票详情
+  - 盘中跟踪
+- 复盘人工更新只允许修改结果、失败原因、纪律检查和备注；价格、收益和触发事实仍由复盘生成逻辑计算。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest`：77 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 真实 PostgreSQL：`docker compose ps postgres` 显示 `stock-postgres` healthy，端口 `127.0.0.1:5432->5432`。
+- 真实 PostgreSQL：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-current.sh` 输出 `0005_simulation_trading_tables (head)`。
+- 真实 API 快验：
+  - `GET /api/market/today` -> 200，`market_status=中性`。
+  - `GET /api/sectors/strong?date=2026-06-18` -> 200，`items=10`。
+  - `GET /api/trade-plans?date=2026-06-22` -> 200，`items=2`。
+  - `GET /api/trade-plans/{id}` -> 200，真实计划 `300308 中际旭创`，返回入选理由和关键指标。
+  - `GET /api/reviews?date=2026-06-19` -> 200，`items=2`。
 
 ## 下一步
 

@@ -16,6 +16,7 @@ import {
   fetchLatestTradePlans,
   fetchLatestTradeReviews,
   fetchMarketLatest,
+  fetchTradePlanDetail,
   fetchTopSectors,
   runSimulationWorkflow,
   trackTradePlans,
@@ -28,7 +29,9 @@ import {
   type SimulationPosition,
   type SimulationTrade,
   type TradePlanItem,
+  type TradePlanDetail,
   type TradePlansLatestResponse,
+  type TradePlanTrackingResponse,
   type TradeReviewGroupStats,
   type TradeReviewItem,
   type TradeReviewLatestResponse
@@ -40,6 +43,8 @@ const sectors = ref<SectorTopResponse | null>(null)
 const tradePlans = ref<TradePlansLatestResponse | null>(null)
 const tradeReviews = ref<TradeReviewLatestResponse | null>(null)
 const simulation = ref<SimulationLatestResponse | null>(null)
+const selectedPlanDetail = ref<TradePlanDetail | null>(null)
+const trackingItems = ref<TradePlanTrackingResponse['items']>([])
 const loading = ref(true)
 const error = ref('')
 const sectorKeyword = ref('')
@@ -92,6 +97,18 @@ const filteredTradePlans = computed(() => {
 
 const totalAmountText = computed(() => formatLargeAmount(market.value?.total_amount))
 
+const trackingRows = computed(() => {
+  const trackedById = new Map(trackingItems.value.map((item) => [item.id, item]))
+  return (tradePlans.value?.items ?? []).map((plan) => ({
+    ...plan,
+    current_price: trackedById.get(plan.id)?.current_price ?? null,
+    pct_chg: trackedById.get(plan.id)?.pct_chg ?? null,
+    tracking_note: trackedById.get(plan.id)?.tracking_note ?? plan.tracking_note,
+    status: trackedById.get(plan.id)?.status ?? plan.status,
+    trigger_price: trackedById.get(plan.id)?.trigger_price ?? plan.trigger_price
+  }))
+})
+
 function planStatusType(status: string) {
   switch (status) {
     case '已触发':
@@ -125,11 +142,21 @@ async function loadDashboard() {
     tradePlans.value = tradePlansResult
     tradeReviews.value = tradeReviewsResult
     simulation.value = simulationResult
+    trackingItems.value = []
+    await loadPlanDetail(tradePlansResult.items[0]?.id)
   } catch (err) {
     error.value = err instanceof Error ? err.message : '业务数据加载失败'
   } finally {
     loading.value = false
   }
+}
+
+async function loadPlanDetail(planId: number | undefined) {
+  if (!planId) {
+    selectedPlanDetail.value = null
+    return
+  }
+  selectedPlanDetail.value = await fetchTradePlanDetail(planId)
 }
 
 function formatPercent(value: number | null | undefined, digits = 2) {
@@ -232,6 +259,7 @@ async function runPlanTracking(markUntriggeredAtClose = false) {
   try {
     const result = await trackTradePlans(tradePlans.value.target_trade_date, markUntriggeredAtClose)
     await loadDashboard()
+    trackingItems.value = result.items
     ElMessage.success(`已更新 ${result.items.length} 条计划状态`)
   } catch (err) {
     error.value = err instanceof Error ? err.message : '计划跟踪失败'
@@ -297,6 +325,14 @@ onMounted(loadDashboard)
         <a class="nav-item" href="#plans">
           <el-icon><Finished /></el-icon>
           <span>交易计划</span>
+        </a>
+        <a class="nav-item" href="#plan-detail">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>股票详情</span>
+        </a>
+        <a class="nav-item" href="#tracking">
+          <el-icon><Refresh /></el-icon>
+          <span>盘中跟踪</span>
         </a>
         <a class="nav-item" href="#simulation">
           <el-icon><Connection /></el-icon>
@@ -472,11 +508,113 @@ onMounted(loadDashboard)
           <el-table-column prop="tracking_note" label="跟踪备注" min-width="220" show-overflow-tooltip />
           <el-table-column label="手动" width="180" fixed="right">
             <template #default="{ row }: { row: TradePlanItem }">
+              <el-button size="small" :disabled="planTrackingLoading" @click="loadPlanDetail(row.id)">详情</el-button>
               <el-button size="small" :disabled="planTrackingLoading" @click="setPlanStatus(row, '已触发')">触发</el-button>
               <el-button size="small" type="danger" :disabled="planTrackingLoading" @click="setPlanStatus(row, '取消')">取消</el-button>
             </template>
           </el-table-column>
           <el-table-column prop="risk_note" label="风险提示" min-width="260" show-overflow-tooltip />
+        </el-table>
+      </section>
+
+      <section id="plan-detail" class="panel">
+        <div class="section-heading">
+          <div>
+            <h2>股票详情</h2>
+            <p>{{ selectedPlanDetail ? `${selectedPlanDetail.stock_name} ${selectedPlanDetail.stock_code}` : '请选择一条交易计划' }}</p>
+          </div>
+          <el-tag v-if="selectedPlanDetail" :type="planStatusType(selectedPlanDetail.status)">
+            {{ selectedPlanDetail.status }}
+          </el-tag>
+        </div>
+
+        <template v-if="selectedPlanDetail">
+          <section class="metric-grid detail-grid">
+            <article class="metric">
+              <el-icon><TrendCharts /></el-icon>
+              <div>
+                <span>策略命中</span>
+                <strong>{{ selectedPlanDetail.strategy_type }}</strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><DataAnalysis /></el-icon>
+              <div>
+                <span>评分</span>
+                <strong>{{ selectedPlanDetail.stock_score }} / {{ selectedPlanDetail.sector_score }}</strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><Finished /></el-icon>
+              <div>
+                <span>买入区间</span>
+                <strong>{{ formatPrice(selectedPlanDetail.buy_price_low) }} - {{ formatPrice(selectedPlanDetail.buy_price_high) }}</strong>
+              </div>
+            </article>
+            <article class="metric">
+              <el-icon><Connection /></el-icon>
+              <div>
+                <span>止损 / 止盈</span>
+                <strong>{{ formatPrice(selectedPlanDetail.stop_loss_price) }} / {{ formatPrice(selectedPlanDetail.take_profit_price) }}</strong>
+              </div>
+            </article>
+          </section>
+
+          <el-descriptions border :column="2">
+            <el-descriptions-item label="所属板块">{{ selectedPlanDetail.sector_name }}</el-descriptions-item>
+            <el-descriptions-item label="建议仓位">{{ formatPosition(selectedPlanDetail.position_ratio) }}</el-descriptions-item>
+            <el-descriptions-item label="MA5">{{ formatPrice(selectedPlanDetail.key_indicators.ma5) }}</el-descriptions-item>
+            <el-descriptions-item label="MA10">{{ formatPrice(selectedPlanDetail.key_indicators.ma10) }}</el-descriptions-item>
+            <el-descriptions-item label="MA20">{{ formatPrice(selectedPlanDetail.key_indicators.ma20) }}</el-descriptions-item>
+            <el-descriptions-item label="ATR14">{{ formatPrice(selectedPlanDetail.key_indicators.atr14) }}</el-descriptions-item>
+            <el-descriptions-item label="成交额">{{ formatLargeAmount(selectedPlanDetail.key_indicators.amount) }}</el-descriptions-item>
+            <el-descriptions-item label="换手率">{{ formatPercent(selectedPlanDetail.key_indicators.turnover_rate) }}</el-descriptions-item>
+            <el-descriptions-item label="买入条件" :span="2">{{ selectedPlanDetail.buy_condition }}</el-descriptions-item>
+            <el-descriptions-item label="入选理由" :span="2">{{ selectedPlanDetail.selection_reason || '候选入选理由未入库' }}</el-descriptions-item>
+            <el-descriptions-item label="风险提示" :span="2">{{ selectedPlanDetail.risk_note }}</el-descriptions-item>
+          </el-descriptions>
+        </template>
+        <el-empty v-else description="暂无股票详情，请先生成交易计划" />
+      </section>
+
+      <section id="tracking" class="panel">
+        <div class="section-heading table-heading">
+          <div>
+            <h2>盘中跟踪</h2>
+            <p>目标交易日：{{ tradePlans?.target_trade_date ?? '-' }}，跟踪昨日计划触发、取消和当前行情。</p>
+          </div>
+          <div class="table-tools">
+            <el-button :loading="planTrackingLoading" :disabled="!tradePlans?.target_trade_date" @click="runPlanTracking(false)">跟踪触发</el-button>
+            <el-button :loading="planTrackingLoading" :disabled="!tradePlans?.target_trade_date" @click="runPlanTracking(true)">收盘确认</el-button>
+          </div>
+        </div>
+
+        <el-table :data="trackingRows" border stripe empty-text="暂无盘中跟踪数据">
+          <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+            <template #default="{ row }: { row: TradePlanItem & { current_price: number | null, pct_chg: number | null } }">
+              <strong>{{ row.stock_name }}</strong>
+              <small class="muted-code">{{ row.stock_code }}</small>
+            </template>
+          </el-table-column>
+          <el-table-column label="当前价" min-width="100" sortable prop="current_price">
+            <template #default="{ row }: { row: TradePlanItem & { current_price: number | null } }">{{ formatPrice(row.current_price) }}</template>
+          </el-table-column>
+          <el-table-column label="涨跌幅" min-width="100" sortable prop="pct_chg">
+            <template #default="{ row }: { row: TradePlanItem & { pct_chg: number | null } }">{{ formatPercent(row.pct_chg) }}</template>
+          </el-table-column>
+          <el-table-column prop="buy_condition" label="买入条件" min-width="260" show-overflow-tooltip />
+          <el-table-column label="触发" min-width="90" sortable prop="status">
+            <template #default="{ row }: { row: TradePlanItem }">
+              <el-tag :type="planStatusType(row.status)">{{ row.status }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="触发时间" min-width="160" prop="trigger_time">
+            <template #default="{ row }: { row: TradePlanItem }">{{ row.trigger_time ?? '-' }}</template>
+          </el-table-column>
+          <el-table-column label="触发价" min-width="100" sortable prop="trigger_price">
+            <template #default="{ row }: { row: TradePlanItem }">{{ formatPrice(row.trigger_price) }}</template>
+          </el-table-column>
+          <el-table-column prop="tracking_note" label="取消原因 / 跟踪备注" min-width="260" show-overflow-tooltip />
         </el-table>
       </section>
 

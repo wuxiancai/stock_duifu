@@ -257,6 +257,43 @@ def load_latest_trade_plans(engine: Engine) -> Optional[tuple[date, date, list[T
         return (latest_plan_date, latest_target_date, [_plan_result(record) for record in records])
 
 
+def load_trade_plans_by_target_date(engine: Engine, target_trade_date: date) -> Optional[tuple[date, date, list[TradePlanResult]]]:
+    with Session(engine) as session:
+        records = session.scalars(
+            select(TradePlan)
+            .where(TradePlan.target_trade_date == target_trade_date)
+            .order_by(desc(TradePlan.stock_score), TradePlan.stock_code)
+        ).all()
+        if not records:
+            return None
+        plan_date = max(record.plan_date for record in records)
+        return (plan_date, target_trade_date, [_plan_result(record) for record in records])
+
+
+def load_trade_plan_detail(engine: Engine, plan_id: int) -> Optional[dict]:
+    with Session(engine) as session:
+        plan = session.get(TradePlan, plan_id)
+        if plan is None:
+            return None
+        candidate = session.scalar(
+            select(CandidateStock).where(
+                CandidateStock.trade_date == plan.plan_date,
+                CandidateStock.stock_code == plan.stock_code,
+                CandidateStock.strategy_type == plan.strategy_type,
+            )
+        )
+        history = session.scalars(
+            select(StockDaily)
+            .where(StockDaily.stock_code == plan.stock_code, StockDaily.trade_date <= plan.plan_date)
+            .order_by(StockDaily.trade_date)
+        ).all()
+        return {
+            **_plan_result(plan).__dict__,
+            "selection_reason": candidate.reason if candidate else "",
+            "key_indicators": _key_indicators(history),
+        }
+
+
 def track_trade_plans(
     engine: Engine,
     target_trade_date: date,
@@ -344,6 +381,44 @@ def load_latest_trade_reviews(engine: Engine) -> Optional[TradeReviewSummary]:
         if latest_trade_date is None:
             return None
         return _load_trade_review_summary(session, latest_trade_date)
+
+
+def load_trade_reviews_by_date(engine: Engine, trade_date: date) -> Optional[TradeReviewSummary]:
+    with Session(engine) as session:
+        exists = session.scalar(
+            select(func.count()).select_from(TradeReview).where(TradeReview.trade_date == trade_date)
+        )
+        if not exists:
+            return None
+        return _load_trade_review_summary(session, trade_date)
+
+
+def update_trade_review(
+    engine: Engine,
+    review_id: int,
+    result: Optional[str] = None,
+    failure_reason: Optional[str] = None,
+    discipline_check: Optional[bool] = None,
+    note: Optional[str] = None,
+) -> TradeReviewResult:
+    with Session(engine) as session:
+        review = session.get(TradeReview, review_id)
+        if review is None:
+            raise ValueError(f"trade review not found: {review_id}")
+        plan = session.get(TradePlan, review.trade_plan_id)
+        if plan is None:
+            raise ValueError(f"trade plan not found for review: {review_id}")
+        if result is not None:
+            review.result = result
+        if failure_reason is not None:
+            review.failure_reason = failure_reason
+        if discipline_check is not None:
+            review.discipline_check = discipline_check
+        if note is not None:
+            review.note = note
+        session.commit()
+        session.refresh(review)
+        return _review_result(review, plan)
 
 
 def update_trade_plan_status(
@@ -594,6 +669,29 @@ def _plan_result(record: TradePlan) -> TradePlanResult:
         trigger_time=record.trigger_time,
         tracking_note=record.tracking_note,
     )
+
+
+def _key_indicators(history: list[StockDaily]) -> dict:
+    if not history:
+        return {
+            "ma5": None,
+            "ma10": None,
+            "ma20": None,
+            "amount": None,
+            "turnover_rate": None,
+            "atr14": None,
+        }
+
+    closes = [_number(row.close) for row in history]
+    latest = history[-1]
+    return {
+        "ma5": round(_ma(closes, 5), 4) if len(closes) >= 5 else None,
+        "ma10": round(_ma(closes, 10), 4) if len(closes) >= 10 else None,
+        "ma20": round(_ma(closes, 20), 4) if len(closes) >= 20 else None,
+        "amount": _number(latest.amount),
+        "turnover_rate": _optional_number(latest.turnover_rate),
+        "atr14": round(_atr14(history), 4) if len(history) >= 14 else None,
+    }
 
 
 def _select_candidates(
