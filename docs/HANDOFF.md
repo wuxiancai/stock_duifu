@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」和任务 15「PRD MVP 操作补口」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」和任务 16「PRD MVP 盘后工作流入口」。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
 
@@ -125,6 +125,11 @@
 - `GET /api/trade-plans/{id}` 会返回交易计划、候选入选理由和 MA5/MA10/MA20/ATR14/成交额/换手率等关键指标。
 - 已新增 `trade_plan.is_watched` 和迁移 `0006_trade_plan_attention_flag`，交易计划页面可手动关注/取消关注。
 - 交易复盘页面支持 CSV 导出。
+- 已新增盘后 workflow 入口：
+  - `backend.app.workflow.service.run_after_close_workflow`
+  - `python -m backend.app.workflow.cli after-close --trade-date YYYY-MM-DD`
+  - `scripts/run-after-close-workflow.sh`
+  - `make run-after-close-workflow`
 - 交易计划已从 `candidate_stock`、`market_daily`、`stock_daily` 和 `trading_calendar` 生成次日条件单计划。
 - 交易计划已实现市场状态仓位限制：强势最多 3 只，中性最多 2 只，弱势最多 1 只，风险不生成新计划。
 - 交易计划已实现止损价硬约束：止损价无效或高于计划买入参考价时不入库。
@@ -413,10 +418,16 @@
   - 真实 PostgreSQL：`DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/db-current.sh` 输出 `0006_trade_plan_attention_flag (head)`。
   - 真实 API 快验：`PATCH /api/trade-plans/{id}/status` 可写入 `is_watched=true` 并返回 200；快验后已恢复为 `is_watched=false` 且清空测试备注。
   - 真实 API 快验：`POST /api/reviews` 使用 `trade_date=2026-06-19` 返回 200，`total_count=2`。
+- 任务 16 PRD MVP 盘后工作流入口验证：
+  - `.venv/bin/pytest`：81 passed，1 个 LibreSSL/urllib3 warning。
+  - `bash -n scripts/run-after-close-workflow.sh`：通过。
+  - `.venv/bin/python -m backend.app.workflow.cli after-close --help`：正常展示 `--trade-date`、`--provider`、`--member-fetch-limit`、`--candidate-limit`、`--trade-plan-limit`。
+  - `cd frontend && npm test -- --run`：1 passed。
+  - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 
 ## 验收口径
 
-当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews` 和复盘导出。
+当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
 
 仍不得把以下事项宣称为已完成：
 

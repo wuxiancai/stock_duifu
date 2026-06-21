@@ -23,6 +23,7 @@
 - [x] 已完成任务 13 第三阶段基础链路：延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow
 - [x] 已完成 PRD MVP 接口和页面对齐补口：按日期查询接口、交易计划详情、盘中跟踪页面和复盘人工更新接口
 - [x] 已完成 PRD MVP 操作补口：交易计划关注标记、`POST /api/reviews` 和复盘 CSV 导出
+- [x] 已完成 PRD MVP 盘后工作流入口：按顺序执行采集、市场、板块、候选和交易计划生成
 
 ## 开发原则
 
@@ -552,6 +553,30 @@ TuShare 全市场初始化验证：
 - 真实 API 快验：
   - `PATCH /api/trade-plans/{id}/status` 可写入 `is_watched=true`，返回 200；快验后已恢复为 `is_watched=false` 且清空测试备注。
   - `POST /api/reviews` 使用 `trade_date=2026-06-19` 返回 200，`total_count=2`。
+
+### 16. PRD MVP 盘后工作流入口
+
+- 新增 `backend.app.workflow.service.run_after_close_workflow`，按 PRD 9.1 顺序执行：
+  1. 拉取最新行情数据并写入数据库。
+  2. 计算市场环境。
+  3. 计算强势板块。
+  4. 筛选候选股票。
+  5. 生成交易计划。
+- 新增 CLI：`python -m backend.app.workflow.cli after-close --trade-date YYYY-MM-DD`。
+- 新增脚本和 Makefile 入口：
+  - `scripts/run-after-close-workflow.sh`
+  - `make run-after-close-workflow`
+- workflow 返回每一步真实计数摘要，包括 `stock_daily_rows`、`sector_count`、`candidate_count`、`trade_plan_count` 和 `target_trade_date`。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest`：81 passed，1 个 LibreSSL/urllib3 warning。
+- `bash -n scripts/run-after-close-workflow.sh`：通过。
+- `.venv/bin/python -m backend.app.workflow.cli after-close --help`：正常展示 `--trade-date`、`--provider`、`--member-fetch-limit`、`--candidate-limit`、`--trade-plan-limit`。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 
 ## 下一步
 
