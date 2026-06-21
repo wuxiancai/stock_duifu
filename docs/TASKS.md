@@ -27,6 +27,7 @@
 - [x] 已补齐 PRD 第 17 章任务映射：扩展模块 / 模拟交易模块逐小节状态和缺口
 - [x] 已补齐 PRD 市场环境遗漏项：连板高度结构化、评分加分、入库、API 和 Web 展示
 - [x] 已补齐 PRD 强势板块和候选股票页面遗漏项：真实 5 日涨幅、板块点击筛选候选、候选股票池展示和导出
+- [x] 已补齐 Ubuntu 一键部署与数据初始化脚本：`deploy_ubuntu.sh`、`get_data.sh`、LAN 监听启动口径
 
 ## 开发原则
 
@@ -665,6 +666,42 @@ TuShare 全市场初始化验证：
 - 浏览器运行态快验：`http://127.0.0.1:5173/` 展示 `5日涨幅` 和 `候选股票池`，刷新后可见 `13.56%`、`14.00%` 等 5 日口径数据，无 `数据异常`。
 - 浏览器交互快验：点击强势板块 `科技风格` 后，候选股票池显示 `当前板块：科技风格`，交易计划筛选框同步为 `科技风格`。
 
+### 20. Ubuntu 部署与数据拉取脚本
+
+- 新增 `deploy_ubuntu.sh`：
+  - 检查并按需安装 Ubuntu 系统依赖：Python venv/pip、Node/npm、Docker、Docker Compose plugin、curl。
+  - 检查 Node.js major 版本；低于 20 时通过 NodeSource 安装 Node.js 22.x，避免 Vite 7 构建失败。
+  - 创建或复用 `.venv`，依赖已存在时跳过；`FORCE_INSTALL=1` 可强制重装 Python/frontend 依赖。
+  - 创建或保留 `.env`；显式环境变量优先于 `.env`。
+  - 启动 PostgreSQL 并只执行 Alembic 迁移；新部署数据库保持“只有 schema、没有行情数据”。
+  - `RESET_DB=1 bash deploy_ubuntu.sh` 可清空已有 PostgreSQL volume 后重建空库。
+  - 支持 `STOCK_DEPLOY_DRY_RUN=1` 查看将执行的命令，不改文件、不启容器、不写数据库。
+- 新增 `get_data.sh`：
+  - `TRADE_DATE=YYYY-MM-DD bash get_data.sh` 跑真实盘后 workflow：采集行情、生成市场环境、强势板块、候选股票和交易计划。
+  - 明确要求 `TUSHARE_TOKEN`，避免无 token 时误把 mock/空数据当完成。
+  - workflow 后执行 `scripts/audit-market-data.sh --trade-date ...` 做覆盖审计。
+  - 支持 `STOCK_GET_DATA_DRY_RUN=1` 查看命令，不拉数据、不写库。
+- 优化 `start.sh`：
+  - API 和前端默认监听 `0.0.0.0`，局域网可访问。
+  - 健康检查仍走 `127.0.0.1`；PostgreSQL 仍只绑定本机端口，不对局域网暴露。
+  - 自动探测 `PUBLIC_HOST` 并打印本机和 LAN URL；如探测不准，可手动 `PUBLIC_HOST=服务器IP bash start.sh`。
+- 优化 `scripts/dev-web.sh`：支持 `WEB_HOST` / `WEB_PORT`。
+- `Makefile` 新增 `make deploy-ubuntu` 和 `make get-data`。
+- `.env.example` 同步部署变量。
+
+状态：已完成。
+
+验证：
+
+- 新增红绿测试：`tests/test_deployment_scripts.py` 先失败于脚本缺失和 `start.sh` 非 LAN 监听，再实现通过。
+- `.venv/bin/pytest tests/test_deployment_scripts.py`：3 passed。
+- `bash -n deploy_ubuntu.sh get_data.sh start.sh scripts/dev-web.sh`：通过。
+- `STOCK_DEPLOY_DRY_RUN=1 FORCE_INSTALL=1 TUSHARE_TOKEN=token-for-dry-run bash deploy_ubuntu.sh`：输出安装、构建、启动 PostgreSQL、迁移命令，并明确不拉行情数据。
+- `STOCK_GET_DATA_DRY_RUN=1 TRADE_DATE=2026-06-18 TUSHARE_TOKEN=token-for-dry-run bash get_data.sh`：输出 `run-after-close-workflow` 和 `audit-market-data` 命令，不写库。
+- `.venv/bin/pytest`：93 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+
 ## 下一步
 
-下一次优先在 `2026-06-22` 目标交易日当天重跑 `scripts/run-realtime-workflow.sh --provider auto --target-trade-date 2026-06-22`，确认真实实时快照能写入目标日并驱动跟踪/模拟。若当天触发成交，再用 `scripts/run-simulation.sh loop --trade-date 2026-06-22 --interval-seconds 60 --max-iterations 1` 做受控轮询验收。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次部署时优先在 Ubuntu 服务器执行 `bash deploy_ubuntu.sh`，确认空库迁移成功后再执行 `TRADE_DATE=YYYY-MM-DD bash get_data.sh` 拉取真实数据并生成交易计划。目标交易日当天继续用 `scripts/run-realtime-workflow.sh --provider auto --target-trade-date YYYY-MM-DD` 验证真实实时快照写入、跟踪和模拟。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

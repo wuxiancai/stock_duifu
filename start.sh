@@ -7,7 +7,10 @@ cd "$ROOT_DIR"
 POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-5432}"
 API_BASE_PORT="${API_BASE_PORT:-8000}"
 WEB_BASE_PORT="${WEB_BASE_PORT:-5173}"
-HOST="127.0.0.1"
+API_LISTEN_HOST="${API_LISTEN_HOST:-0.0.0.0}"
+WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-0.0.0.0}"
+HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"
+DB_HOST="${DB_HOST:-127.0.0.1}"
 LOG_DIR="$ROOT_DIR/.logs"
 API_PID=""
 WEB_PID=""
@@ -21,7 +24,7 @@ is_port_available() {
   if command -v lsof >/dev/null 2>&1; then
     ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
   else
-    ! nc -z "$HOST" "$port" >/dev/null 2>&1
+    ! nc -z "$HEALTHCHECK_HOST" "$port" >/dev/null 2>&1
   fi
 }
 
@@ -61,6 +64,30 @@ wait_for_postgres() {
   return 1
 }
 
+detect_public_host() {
+  if [ -n "${PUBLIC_HOST:-}" ]; then
+    printf '%s' "$PUBLIC_HOST"
+    return
+  fi
+  if command -v hostname >/dev/null 2>&1; then
+    local detected
+    detected="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    if [ -n "$detected" ]; then
+      printf '%s' "$detected"
+      return
+    fi
+  fi
+  if command -v ipconfig >/dev/null 2>&1; then
+    local detected
+    detected="$(ipconfig getifaddr en0 2>/dev/null || true)"
+    if [ -n "$detected" ]; then
+      printf '%s' "$detected"
+      return
+    fi
+  fi
+  printf '%s' "$HEALTHCHECK_HOST"
+}
+
 cleanup() {
   if [ -n "$API_PID" ] && kill -0 "$API_PID" >/dev/null 2>&1; then
     kill "$API_PID" >/dev/null 2>&1 || true
@@ -89,37 +116,38 @@ fi
 POSTGRES_HOST_PORT="$(next_available_port "$POSTGRES_BASE_PORT")"
 API_PORT="$(next_available_port "$API_BASE_PORT")"
 WEB_PORT="$(next_available_port "$WEB_BASE_PORT")"
-API_HOST="$HOST"
-WEB_HOST="$HOST"
-DATABASE_URL="postgresql+psycopg://stock:stock@$HOST:$POSTGRES_HOST_PORT/stock"
-VITE_API_BASE_URL="http://$API_HOST:$API_PORT"
+PUBLIC_HOST="$(detect_public_host)"
+DATABASE_URL="postgresql+psycopg://stock:stock@$DB_HOST:$POSTGRES_HOST_PORT/stock"
+VITE_API_BASE_URL="http://$PUBLIC_HOST:$API_PORT"
 
 mkdir -p "$LOG_DIR"
 
-info "starting PostgreSQL container: host $HOST:$POSTGRES_HOST_PORT -> container postgres:5432"
+info "starting PostgreSQL container: host $DB_HOST:$POSTGRES_HOST_PORT -> container postgres:5432"
 POSTGRES_HOST_PORT="$POSTGRES_HOST_PORT" docker compose up -d postgres
 wait_for_postgres
 
 info "running database migrations"
 DATABASE_URL="$DATABASE_URL" scripts/db-upgrade.sh
 
-info "starting API on $API_HOST:$API_PORT, log: $LOG_DIR/api.log"
-API_HOST="$API_HOST" API_PORT="$API_PORT" DATABASE_URL="$DATABASE_URL" scripts/dev-api.sh >"$LOG_DIR/api.log" 2>&1 &
+info "starting API on $API_LISTEN_HOST:$API_PORT, log: $LOG_DIR/api.log"
+API_HOST="$API_LISTEN_HOST" API_PORT="$API_PORT" DATABASE_URL="$DATABASE_URL" scripts/dev-api.sh >"$LOG_DIR/api.log" 2>&1 &
 API_PID="$!"
-wait_for_url "http://$API_HOST:$API_PORT/api/health" "API"
+wait_for_url "http://$HEALTHCHECK_HOST:$API_PORT/api/health" "API"
 
-info "starting frontend on $WEB_HOST:$WEB_PORT, log: $LOG_DIR/web.log"
-(cd frontend && VITE_API_BASE_URL="$VITE_API_BASE_URL" npm run dev -- --host "$WEB_HOST" --port "$WEB_PORT") >"$LOG_DIR/web.log" 2>&1 &
+info "starting frontend on $WEB_LISTEN_HOST:$WEB_PORT, log: $LOG_DIR/web.log"
+(cd frontend && VITE_API_BASE_URL="$VITE_API_BASE_URL" npm run dev -- --host "$WEB_LISTEN_HOST" --port "$WEB_PORT") >"$LOG_DIR/web.log" 2>&1 &
 WEB_PID="$!"
-wait_for_url "http://$WEB_HOST:$WEB_PORT" "Frontend"
+wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend"
 
 cat <<EOF
 
 Project is running.
 
-Frontend: http://$WEB_HOST:$WEB_PORT
-API:      http://$API_HOST:$API_PORT/api/health
-Database: $HOST:$POSTGRES_HOST_PORT -> postgres:5432
+Frontend local: http://$HEALTHCHECK_HOST:$WEB_PORT
+Frontend LAN:   http://$PUBLIC_HOST:$WEB_PORT
+API local:      http://$HEALTHCHECK_HOST:$API_PORT/api/health
+API LAN:        http://$PUBLIC_HOST:$API_PORT/api/health
+Database:       $DB_HOST:$POSTGRES_HOST_PORT -> postgres:5432
 Logs:     $LOG_DIR
 
 Press Ctrl+C to stop API and frontend.

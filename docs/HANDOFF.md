@@ -6,10 +6,11 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」、任务 18「市场环境连板高度补口」和任务 19「强势板块 5 日涨幅与候选股票页面补口」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」、任务 18「市场环境连板高度补口」、任务 19「强势板块 5 日涨幅与候选股票页面补口」和任务 20「Ubuntu 部署与数据拉取脚本」。
 - `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
+- 已在本机目录补齐 Ubuntu 部署与数据初始化入口：`deploy_ubuntu.sh` / `get_data.sh` / `make deploy-ubuntu` / `make get-data`。
 
 ## 已完成
 
@@ -205,6 +206,12 @@
   - Web 强势板块页面展示“5日涨幅”，CSV 导出同步改为 5 日口径。
   - Web 新增“候选股票池”区块，接入 `GET /api/candidates/latest`，展示候选股票、板块、策略、评分、入选理由和风险提示。
   - 点击强势板块名称会筛选对应板块候选股票，并同步筛选今日交易计划。
+- 已完成任务 20 Ubuntu 部署与数据拉取脚本：
+  - `deploy_ubuntu.sh` 会检查/安装 Ubuntu 系统依赖，确保 Node.js major >= 20，创建或复用 `.venv`，安装 Python/frontend 依赖，构建前端，启动 PostgreSQL，只执行迁移，不拉行情数据。
+  - 新部署默认只得到空业务库 schema；已有库需要清空时用 `RESET_DB=1 bash deploy_ubuntu.sh`。
+  - `get_data.sh` 使用真实 `TUSHARE_TOKEN` 跑 `run-after-close-workflow`，并执行覆盖审计。
+  - `start.sh` 默认 API/Web 监听 `0.0.0.0`，局域网可访问；健康检查仍走本机，数据库仍只绑定本机端口。
+  - `deploy_ubuntu.sh` 和 `get_data.sh` 都支持 dry-run，不写库不拉数据。
 
 ## 未完成
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股；任务 6 已在基础过滤中处理缺失日线、ST/退市风险和非 active 股票。
@@ -214,10 +221,18 @@
 - `2026-06-22` 日历已通过 TuShare 采集补入，当前该目标日两只计划股 `stock_daily_rows=0`；实时 workflow 已可在目标日当天用 `--provider auto` 回补计划股快照并驱动跟踪/模拟，但本轮因日期保护未写入未来目标日行情。
 - AkShare/Eastmoney `stock_zh_a_spot_em` 当前在本机网络下仍可能 `RemoteDisconnected`；AkShare/Sina `stock_zh_a_spot` 本轮只读验证可返回 `300308`、`603986` 两只目标计划股实时快照。
 - PRD 第 17 章模拟交易开发已补齐；仍需在 `2026-06-22` 目标交易日当天运行真实实时快照写入、触发跟踪、模拟成交和 loop 轮询验收，不能在当天验证前宣称真实盘中成交链路已完成。
-- 工作区存在未提交/未跟踪文件 `.gitignore`、`.git.zip`、`.logs/`，不是本轮任务创建或修改，未纳入提交。
-- 本机本轮 PostgreSQL 映射为 `127.0.0.1:5432 -> postgres:5432`；真实验收命令使用了 `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock`。
+- 工作区存在未提交/未跟踪文件 `.gitignore`、`.logs/`、`.venv/`、`frontend/node_modules/`、`frontend/dist/` 等运行现场文件；不是本轮任务创建或修改的长期上下文，未纳入提交。
+- 本机 PostgreSQL 端口可能因 `start.sh` 自动顺延而不是固定 `5432`；部署和数据脚本默认 `5432`，实际运行以脚本输出或 `POSTGRES_HOST_PORT` 为准。
 
 ## 本轮验证
+
+- 任务 20 验证：`.venv/bin/pytest tests/test_deployment_scripts.py`：3 passed。
+- 任务 20 脚本语法：`bash -n deploy_ubuntu.sh get_data.sh start.sh scripts/dev-web.sh`：通过。
+- 任务 20 部署 dry-run：`STOCK_DEPLOY_DRY_RUN=1 FORCE_INSTALL=1 TUSHARE_TOKEN=token-for-dry-run bash deploy_ubuntu.sh`：输出 pip/npm/docker/migration 命令，并明确 deploy 不拉行情数据。
+- 任务 20 数据 dry-run：`STOCK_GET_DATA_DRY_RUN=1 TRADE_DATE=2026-06-18 TUSHARE_TOKEN=token-for-dry-run bash get_data.sh`：输出 `run-after-close-workflow` 与 `audit-market-data` 命令，不写库。
+- 本轮全量验证：`.venv/bin/pytest`：93 passed，1 个 LibreSSL/urllib3 warning。
+- 本轮前端验证：`cd frontend && npm test -- --run`：1 passed。
+- 本轮前端构建：`cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 
 - 任务 18 验证：`.venv/bin/pytest tests/test_market_environment.py tests/test_database_schema.py`：12 passed。
 - 任务 18 验证：`cd frontend && npm test -- --run`：1 passed。
@@ -461,20 +476,22 @@
 
 ## 验收口径
 
-当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
+当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
 
 仍不得把以下事项宣称为已完成：
 
-- `2026-06-22` 目标交易日当天真实实时快照写入和模拟成交尚未完成当天验收；此前日期保护正确阻止了把未来目标日行情写入库。
+- Ubuntu 目标机器尚未完成真实部署验收；需要在服务器执行 `bash deploy_ubuntu.sh`、确认空库迁移、再执行 `TRADE_DATE=YYYY-MM-DD bash get_data.sh` 拉真实数据。
+- 目标交易日当天真实实时快照写入和模拟成交尚未完成当天验收；此前日期保护正确阻止了把未来目标日行情写入库。
 
 ## 下一步
 
-下一次优先在 `2026-06-22` 目标交易日当天重跑：
+下一次优先在 Ubuntu 目标机器按顺序执行：
 
-1. `DATABASE_URL=postgresql+psycopg://stock:stock@127.0.0.1:5432/stock bash scripts/run-realtime-workflow.sh --provider auto --target-trade-date 2026-06-22`
-2. 确认真实实时快照能写入 `2026-06-22` 的计划股，并驱动跟踪/模拟。
-3. 若通过，再执行 `scripts/run-simulation.sh loop --trade-date 2026-06-22 --interval-seconds 60 --max-iterations 1` 做受控轮询验收。
-4. 每轮完成前继续更新 `docs/HANDOFF.md` 并提交 git commit。
+1. `bash deploy_ubuntu.sh`，确认依赖、空库迁移和前端构建完成。
+2. `PUBLIC_HOST=服务器局域网IP bash start.sh`，确认局域网浏览器可访问页面。
+3. `TRADE_DATE=YYYY-MM-DD bash get_data.sh`，拉真实行情并生成市场环境、强势板块、候选股票和交易计划。
+4. 目标交易日当天再执行 `bash scripts/run-realtime-workflow.sh --provider auto --target-trade-date YYYY-MM-DD`，确认真实实时快照能写入计划股并驱动跟踪/模拟。
+5. 每轮完成前继续更新 `docs/HANDOFF.md` 并提交 git commit。
 
 ## 必须保留的约束
 

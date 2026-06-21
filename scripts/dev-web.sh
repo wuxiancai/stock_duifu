@@ -9,5 +9,7 @@ if [ ! -d "node_modules" ]; then
   exit 1
 fi
 
-exec npm run dev -- --host 127.0.0.1
+HOST="${WEB_HOST:-0.0.0.0}"
+PORT="${WEB_PORT:-5173}"
 
+exec npm run dev -- --host "$HOST" --port "$PORT"
