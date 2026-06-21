@@ -13,6 +13,7 @@
 - [x] 已完成强势板块排序、入库命令和最新结果 API
 - [x] 已完成候选股票筛选、入库命令和最新结果 API
 - [x] 已完成交易计划生成、入库命令和最新结果 API
+- [x] 已完成 P0 Web 页面，展示真实市场、板块和交易计划 API 结果
 
 ## 开发原则
 
@@ -283,6 +284,26 @@ TuShare 全市场初始化验证：
 
 验收：浏览器能展示真实数据库结果，支持基础排序、筛选和导出。
 
+状态：已完成。
+
+已完成：
+
+- 前端首页已改为 P0 业务工作台，包含今日决策面板、强势板块、今日交易计划和交易复盘入口。
+- 今日决策面板接入 `GET /api/market/latest`，展示交易日、市场状态、评分、建议仓位、涨跌停、上涨/下跌家数、成交额和系统建议。
+- 强势板块页面接入 `GET /api/sectors/top`，展示 Top 10 排名、涨幅、3 日涨幅、成交额代理、涨停数、强势股数和评分；支持表格排序、关键词筛选和 CSV 导出。
+- 今日交易计划页面接入 `GET /api/trade-plans/latest`，展示股票、板块、策略、评分、买入条件、买入区间、止损/止盈、仓位、状态和风险提示；支持表格排序、关键词筛选和 CSV 导出。
+- 交易复盘页面当前展示明确空态，等待任务 10 接入真实 `trade_review` 后显示复盘统计，不伪造复盘数据。
+
+验证：
+
+- `.venv/bin/pytest`：42 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：1 passed。
+- `cd frontend && npm run build`：通过；仍有 Element Plus 相关 chunk size warning。
+- 真实 API 快验：`/api/market/latest` 返回 200，`trade_date=2026-06-18`、`market_status=中性`、`market_score=55`。
+- 真实 API 快验：`/api/sectors/top` 返回 200，`trade_date=2026-06-18`、`items=10`。
+- 真实 API 快验：`/api/trade-plans/latest` 返回 200，`plan_date=2026-06-18`、`items=2`。
+- Playwright 浏览器快验：`http://127.0.0.1:5173/` 展示 `今日决策面板`、`科技风格`、`中际旭创`、`40%` 和 `交易复盘`；console 仅有缺少 `favicon.ico` 的 404。
+
 ### 9. 盘中跟踪
 
 - 跟踪昨日交易计划是否触发。
@@ -310,4 +331,4 @@ TuShare 全市场初始化验证：
 
 ## 下一步
 
-下一次开发进入任务 8：P0 Web 页面。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。
+下一次开发进入任务 9：盘中跟踪。开始前必须先读 `AGENTS.md` 和本文件，并运行 `git status --short --branch`。

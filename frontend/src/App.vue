@@ -1,26 +1,184 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Connection, DataAnalysis, Finished, TrendCharts } from '@element-plus/icons-vue'
+import {
+  Calendar,
+  Connection,
+  DataAnalysis,
+  Download,
+  Finished,
+  Refresh,
+  TrendCharts
+} from '@element-plus/icons-vue'
 import { fetchHealth, type HealthResponse } from './api/health'
+import {
+  fetchLatestTradePlans,
+  fetchMarketLatest,
+  fetchTopSectors,
+  type MarketLatestResponse,
+  type SectorTopItem,
+  type SectorTopResponse,
+  type TradePlanItem,
+  type TradePlansLatestResponse
+} from './api/dashboard'
 
 const health = ref<HealthResponse | null>(null)
+const market = ref<MarketLatestResponse | null>(null)
+const sectors = ref<SectorTopResponse | null>(null)
+const tradePlans = ref<TradePlansLatestResponse | null>(null)
 const loading = ref(true)
 const error = ref('')
+const sectorKeyword = ref('')
+const planKeyword = ref('')
 
 const statusType = computed(() => {
   if (error.value) return 'danger'
   return health.value?.status === 'ok' ? 'success' : 'warning'
 })
 
-onMounted(async () => {
+const marketTagType = computed(() => {
+  switch (market.value?.market_status) {
+    case '强势':
+      return 'success'
+    case '中性':
+      return 'warning'
+    case '弱势':
+      return 'info'
+    case '风险':
+      return 'danger'
+    default:
+      return 'info'
+  }
+})
+
+const filteredSectors = computed(() => {
+  const keyword = sectorKeyword.value.trim().toLowerCase()
+  const items = sectors.value?.items ?? []
+
+  if (!keyword) return items
+
+  return items.filter((item) => item.sector_name.toLowerCase().includes(keyword))
+})
+
+const filteredTradePlans = computed(() => {
+  const keyword = planKeyword.value.trim().toLowerCase()
+  const items = tradePlans.value?.items ?? []
+
+  if (!keyword) return items
+
+  return items.filter((item) => {
+    return [item.stock_code, item.stock_name, item.sector_name, item.strategy_type, item.status]
+      .join(' ')
+      .toLowerCase()
+      .includes(keyword)
+  })
+})
+
+const totalAmountText = computed(() => formatLargeAmount(market.value?.total_amount))
+
+async function loadDashboard() {
+  loading.value = true
+  error.value = ''
+
   try {
-    health.value = await fetchHealth()
+    const [healthResult, marketResult, sectorsResult, tradePlansResult] = await Promise.all([
+      fetchHealth(),
+      fetchMarketLatest(),
+      fetchTopSectors(),
+      fetchLatestTradePlans()
+    ])
+
+    health.value = healthResult
+    market.value = marketResult
+    sectors.value = sectorsResult
+    tradePlans.value = tradePlansResult
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'API health check failed'
+    error.value = err instanceof Error ? err.message : '业务数据加载失败'
   } finally {
     loading.value = false
   }
-})
+}
+
+function formatPercent(value: number | null | undefined, digits = 2) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-'
+  return `${value.toFixed(digits)}%`
+}
+
+function formatPrice(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-'
+  return value.toFixed(2)
+}
+
+function formatPosition(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-'
+  const percentValue = Math.abs(value) <= 1 ? value * 100 : value
+  return `${percentValue.toFixed(0)}%`
+}
+
+function formatLargeAmount(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-'
+
+  if (Math.abs(value) >= 100000000) {
+    return `${(value / 100000000).toFixed(2)} 亿`
+  }
+
+  return value.toLocaleString('zh-CN')
+}
+
+function exportCsv(filename: string, headers: string[], rows: Array<Array<string | number>>) {
+  const csvRows = [headers, ...rows].map((row) => {
+    return row
+      .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
+      .join(',')
+  })
+  const blob = new Blob([`\uFEFF${csvRows.join('\n')}`], { type: 'text/csv;charset=utf-8;' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
+function exportSectors() {
+  exportCsv(
+    `top-sectors-${sectors.value?.trade_date ?? 'latest'}.csv`,
+    ['排名', '板块', '今日涨幅', '3日涨幅', '成交额代理变化', '涨停数', '强势股数', '评分'],
+    filteredSectors.value.map((item) => [
+      item.rank_no,
+      item.sector_name,
+      item.daily_return,
+      item.three_day_return,
+      item.amount_change,
+      item.limit_up_count,
+      item.strong_stock_count,
+      item.sector_score
+    ])
+  )
+}
+
+function exportPlans() {
+  exportCsv(
+    `trade-plans-${tradePlans.value?.target_trade_date ?? 'latest'}.csv`,
+    ['股票代码', '股票名称', '板块', '策略', '个股评分', '板块评分', '买入条件', '买入下限', '买入上限', '止损价', '止盈价', '仓位', '状态', '风险提示'],
+    filteredTradePlans.value.map((item) => [
+      item.stock_code,
+      item.stock_name,
+      item.sector_name,
+      item.strategy_type,
+      item.stock_score,
+      item.sector_score,
+      item.buy_condition,
+      item.buy_price_low,
+      item.buy_price_high,
+      item.stop_loss_price,
+      item.take_profit_price,
+      item.position_ratio,
+      item.status,
+      item.risk_note
+    ])
+  )
+}
+
+onMounted(loadDashboard)
 </script>
 
 <template>
@@ -34,55 +192,38 @@ onMounted(async () => {
         </div>
       </div>
       <nav class="nav-list">
-        <button class="nav-item active" type="button">
+        <a class="nav-item active" href="#decision">
           <el-icon><DataAnalysis /></el-icon>
-          <span>系统状态</span>
-        </button>
-        <button class="nav-item" type="button" disabled>
+          <span>决策面板</span>
+        </a>
+        <a class="nav-item" href="#sectors">
           <el-icon><TrendCharts /></el-icon>
-          <span>市场环境</span>
-        </button>
-        <button class="nav-item" type="button" disabled>
+          <span>强势板块</span>
+        </a>
+        <a class="nav-item" href="#plans">
           <el-icon><Finished /></el-icon>
           <span>交易计划</span>
-        </button>
+        </a>
+        <a class="nav-item" href="#review">
+          <el-icon><Calendar /></el-icon>
+          <span>交易复盘</span>
+        </a>
       </nav>
     </aside>
 
-    <section class="workspace">
+    <section class="workspace" v-loading="loading">
       <header class="toolbar">
         <div>
-          <h1>项目骨架与配置</h1>
-          <p>FastAPI、Vue 3、PostgreSQL 配置和健康检查已接入。</p>
+          <h1>A股短线决策工作台</h1>
+          <p>盘后查看市场环境、强势板块和次日条件交易计划。</p>
         </div>
-        <el-tag :type="statusType" size="large">
-          {{ error ? 'API 异常' : health?.status === 'ok' ? 'API 正常' : '检测中' }}
-        </el-tag>
+        <div class="toolbar-actions">
+          <el-tag :type="statusType" size="large">
+            {{ error ? '数据异常' : health?.status === 'ok' ? 'API 正常' : '加载中' }}
+          </el-tag>
+          <el-button :icon="Refresh" :loading="loading" @click="loadDashboard">刷新</el-button>
+        </div>
       </header>
-
-      <section class="metric-grid">
-        <article class="metric">
-          <el-icon><Connection /></el-icon>
-          <div>
-            <span>后端服务</span>
-            <strong>{{ loading ? '检测中' : health?.service ?? '不可用' }}</strong>
-          </div>
-        </article>
-        <article class="metric">
-          <el-icon><DataAnalysis /></el-icon>
-          <div>
-            <span>运行环境</span>
-            <strong>{{ health?.environment ?? 'development' }}</strong>
-          </div>
-        </article>
-        <article class="metric">
-          <el-icon><Finished /></el-icon>
-          <div>
-            <span>数据库配置</span>
-            <strong>{{ health?.database.configured ? 'PostgreSQL 已配置' : '待配置' }}</strong>
-          </div>
-        </article>
-      </section>
 
       <el-alert
         v-if="error"
@@ -92,22 +233,152 @@ onMounted(async () => {
         :closable="false"
       />
 
-      <section class="status-table" aria-label="MVP readiness">
-        <el-table
-          :data="[
-            { item: '后端 API', state: '已建立', note: '/api/health 可用于启动验收' },
-            { item: '前端工作台', state: '已建立', note: 'Vue 3 + Element Plus' },
-            { item: 'PostgreSQL', state: '已配置', note: '等待任务 2 创建业务表' },
-            { item: '真实行情数据', state: '未接入', note: '任务 3 开始接入 TuShare' }
-          ]"
-          border
-        >
-          <el-table-column prop="item" label="项目" min-width="160" />
-          <el-table-column prop="state" label="状态" min-width="140" />
-          <el-table-column prop="note" label="说明" min-width="260" />
+      <section id="decision" class="panel">
+        <div class="section-heading">
+          <div>
+            <h2>今日决策面板</h2>
+            <p>交易日：{{ market?.trade_date ?? '-' }}</p>
+          </div>
+          <el-tag :type="marketTagType" size="large">{{ market?.market_status ?? '待生成' }}</el-tag>
+        </div>
+
+        <section class="metric-grid decision-grid">
+          <article class="metric primary-metric">
+            <el-icon><DataAnalysis /></el-icon>
+            <div>
+              <span>市场评分</span>
+              <strong>{{ market?.market_score ?? '-' }}</strong>
+            </div>
+          </article>
+          <article class="metric">
+            <el-icon><Connection /></el-icon>
+            <div>
+              <span>建议总仓位</span>
+              <strong>{{ market?.suggested_position ?? '-' }}</strong>
+            </div>
+          </article>
+          <article class="metric">
+            <el-icon><TrendCharts /></el-icon>
+            <div>
+              <span>涨停 / 跌停</span>
+              <strong>{{ market?.limit_up_count ?? '-' }} / {{ market?.limit_down_count ?? '-' }}</strong>
+            </div>
+          </article>
+          <article class="metric">
+            <el-icon><Finished /></el-icon>
+            <div>
+              <span>上涨 / 下跌家数</span>
+              <strong>{{ market?.up_count ?? '-' }} / {{ market?.down_count ?? '-' }}</strong>
+            </div>
+          </article>
+          <article class="metric wide-metric">
+            <el-icon><DataAnalysis /></el-icon>
+            <div>
+              <span>全市场成交额</span>
+              <strong>{{ totalAmountText }}</strong>
+            </div>
+          </article>
+        </section>
+
+        <el-alert
+          class="suggestion-alert"
+          :title="market?.suggestion ?? '暂无市场建议，请先生成市场环境数据。'"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+      </section>
+
+      <section id="sectors" class="panel">
+        <div class="section-heading table-heading">
+          <div>
+            <h2>强势板块</h2>
+            <p>交易日：{{ sectors?.trade_date ?? '-' }}，展示 Top {{ sectors?.items.length ?? 0 }}</p>
+          </div>
+          <div class="table-tools">
+            <el-input v-model="sectorKeyword" clearable placeholder="筛选板块" />
+            <el-button :icon="Download" :disabled="!filteredSectors.length" @click="exportSectors">导出</el-button>
+          </div>
+        </div>
+
+        <el-table :data="filteredSectors" border stripe empty-text="暂无强势板块数据">
+          <el-table-column prop="rank_no" label="排名" width="88" sortable>
+            <template #default="{ row }: { row: SectorTopItem }">
+              <el-tag :type="row.rank_no <= 3 ? 'success' : 'info'">{{ row.rank_no }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="sector_name" label="板块" min-width="150" sortable />
+          <el-table-column prop="daily_return" label="今日涨幅" min-width="120" sortable>
+            <template #default="{ row }: { row: SectorTopItem }">{{ formatPercent(row.daily_return) }}</template>
+          </el-table-column>
+          <el-table-column prop="three_day_return" label="3日涨幅" min-width="120" sortable>
+            <template #default="{ row }: { row: SectorTopItem }">{{ formatPercent(row.three_day_return) }}</template>
+          </el-table-column>
+          <el-table-column prop="amount_change" label="成交额代理" min-width="140" sortable>
+            <template #default="{ row }: { row: SectorTopItem }">{{ formatLargeAmount(row.amount_change) }}</template>
+          </el-table-column>
+          <el-table-column prop="limit_up_count" label="涨停" min-width="90" sortable />
+          <el-table-column prop="strong_stock_count" label="强势股" min-width="100" sortable />
+          <el-table-column prop="sector_score" label="评分" min-width="90" sortable />
         </el-table>
+      </section>
+
+      <section id="plans" class="panel">
+        <div class="section-heading table-heading">
+          <div>
+            <h2>今日交易计划</h2>
+            <p>计划日：{{ tradePlans?.plan_date ?? '-' }}，目标交易日：{{ tradePlans?.target_trade_date ?? '-' }}</p>
+          </div>
+          <div class="table-tools">
+            <el-input v-model="planKeyword" clearable placeholder="筛选股票/板块/策略" />
+            <el-button :icon="Download" :disabled="!filteredTradePlans.length" @click="exportPlans">导出</el-button>
+          </div>
+        </div>
+
+        <el-table :data="filteredTradePlans" border stripe empty-text="暂无交易计划数据">
+          <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+            <template #default="{ row }: { row: TradePlanItem }">
+              <strong>{{ row.stock_name }}</strong>
+              <small class="muted-code">{{ row.stock_code }}</small>
+            </template>
+          </el-table-column>
+          <el-table-column prop="sector_name" label="板块" min-width="130" sortable />
+          <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
+          <el-table-column label="评分" min-width="110" sortable prop="stock_score">
+            <template #default="{ row }: { row: TradePlanItem }">{{ row.stock_score }} / {{ row.sector_score }}</template>
+          </el-table-column>
+          <el-table-column prop="buy_condition" label="买入条件" min-width="260" show-overflow-tooltip />
+          <el-table-column label="买入区间" min-width="150">
+            <template #default="{ row }: { row: TradePlanItem }">
+              {{ formatPrice(row.buy_price_low) }} - {{ formatPrice(row.buy_price_high) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="止损/止盈" min-width="150">
+            <template #default="{ row }: { row: TradePlanItem }">
+              {{ formatPrice(row.stop_loss_price) }} / {{ formatPrice(row.take_profit_price) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="仓位" min-width="90" sortable prop="position_ratio">
+            <template #default="{ row }: { row: TradePlanItem }">{{ formatPosition(row.position_ratio) }}</template>
+          </el-table-column>
+          <el-table-column prop="status" label="状态" min-width="100" sortable>
+            <template #default="{ row }: { row: TradePlanItem }">
+              <el-tag type="warning">{{ row.status }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="risk_note" label="风险提示" min-width="260" show-overflow-tooltip />
+        </el-table>
+      </section>
+
+      <section id="review" class="panel review-panel">
+        <div class="section-heading">
+          <div>
+            <h2>交易复盘</h2>
+            <p>任务 10 接入真实复盘记录后，这里展示触发、收益和失败原因。</p>
+          </div>
+        </div>
+        <el-empty description="暂无复盘统计数据，等待 trade_review 生成后展示" />
       </section>
     </section>
   </main>
 </template>
-
