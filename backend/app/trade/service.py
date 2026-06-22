@@ -257,7 +257,7 @@ def load_latest_trade_plans(engine: Engine) -> Optional[tuple[date, date, list[T
             )
             .order_by(desc(TradePlan.stock_score), TradePlan.stock_code)
         ).all()
-        daily_by_code = _target_daily_by_code(session, latest_target_date, [record.stock_code for record in records])
+        daily_by_code = _quote_daily_by_code(session, latest_target_date, [record.stock_code for record in records])
         return (
             latest_plan_date,
             latest_target_date,
@@ -275,7 +275,7 @@ def load_trade_plans_by_target_date(engine: Engine, target_trade_date: date) -> 
         if not records:
             return None
         plan_date = max(record.plan_date for record in records)
-        daily_by_code = _target_daily_by_code(session, target_trade_date, [record.stock_code for record in records])
+        daily_by_code = _quote_daily_by_code(session, target_trade_date, [record.stock_code for record in records])
         return (plan_date, target_trade_date, [_plan_result(record, daily_by_code.get(record.stock_code)) for record in records])
 
 
@@ -325,8 +325,9 @@ def track_trade_plans(
                     StockDaily.trade_date == target_trade_date,
                 )
             )
-            current_price = _number(daily.close) if daily else None
-            pct_chg = _number(daily.pct_chg) if daily else None
+            display_daily = daily or _latest_quote_before_or_on(session, target_trade_date, plan.stock_code)
+            current_price = _number(display_daily.close) if display_daily else None
+            pct_chg = _number(display_daily.pct_chg) if display_daily else None
 
             if daily and plan.status in {"待触发", "未触发"}:
                 status, trigger_price, note = _evaluate_plan_tracking(plan, daily, mark_untriggered_at_close)
@@ -711,16 +712,26 @@ def _plan_result(record: TradePlan, current_daily: Optional[StockDaily] = None) 
     )
 
 
-def _target_daily_by_code(session: Session, target_trade_date: date, stock_codes: list[str]) -> dict[str, StockDaily]:
+def _quote_daily_by_code(session: Session, target_trade_date: date, stock_codes: list[str]) -> dict[str, StockDaily]:
     if not stock_codes:
         return {}
-    rows = session.scalars(
-        select(StockDaily).where(
-            StockDaily.trade_date == target_trade_date,
-            StockDaily.stock_code.in_(stock_codes),
+    return {
+        stock_code: daily
+        for stock_code in stock_codes
+        if (daily := _latest_quote_before_or_on(session, target_trade_date, stock_code)) is not None
+    }
+
+
+def _latest_quote_before_or_on(session: Session, target_trade_date: date, stock_code: str) -> Optional[StockDaily]:
+    return session.scalar(
+        select(StockDaily)
+        .where(
+            StockDaily.stock_code == stock_code,
+            StockDaily.trade_date <= target_trade_date,
         )
-    ).all()
-    return {row.stock_code: row for row in rows}
+        .order_by(desc(StockDaily.trade_date))
+        .limit(1)
+    )
 
 
 def _key_indicators(history: list[StockDaily]) -> dict:

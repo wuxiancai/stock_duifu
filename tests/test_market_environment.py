@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from backend.app.db.models import IndexDaily, LimitSnapshot, MarketDaily, StockDaily, metadata
+from backend.app.db.models import IndexDaily, LimitSnapshot, MarketDaily, StockDaily, TradingCalendar, metadata
 from backend.app.main import create_app
 from backend.app.market.service import generate_market_environment
 
@@ -289,3 +289,38 @@ def test_market_history_api_returns_latest_five_environments_descending() -> Non
     ]
     assert payload["items"][0]["market_score"] == 55
     assert payload["items"][0]["suggestion"] == "2026-06-20 市场建议"
+
+
+def test_market_history_api_ignores_closed_calendar_dates() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        for day, is_open, score in [
+            (date(2026, 6, 22), True, 100),
+            (date(2026, 6, 21), False, 15),
+            (date(2026, 6, 20), False, 15),
+            (date(2026, 6, 19), False, 30),
+            (date(2026, 6, 18), True, 70),
+        ]:
+            session.add(TradingCalendar(trade_date=day, is_open=is_open, source="unit-test"))
+            session.add(
+                MarketDaily(
+                    trade_date=day,
+                    market_score=score,
+                    market_status="强势" if score >= 80 else "风险",
+                    up_count=2000,
+                    down_count=2000,
+                    limit_up_count=0,
+                    limit_down_count=0,
+                    limit_up_height=0,
+                    total_amount=1000000000000,
+                    suggestion=f"{day.isoformat()} 市场建议",
+                )
+            )
+        session.commit()
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.get("/api/market/history")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["trade_date"] for item in payload["items"]] == ["2026-06-22", "2026-06-18"]

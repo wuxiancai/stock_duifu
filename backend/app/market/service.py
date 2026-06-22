@@ -7,7 +7,7 @@ from sqlalchemy import delete, desc, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from backend.app.db.models import IndexDaily, LimitSnapshot, MarketDaily, StockDaily
+from backend.app.db.models import IndexDaily, LimitSnapshot, MarketDaily, StockDaily, TradingCalendar
 
 
 SHANGHAI_INDEX = "000001.SH"
@@ -135,11 +135,13 @@ def load_latest_market_environment(engine: Engine) -> Optional[MarketEnvironment
 
 def load_market_environment_history(engine: Engine, limit: int = 5) -> list[MarketEnvironmentResult]:
     with Session(engine) as session:
-        records = session.scalars(
-            select(MarketDaily)
-            .order_by(desc(MarketDaily.trade_date))
-            .limit(limit)
-        ).all()
+        query = select(MarketDaily).order_by(desc(MarketDaily.trade_date)).limit(limit)
+        if _calendar_has_rows(session):
+            query = (
+                query.join(TradingCalendar, TradingCalendar.trade_date == MarketDaily.trade_date)
+                .where(TradingCalendar.is_open.is_(True))
+            )
+        records = session.scalars(query).all()
         return [_result_from_record(record) for record in records]
 
 
@@ -261,6 +263,10 @@ def _previous_total_amount(session: Session, trade_date: date) -> Optional[float
     if previous_date is None:
         return None
     return _total_amount(session, previous_date)
+
+
+def _calendar_has_rows(session: Session) -> bool:
+    return bool(session.scalar(select(func.count()).select_from(TradingCalendar)))
 
 
 def _status_for_score(score: int) -> tuple[str, str, str]:

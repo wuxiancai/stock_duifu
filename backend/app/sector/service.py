@@ -81,7 +81,7 @@ def generate_sector_rankings(
                 )
             )
         session.commit()
-        return rankings
+        return rankings[:top_n]
 
 
 def calculate_sector_rankings(
@@ -161,7 +161,7 @@ def calculate_sector_rankings(
             pair[1]["amount_change"],
         ),
         reverse=True,
-    )[:top_n]
+    )
 
     return [
         SectorRankingResult(
@@ -192,11 +192,16 @@ def load_sector_rankings_by_date(engine: Engine, trade_date: date) -> Optional[t
         return _load_sector_rankings_for_date(session, trade_date)
 
 
-def _load_sector_rankings_for_date(session: Session, trade_date: date) -> Optional[tuple[date, list[SectorRankingResult]]]:
+def _load_sector_rankings_for_date(
+    session: Session,
+    trade_date: date,
+    limit: int = 10,
+) -> Optional[tuple[date, list[SectorRankingResult]]]:
     records = session.scalars(
         select(SectorDaily)
         .where(SectorDaily.trade_date == trade_date)
         .order_by(SectorDaily.rank_no)
+        .limit(limit)
     ).all()
     if not records:
         return None

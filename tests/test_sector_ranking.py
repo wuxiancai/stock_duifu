@@ -85,10 +85,11 @@ def test_generate_sector_rankings_scores_top10_and_persists() -> None:
 
     with Session(engine) as session:
         saved = session.scalars(select(SectorDaily).order_by(SectorDaily.rank_no)).all()
-        assert len(saved) == 10
+        assert len(saved) == 12
         assert saved[0].sector_name == "机器人"
         assert saved[0].sector_score == 100
         assert float(saved[0].five_day_return) == 12.0
+        assert saved[-1].rank_no == 12
 
 
 def test_generate_sector_rankings_is_idempotent_for_same_trade_date() -> None:
@@ -102,7 +103,7 @@ def test_generate_sector_rankings_is_idempotent_for_same_trade_date() -> None:
     generate_sector_rankings(engine, trade_date, FakeSectorProvider())
 
     with Session(engine) as session:
-        assert session.query(SectorDaily).count() == 10
+        assert session.query(SectorDaily).count() == 12
 
 
 def test_sector_top_api_returns_latest_rankings() -> None:
@@ -128,6 +129,55 @@ def test_sector_top_api_returns_latest_rankings() -> None:
     assert payload["items"][0]["rank_history"] == [
         {"trade_date": "2026-06-18", "rank_no": 1},
         {"trade_date": "2026-06-17", "rank_no": 1},
+    ]
+    assert len(payload["items"]) == 10
+
+
+def test_sector_rank_history_keeps_ranks_outside_top10() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        for day in [date(2026, 6, 22), date(2026, 6, 18)]:
+            session.add(TradingCalendar(trade_date=day, is_open=True, source="unit-test"))
+        for rank_no, sector_name in enumerate(
+            ["钛白粉", "培育钻石", "铅锌", "小金属", "非金属材料III", "非金属材料II"] + [f"板块{idx}" for idx in range(7, 12)],
+            start=1,
+        ):
+            session.add(
+                SectorDaily(
+                    trade_date=date(2026, 6, 22),
+                    sector_name=sector_name,
+                    rank_no=rank_no,
+                    daily_return=1,
+                    five_day_return=5,
+                    amount_change=1000,
+                    limit_up_count=0,
+                    strong_stock_count=0,
+                    sector_score=80,
+                )
+            )
+        session.add(
+            SectorDaily(
+                trade_date=date(2026, 6, 18),
+                sector_name="小金属",
+                rank_no=11,
+                daily_return=1,
+                five_day_return=5,
+                amount_change=1000,
+                limit_up_count=0,
+                strong_stock_count=0,
+                sector_score=60,
+            )
+        )
+        session.commit()
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.get("/api/sectors/top")
+
+    assert response.status_code == 200
+    row = next(item for item in response.json()["items"] if item["sector_name"] == "小金属")
+    assert row["rank_history"] == [
+        {"trade_date": "2026-06-22", "rank_no": 4},
+        {"trade_date": "2026-06-18", "rank_no": 11},
     ]
 
 

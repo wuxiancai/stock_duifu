@@ -1090,3 +1090,18 @@ TuShare 全市场初始化验证：
 - `.venv/bin/pytest tests/test_simulation_trading.py`：20 passed，1 个 LibreSSL/urllib3 warning。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+
+### 42. 决策/板块/盘中跟踪数据口径修复
+
+- 修复今日决策面板最近 5 日历史把休市日混入的问题：`GET /api/market/history` 在交易日历存在时只返回 `trading_calendar.is_open=true` 的开市日。
+- 修复强势板块近 5 日排名只保存 Top10 导致非 Top10 历史名次显示 `-` 的问题：生成板块排名时持久化全量排名，接口仍只展示当前交易日 Top10。
+- 强势板块 `rank_history` 现在可显示 Top10 之外的真实名次，例如当前 Top10 板块在前一交易日排名第 11，会显示 `11`，而不是 `-`。
+- 修复盘中跟踪表当前价/涨跌幅容易显示 `-` 的问题：交易计划 API 展示行情时优先使用目标交易日实时/日线快照；目标日暂无行情时，使用目标日前最近一条 `stock_daily` 作为展示兜底，不参与触发判断。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_market_environment.py tests/test_sector_ranking.py tests/test_trade_plan_generation.py`：37 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：3 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。

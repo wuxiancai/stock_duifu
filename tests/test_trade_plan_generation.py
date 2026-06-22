@@ -170,6 +170,43 @@ def test_trade_plans_latest_api_returns_persisted_plans() -> None:
     assert all("tracking_note" in item for item in payload["items"])
 
 
+def test_trade_plans_latest_api_falls_back_to_latest_available_quote_before_target() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        for plan in session.scalars(select(TradePlan)).all():
+            plan.target_trade_date = date(2026, 6, 23)
+        session.add(TradingCalendar(trade_date=date(2026, 6, 23), is_open=True, source="unit-test"))
+        session.add(
+            StockDaily(
+                stock_code="000001",
+                trade_date=date(2026, 6, 22),
+                open=13.5,
+                high=14.0,
+                low=13.0,
+                close=13.82,
+                pre_close=13.6,
+                change=0.22,
+                pct_chg=1.62,
+                volume=1000,
+                amount=1000000000,
+                turnover_rate=3.0,
+                source="unit-test",
+            )
+        )
+        session.commit()
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.get("/api/trade-plans/latest")
+
+    assert response.status_code == 200
+    row = next(item for item in response.json()["items"] if item["stock_code"] == "000001")
+    assert row["target_trade_date"] == "2026-06-23"
+    assert row["current_price"] == 13.82
+    assert row["pct_chg"] == 1.62
+
+
 def test_trade_plans_latest_api_returns_empty_state_without_plans() -> None:
     engine = _engine()
     client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))

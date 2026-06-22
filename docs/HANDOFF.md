@@ -655,10 +655,17 @@
   - `.venv/bin/pytest tests/test_simulation_trading.py`：20 passed，1 个 LibreSSL/urllib3 warning。
   - `cd frontend && npm test -- --run`：3 passed。
   - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 任务 42 决策/板块/盘中跟踪数据口径修复：
+  - 今日决策面板 `GET /api/market/history` 现在在交易日历存在时只返回 `trading_calendar.is_open=true` 的开市日，避免 `2026-06-19`、`2026-06-20`、`2026-06-21` 这类休市日混入最近 5 日。
+  - 强势板块生成会持久化当日全量板块排名，API 仍只返回当前交易日 Top10；因此 Top10 板块在历史交易日排第 11、第 20 等也能在近 5 日列里显示真实名次，而不是 `-`。
+  - 交易计划 API 的 `current_price` / `pct_chg` 展示口径改为目标日行情优先、目标日前最近 `stock_daily` 兜底；盘中触发判断仍只使用目标交易日行情，避免把旧行情用于买卖触发。
+  - `.venv/bin/pytest tests/test_market_environment.py tests/test_sector_ranking.py tests/test_trade_plan_generation.py`：37 passed，1 个 LibreSSL/urllib3 warning。
+  - `cd frontend && npm test -- --run`：3 passed。
+  - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 
 ## 验收口径
 
-当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹、任务 36 模拟交易 latest 持仓现价刷新、任务 37 首页盘中自动触发实时行情回补、任务 38 强势板块近 5 日排名 5 列展示、任务 39 强势板块近 5 日排名交易日历过滤、任务 40 今日决策面板一周视图与盘中跟踪板块列、任务 41 模拟持仓持续显示与交易记录历史滚动，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
+当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹、任务 36 模拟交易 latest 持仓现价刷新、任务 37 首页盘中自动触发实时行情回补、任务 38 强势板块近 5 日排名 5 列展示、任务 39 强势板块近 5 日排名交易日历过滤、任务 40 今日决策面板一周视图与盘中跟踪板块列、任务 41 模拟持仓持续显示与交易记录历史滚动、任务 42 决策/板块/盘中跟踪数据口径修复，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
 
 仍不得把以下事项宣称为已完成：
 
