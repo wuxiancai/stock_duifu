@@ -10,6 +10,12 @@ from sqlalchemy.engine import Engine
 
 from backend.app.candidate.service import load_latest_candidates
 from backend.app.core.config import get_settings
+from backend.app.data.providers import (
+    AkShareRealtimeQuoteProvider,
+    AkShareSinaRealtimeQuoteProvider,
+    FallbackRealtimeQuoteProvider,
+)
+from backend.app.data.realtime_quotes import backfill_trade_plan_realtime_quotes
 from backend.app.db.session import create_database_engine
 from backend.app.market.service import load_latest_market_environment
 from backend.app.sector.service import load_latest_sector_rankings, load_sector_rankings_by_date
@@ -30,6 +36,13 @@ from backend.app.trade.service import (
 class TradePlanTrackingRequest(BaseModel):
     target_trade_date: str
     mark_untriggered_at_close: bool = False
+
+
+class TradePlanRealtimeTrackingRequest(BaseModel):
+    target_trade_date: str
+    mark_untriggered_at_close: bool = False
+    include_existing: bool = True
+    allow_date_mismatch: bool = False
 
 
 class TradeReviewGenerateRequest(BaseModel):
@@ -140,6 +153,46 @@ def _trade_plan_detail_payload(item: dict) -> dict:
     payload["selection_reason"] = item["selection_reason"]
     payload["key_indicators"] = item["key_indicators"]
     return payload
+
+
+def _tracking_payload(target_trade_date: date, items) -> dict:
+    return {
+        "target_trade_date": target_trade_date.isoformat(),
+        "items": [
+            {
+                "id": item.id,
+                "stock_code": item.stock_code,
+                "stock_name": item.stock_name,
+                "status": item.status,
+                "current_price": item.current_price,
+                "pct_chg": item.pct_chg,
+                "trigger_price": item.trigger_price,
+                "tracking_note": item.tracking_note,
+            }
+            for item in items
+        ],
+    }
+
+
+def _realtime_backfill_payload(backfill) -> dict:
+    return {
+        "target_trade_date": backfill.target_trade_date.isoformat(),
+        "china_today": backfill.china_today.isoformat(),
+        "provider": backfill.provider,
+        "planned_stock_count": backfill.planned_stock_count,
+        "existing_stock_count": backfill.existing_stock_count,
+        "requested_stock_count": backfill.requested_stock_count,
+        "fetched_stock_daily_rows": backfill.fetched_stock_daily_rows,
+        "target_is_open": backfill.target_is_open,
+        "missing_stock_codes": backfill.missing_stock_codes,
+        "skipped_reason": backfill.skipped_reason,
+    }
+
+
+def _realtime_quote_provider():
+    return FallbackRealtimeQuoteProvider(
+        [AkShareRealtimeQuoteProvider(), AkShareSinaRealtimeQuoteProvider()]
+    )
 
 
 def _parse_iso_date(value: str, field_name: str) -> date:
@@ -334,22 +387,26 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
             target_trade_date,
             mark_untriggered_at_close=payload.mark_untriggered_at_close,
         )
-        return {
-            "target_trade_date": target_trade_date.isoformat(),
-            "items": [
-                {
-                    "id": item.id,
-                    "stock_code": item.stock_code,
-                    "stock_name": item.stock_name,
-                    "status": item.status,
-                    "current_price": item.current_price,
-                    "pct_chg": item.pct_chg,
-                    "trigger_price": item.trigger_price,
-                    "tracking_note": item.tracking_note,
-                }
-                for item in items
-            ],
-        }
+        return _tracking_payload(target_trade_date, items)
+
+    @app.post("/api/trade-plans/track-realtime", tags=["trade"])
+    def track_trade_plans_with_realtime_api(payload: TradePlanRealtimeTrackingRequest) -> dict:
+        target_trade_date = _parse_iso_date(payload.target_trade_date, "target_trade_date")
+        backfill = backfill_trade_plan_realtime_quotes(
+            database_engine,
+            target_trade_date,
+            _realtime_quote_provider(),
+            include_existing=payload.include_existing,
+            allow_date_mismatch=payload.allow_date_mismatch,
+        )
+        items = track_trade_plans(
+            database_engine,
+            target_trade_date,
+            mark_untriggered_at_close=payload.mark_untriggered_at_close,
+        )
+        payload_dict = _tracking_payload(target_trade_date, items)
+        payload_dict["realtime"] = _realtime_backfill_payload(backfill)
+        return payload_dict
 
     @app.patch("/api/trade-plans/{plan_id}/status", tags=["trade"])
     def update_trade_plan_status_api(plan_id: int, payload: TradePlanStatusUpdate) -> dict:

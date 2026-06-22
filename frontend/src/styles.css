@@ -238,6 +238,132 @@ textarea {
   font-weight: 400;
 }
 
+.quote-up,
+.metric strong .quote-up {
+  display: inline;
+  color: #d0302f;
+  font-weight: 700;
+}
+
+.quote-down,
+.metric strong .quote-down {
+  display: inline;
+  color: #168a4a;
+  font-weight: 700;
+}
+
+.quote-flat,
+.metric strong .quote-flat {
+  display: inline;
+  color: #607089;
+  font-weight: 600;
+}
+
+.plan-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 12px;
+}
+
+.plan-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfdff;
+}
+
+.plan-card-header,
+.plan-card-actions,
+.plan-tags,
+.plan-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plan-card-header {
+  justify-content: space-between;
+}
+
+.plan-card-header strong {
+  font-size: 16px;
+}
+
+.plan-card-meta {
+  color: #607089;
+  font-size: 13px;
+}
+
+.plan-condition,
+.plan-note,
+.plan-risk {
+  margin: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.plan-condition {
+  color: #273348;
+  font-weight: 600;
+}
+
+.plan-note {
+  color: #607089;
+  font-size: 13px;
+}
+
+.plan-risk {
+  color: #9b5b14;
+  font-size: 13px;
+}
+
+.plan-price-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.plan-price-grid div {
+  min-width: 0;
+  border-radius: 6px;
+  padding: 8px;
+  background: #fff;
+}
+
+.plan-price-grid dt,
+.plan-price-grid dd {
+  margin: 0;
+}
+
+.plan-price-grid dt {
+  color: #7c8aa0;
+  font-size: 12px;
+}
+
+.plan-price-grid dd {
+  margin-top: 3px;
+  color: #273348;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.plan-price-grid dd.quote-up {
+  color: #d0302f;
+}
+
+.plan-price-grid dd.quote-down {
+  color: #168a4a;
+}
+
+.plan-price-grid dd.quote-flat {
+  color: #607089;
+}
+
 .review-panel .el-empty {
   padding: 24px 0;
 }
@@ -296,6 +422,14 @@ textarea {
   .table-tools .el-button {
     width: 100%;
   }
+
+  .plan-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .plan-card-actions .el-button {
+    flex: 1 1 calc(50% - 8px);
+  }
 }
 
 @media (max-width: 620px) {
@@ -310,5 +444,9 @@ textarea {
 
   .nav-list {
     grid-template-columns: 1fr;
+  }
+
+  .plan-price-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

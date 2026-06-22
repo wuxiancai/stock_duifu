@@ -5,8 +5,10 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from backend.app.data.types import StockDailyRecord
 from backend.app.db.models import CandidateStock, MarketDaily, StockDaily, TradePlan, TradeReview, TradingCalendar, metadata
 from backend.app.main import create_app
+import backend.app.main as app_main
 from backend.app.trade.service import (
     generate_trade_plans,
     generate_trade_reviews,
@@ -238,6 +240,53 @@ def test_track_trade_plans_marks_triggered_from_target_day_daily_data() -> None:
         saved = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
         assert saved.status == "已触发"
         assert saved.tracking_note == "目标交易日价格触达计划买入区间"
+
+
+def test_track_realtime_trade_plans_api_backfills_quotes_and_returns_current_price(monkeypatch) -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        plans = session.scalars(select(TradePlan).order_by(TradePlan.stock_code)).all()
+        rows = [
+            StockDailyRecord(
+                stock_code=plan.stock_code,
+                trade_date=date(2026, 6, 19),
+                open=float(plan.buy_price_low),
+                high=float(plan.buy_price_high),
+                low=float(plan.buy_price_low),
+                close=float(plan.buy_price_high),
+                pre_close=float(plan.buy_price_low),
+                change=float(plan.buy_price_high) - float(plan.buy_price_low),
+                pct_chg=3.0,
+                volume=1000,
+                amount=1000000000,
+                turnover_rate=3.0,
+                source="unit-test-realtime",
+            )
+            for plan in plans
+        ]
+
+    class FakeRealtimeProvider:
+        name = "unit-test-realtime"
+
+        def fetch_realtime_stock_daily(self, stock_codes, trade_date):
+            wanted = set(stock_codes)
+            return [row for row in rows if row.stock_code in wanted and row.trade_date == trade_date]
+
+    monkeypatch.setattr(app_main, "_realtime_quote_provider", lambda: FakeRealtimeProvider())
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+
+    response = client.post(
+        "/api/trade-plans/track-realtime",
+        json={"target_trade_date": "2026-06-19", "allow_date_mismatch": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["realtime"]["fetched_stock_daily_rows"] == len(plans)
+    assert all(item["current_price"] is not None for item in payload["items"])
+    assert any(item["status"] == "已触发" for item in payload["items"])
 
 
 def test_track_trade_plans_can_mark_untriggered_after_close() -> None:

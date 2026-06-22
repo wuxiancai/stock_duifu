@@ -129,6 +129,18 @@ export interface TradePlanTrackingResponse {
     trigger_price: number | null
     tracking_note: string
   }>
+  realtime?: {
+    target_trade_date: string
+    china_today: string
+    provider: string
+    planned_stock_count: number
+    existing_stock_count: number
+    requested_stock_count: number
+    fetched_stock_daily_rows: number
+    target_is_open: boolean | null
+    missing_stock_codes: string[]
+    skipped_reason: string
+  }
 }
 
 export interface TradeReviewGroupStats {
@@ -311,6 +323,17 @@ export function trackTradePlans(targetTradeDate: string, markUntriggeredAtClose 
   return sendJson<TradePlanTrackingResponse>('/api/trade-plans/track', 'POST', {
     target_trade_date: targetTradeDate,
     mark_untriggered_at_close: markUntriggeredAtClose
+  })
+}
+
+export function trackRealtimeTradePlans(
+  targetTradeDate: string,
+  markUntriggeredAtClose = false
+): Promise<TradePlanTrackingResponse> {
+  return sendJson<TradePlanTrackingResponse>('/api/trade-plans/track-realtime', 'POST', {
+    target_trade_date: targetTradeDate,
+    mark_untriggered_at_close: markUntriggeredAtClose,
+    include_existing: true
   })
 }
 

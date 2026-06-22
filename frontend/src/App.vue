@@ -20,7 +20,7 @@ import {
   fetchTradePlanDetail,
   fetchTopSectors,
   runSimulationWorkflow,
-  trackTradePlans,
+  trackRealtimeTradePlans,
   updateTradePlanStatus,
   type CandidateItem,
   type CandidateLatestResponse,
@@ -272,6 +272,27 @@ function formatLargeAmount(value: number | null | undefined) {
   return value.toLocaleString('zh-CN')
 }
 
+function polarityClass(value: number | null | undefined, inverse = false) {
+  if (value === null || value === undefined || Number.isNaN(value) || value === 0) return 'quote-flat'
+  const isUp = inverse ? value < 0 : value > 0
+  return isUp ? 'quote-up' : 'quote-down'
+}
+
+function priceVsClass(value: number | null | undefined, base: number | null | undefined) {
+  if (
+    value === null ||
+    value === undefined ||
+    base === null ||
+    base === undefined ||
+    Number.isNaN(value) ||
+    Number.isNaN(base) ||
+    value === base
+  ) {
+    return 'quote-flat'
+  }
+  return value > base ? 'quote-up' : 'quote-down'
+}
+
 function exportCsv(filename: string, headers: string[], rows: Array<Array<string | number>>) {
   const csvRows = [headers, ...rows].map((row) => {
     return row
@@ -380,10 +401,16 @@ async function runPlanTracking(markUntriggeredAtClose = false) {
   error.value = ''
 
   try {
-    const result = await trackTradePlans(tradePlans.value.target_trade_date, markUntriggeredAtClose)
+    const result = await trackRealtimeTradePlans(tradePlans.value.target_trade_date, markUntriggeredAtClose)
     await loadDashboard()
     trackingItems.value = result.items
-    ElMessage.success(`已更新 ${result.items.length} 条计划状态`)
+    const realtime = result.realtime
+    const realtimeText = realtime?.skipped_reason
+      ? `，实时行情：${realtime.skipped_reason}`
+      : realtime
+        ? `，实时行情更新 ${realtime.fetched_stock_daily_rows} 条`
+        : ''
+    ElMessage.success(`已更新 ${result.items.length} 条计划状态${realtimeText}`)
   } catch (err) {
     error.value = err instanceof Error ? err.message : '计划跟踪失败'
   } finally {
@@ -560,7 +587,11 @@ onBeforeUnmount(() => {
               <el-icon><Finished /></el-icon>
               <div>
                 <span>今日 / 5日涨幅</span>
-                <strong>{{ formatPercent(selectedSector.daily_return) }} / {{ formatPercent(selectedSector.five_day_return) }}</strong>
+                <strong>
+                  <span :class="polarityClass(selectedSector.daily_return)">{{ formatPercent(selectedSector.daily_return) }}</span>
+                  /
+                  <span :class="polarityClass(selectedSector.five_day_return)">{{ formatPercent(selectedSector.five_day_return) }}</span>
+                </strong>
               </div>
             </article>
             <article class="metric">
@@ -742,10 +773,14 @@ onBeforeUnmount(() => {
             </template>
           </el-table-column>
           <el-table-column prop="daily_return" label="今日涨幅" min-width="120" sortable>
-            <template #default="{ row }: { row: SectorTopItem }">{{ formatPercent(row.daily_return) }}</template>
+            <template #default="{ row }: { row: SectorTopItem }">
+              <span :class="polarityClass(row.daily_return)">{{ formatPercent(row.daily_return) }}</span>
+            </template>
           </el-table-column>
           <el-table-column prop="five_day_return" label="5日涨幅" min-width="120" sortable>
-            <template #default="{ row }: { row: SectorTopItem }">{{ formatPercent(row.five_day_return) }}</template>
+            <template #default="{ row }: { row: SectorTopItem }">
+              <span :class="polarityClass(row.five_day_return)">{{ formatPercent(row.five_day_return) }}</span>
+            </template>
           </el-table-column>
           <el-table-column prop="amount_change" label="成交额代理" min-width="140" sortable>
             <template #default="{ row }: { row: SectorTopItem }">{{ formatLargeAmount(row.amount_change) }}</template>
@@ -770,58 +805,60 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <el-table :data="filteredTradePlans" border stripe empty-text="暂无交易计划数据">
-          <el-table-column label="股票" min-width="150" sortable prop="stock_name">
-            <template #default="{ row }: { row: TradePlanItem }">
-              <strong>{{ row.stock_name }}</strong>
-              <small class="muted-code">{{ row.stock_code }}</small>
-            </template>
-          </el-table-column>
-          <el-table-column prop="sector_name" label="板块" min-width="130" sortable />
-          <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
-          <el-table-column label="评分" min-width="110" sortable prop="stock_score">
-            <template #default="{ row }: { row: TradePlanItem }">{{ row.stock_score }} / {{ row.sector_score }}</template>
-          </el-table-column>
-          <el-table-column prop="buy_condition" label="买入条件" min-width="260" show-overflow-tooltip />
-          <el-table-column label="买入区间" min-width="150">
-            <template #default="{ row }: { row: TradePlanItem }">
-              {{ formatPrice(row.buy_price_low) }} - {{ formatPrice(row.buy_price_high) }}
-            </template>
-          </el-table-column>
-          <el-table-column label="止损/止盈" min-width="150">
-            <template #default="{ row }: { row: TradePlanItem }">
-              {{ formatPrice(row.stop_loss_price) }} / {{ formatPrice(row.take_profit_price) }}
-            </template>
-          </el-table-column>
-          <el-table-column label="仓位" min-width="90" sortable prop="position_ratio">
-            <template #default="{ row }: { row: TradePlanItem }">{{ formatPosition(row.position_ratio) }}</template>
-          </el-table-column>
-          <el-table-column prop="status" label="状态" min-width="100" sortable>
-            <template #default="{ row }: { row: TradePlanItem }">
-              <el-tag :type="planStatusType(row.status)">{{ row.status }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="关注" min-width="90" sortable prop="is_watched">
-            <template #default="{ row }: { row: TradePlanItem }">
-              <el-tag :type="row.is_watched ? 'success' : 'info'">{{ row.is_watched ? '已关注' : '未关注' }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="触发价" min-width="100" sortable prop="trigger_price">
-            <template #default="{ row }: { row: TradePlanItem }">{{ formatPrice(row.trigger_price) }}</template>
-          </el-table-column>
-          <el-table-column prop="tracking_note" label="跟踪备注" min-width="220" show-overflow-tooltip />
-          <el-table-column label="手动" width="250" fixed="right">
-            <template #default="{ row }: { row: TradePlanItem }">
+        <section v-if="filteredTradePlans.length" class="plan-card-grid">
+          <article v-for="row in filteredTradePlans" :key="row.id" class="plan-card">
+            <header class="plan-card-header">
+              <div>
+                <strong>{{ row.stock_name }}</strong>
+                <small class="muted-code">{{ row.stock_code }} · {{ row.sector_name }}</small>
+              </div>
+              <div class="plan-tags">
+                <el-tag :type="planStatusType(row.status)">{{ row.status }}</el-tag>
+                <el-tag :type="row.is_watched ? 'success' : 'info'">{{ row.is_watched ? '已关注' : '未关注' }}</el-tag>
+              </div>
+            </header>
+
+            <div class="plan-card-meta">
+              <span>{{ row.strategy_type }}</span>
+              <span>评分 {{ row.stock_score }} / {{ row.sector_score }}</span>
+              <span>仓位 {{ formatPosition(row.position_ratio) }}</span>
+            </div>
+
+            <p class="plan-condition">{{ row.buy_condition }}</p>
+
+            <dl class="plan-price-grid">
+              <div>
+                <dt>买入区间</dt>
+                <dd>{{ formatPrice(row.buy_price_low) }} - {{ formatPrice(row.buy_price_high) }}</dd>
+              </div>
+              <div>
+                <dt>止损</dt>
+                <dd class="quote-down">{{ formatPrice(row.stop_loss_price) }}</dd>
+              </div>
+              <div>
+                <dt>止盈</dt>
+                <dd class="quote-up">{{ formatPrice(row.take_profit_price) }}</dd>
+              </div>
+              <div>
+                <dt>触发价</dt>
+                <dd :class="priceVsClass(row.trigger_price, row.buy_price_low)">{{ formatPrice(row.trigger_price) }}</dd>
+              </div>
+            </dl>
+
+            <p v-if="row.tracking_note" class="plan-note">{{ row.tracking_note }}</p>
+            <p class="plan-risk">{{ row.risk_note }}</p>
+
+            <footer class="plan-card-actions">
               <el-button size="small" :disabled="planTrackingLoading" @click="loadPlanDetail(row.id)">详情</el-button>
               <el-button size="small" :disabled="planTrackingLoading" @click="togglePlanWatch(row)">
                 {{ row.is_watched ? '取消关注' : '关注' }}
               </el-button>
               <el-button size="small" :disabled="planTrackingLoading" @click="setPlanStatus(row, '已触发')">触发</el-button>
               <el-button size="small" type="danger" :disabled="planTrackingLoading" @click="setPlanStatus(row, '取消')">取消</el-button>
-            </template>
-          </el-table-column>
-          <el-table-column prop="risk_note" label="风险提示" min-width="260" show-overflow-tooltip />
-        </el-table>
+            </footer>
+          </article>
+        </section>
+        <el-empty v-else description="暂无交易计划数据" />
       </section>
 
       <section id="plan-detail" class="panel">
@@ -904,10 +941,14 @@ onBeforeUnmount(() => {
             </template>
           </el-table-column>
           <el-table-column label="当前价" min-width="100" sortable prop="current_price">
-            <template #default="{ row }: { row: TradePlanItem & { current_price: number | null } }">{{ formatPrice(row.current_price) }}</template>
+            <template #default="{ row }: { row: TradePlanItem & { current_price: number | null, buy_price_low: number | null } }">
+              <span :class="priceVsClass(row.current_price, row.buy_price_low)">{{ formatPrice(row.current_price) }}</span>
+            </template>
           </el-table-column>
           <el-table-column label="涨跌幅" min-width="100" sortable prop="pct_chg">
-            <template #default="{ row }: { row: TradePlanItem & { pct_chg: number | null } }">{{ formatPercent(row.pct_chg) }}</template>
+            <template #default="{ row }: { row: TradePlanItem & { pct_chg: number | null } }">
+              <span :class="polarityClass(row.pct_chg)">{{ formatPercent(row.pct_chg) }}</span>
+            </template>
           </el-table-column>
           <el-table-column prop="buy_condition" label="买入条件" min-width="260" show-overflow-tooltip />
           <el-table-column label="触发" min-width="90" sortable prop="status">
@@ -963,7 +1004,11 @@ onBeforeUnmount(() => {
               <el-icon><Finished /></el-icon>
               <div>
                 <span>累计收益 / 最大回撤</span>
-                <strong>{{ formatReturn(simulation.account.total_return) }} / {{ formatReturn(simulation.risk.max_drawdown) }}</strong>
+                <strong>
+                  <span :class="polarityClass(simulation.account.total_return)">{{ formatReturn(simulation.account.total_return) }}</span>
+                  /
+                  <span :class="polarityClass(simulation.risk.max_drawdown, true)">{{ formatReturn(simulation.risk.max_drawdown) }}</span>
+                </strong>
               </div>
             </article>
             <article class="metric">
@@ -971,8 +1016,9 @@ onBeforeUnmount(() => {
               <div>
                 <span>当日盈亏 / 今日收益率</span>
                 <strong>
-                  {{ formatMoney(simulation.equity_curve.at(-1)?.daily_profit) }} /
-                  {{ formatReturn(simulation.equity_curve.at(-1)?.daily_return) }}
+                  <span :class="polarityClass(simulation.equity_curve.at(-1)?.daily_profit)">{{ formatMoney(simulation.equity_curve.at(-1)?.daily_profit) }}</span>
+                  /
+                  <span :class="polarityClass(simulation.equity_curve.at(-1)?.daily_return)">{{ formatReturn(simulation.equity_curve.at(-1)?.daily_return) }}</span>
                 </strong>
               </div>
             </article>
@@ -1014,7 +1060,9 @@ onBeforeUnmount(() => {
             </el-table-column>
             <el-table-column label="浮盈亏" min-width="130" sortable prop="unrealized_profit">
               <template #default="{ row }: { row: SimulationPosition }">
-                {{ formatMoney(row.unrealized_profit) }} / {{ formatReturn(row.unrealized_return) }}
+                <span :class="polarityClass(row.unrealized_profit)">{{ formatMoney(row.unrealized_profit) }}</span>
+                /
+                <span :class="polarityClass(row.unrealized_return)">{{ formatReturn(row.unrealized_return) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="止损/止盈" min-width="130">
@@ -1055,7 +1103,9 @@ onBeforeUnmount(() => {
               <template #default="{ row }: { row: SimulationTrade }">{{ formatPosition(row.position_ratio_after) }}</template>
             </el-table-column>
             <el-table-column label="盈亏" min-width="110" sortable prop="profit_loss">
-              <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.profit_loss) }}</template>
+              <template #default="{ row }: { row: SimulationTrade }">
+                <span :class="polarityClass(row.profit_loss)">{{ formatMoney(row.profit_loss) }}</span>
+              </template>
             </el-table-column>
             <el-table-column prop="reason" label="原因" min-width="260" show-overflow-tooltip />
           </el-table>
@@ -1072,10 +1122,14 @@ onBeforeUnmount(() => {
               <template #default="{ row }: { row: SimulationEquityPoint }">{{ formatMoney(row.market_value) }}</template>
             </el-table-column>
             <el-table-column label="日收益" min-width="110" sortable prop="daily_return">
-              <template #default="{ row }: { row: SimulationEquityPoint }">{{ formatReturn(row.daily_return) }}</template>
+              <template #default="{ row }: { row: SimulationEquityPoint }">
+                <span :class="polarityClass(row.daily_return)">{{ formatReturn(row.daily_return) }}</span>
+              </template>
             </el-table-column>
             <el-table-column label="最大回撤" min-width="110" sortable prop="max_drawdown">
-              <template #default="{ row }: { row: SimulationEquityPoint }">{{ formatReturn(row.max_drawdown) }}</template>
+              <template #default="{ row }: { row: SimulationEquityPoint }">
+                <span :class="polarityClass(row.max_drawdown, true)">{{ formatReturn(row.max_drawdown) }}</span>
+              </template>
             </el-table-column>
           </el-table>
         </template>
@@ -1111,14 +1165,14 @@ onBeforeUnmount(() => {
               <el-icon><TrendCharts /></el-icon>
               <div>
                 <span>当日均收益</span>
-                <strong>{{ formatReturn(tradeReviews.avg_day_return) }}</strong>
+                <strong :class="polarityClass(tradeReviews.avg_day_return)">{{ formatReturn(tradeReviews.avg_day_return) }}</strong>
               </div>
             </article>
             <article class="metric">
               <el-icon><DataAnalysis /></el-icon>
               <div>
                 <span>T+5 均收益</span>
-                <strong>{{ formatReturn(tradeReviews.avg_t5_return) }}</strong>
+                <strong :class="polarityClass(tradeReviews.avg_t5_return)">{{ formatReturn(tradeReviews.avg_t5_return) }}</strong>
               </div>
             </article>
           </section>
@@ -1131,10 +1185,14 @@ onBeforeUnmount(() => {
               <template #default="{ row }: { row: TradeReviewGroupStats }">{{ formatReturn(row.win_rate, 0) }}</template>
             </el-table-column>
             <el-table-column label="当日均收益" min-width="120" sortable prop="avg_day_return">
-              <template #default="{ row }: { row: TradeReviewGroupStats }">{{ formatReturn(row.avg_day_return) }}</template>
+              <template #default="{ row }: { row: TradeReviewGroupStats }">
+                <span :class="polarityClass(row.avg_day_return)">{{ formatReturn(row.avg_day_return) }}</span>
+              </template>
             </el-table-column>
             <el-table-column label="T+5 均收益" min-width="120" sortable prop="avg_t5_return">
-              <template #default="{ row }: { row: TradeReviewGroupStats }">{{ formatReturn(row.avg_t5_return) }}</template>
+              <template #default="{ row }: { row: TradeReviewGroupStats }">
+                <span :class="polarityClass(row.avg_t5_return)">{{ formatReturn(row.avg_t5_return) }}</span>
+              </template>
             </el-table-column>
           </el-table>
 
@@ -1158,14 +1216,20 @@ onBeforeUnmount(() => {
               </template>
             </el-table-column>
             <el-table-column label="当日收益" min-width="110" sortable prop="day_return">
-              <template #default="{ row }: { row: TradeReviewItem }">{{ formatReturn(row.day_return) }}</template>
+              <template #default="{ row }: { row: TradeReviewItem }">
+                <span :class="polarityClass(row.day_return)">{{ formatReturn(row.day_return) }}</span>
+              </template>
             </el-table-column>
             <el-table-column label="T+5收益" min-width="110" sortable prop="t5_return">
-              <template #default="{ row }: { row: TradeReviewItem }">{{ formatReturn(row.t5_return) }}</template>
+              <template #default="{ row }: { row: TradeReviewItem }">
+                <span :class="polarityClass(row.t5_return)">{{ formatReturn(row.t5_return) }}</span>
+              </template>
             </el-table-column>
             <el-table-column label="最大浮盈/浮亏" min-width="150">
               <template #default="{ row }: { row: TradeReviewItem }">
-                {{ formatReturn(row.max_profit) }} / {{ formatReturn(row.max_loss) }}
+                <span :class="polarityClass(row.max_profit)">{{ formatReturn(row.max_profit) }}</span>
+                /
+                <span :class="polarityClass(row.max_loss)">{{ formatReturn(row.max_loss) }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="result" label="结果" min-width="100" sortable />
