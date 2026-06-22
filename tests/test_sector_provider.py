@@ -2,7 +2,7 @@ from datetime import date
 
 import pandas as pd
 
-from backend.app.sector.providers import TushareDCSectorDataProvider
+from backend.app.sector.providers import TushareDCSectorDataProvider, _filter_rankable_sector_universe
 
 
 class FakeTushareSectorClient:
@@ -68,3 +68,21 @@ def test_tushare_dc_sector_provider_maps_index_and_member_rows() -> None:
     assert today_records[0].amount == 30000
     assert today_records[0].member_codes == ["000001.SZ", "600519.SH"]
     assert client.member_kwargs == [{"ts_code": "BK0001.DC"}]
+
+
+def test_tushare_dc_sector_provider_filters_to_rankable_board_universe() -> None:
+    frame = pd.DataFrame(
+        [
+            {"ts_code": "BK0001.DC", "name": "培育钻石", "idx_type": "概念板块", "level": None},
+            {"ts_code": "BK0002.DC", "name": "东方财富热股", "idx_type": "概念板块", "level": None},
+            {"ts_code": "BK0003.DC", "name": "非银金融", "idx_type": "行业板块", "level": "东财一级行业"},
+            {"ts_code": "BK0004.DC", "name": "非金属材料Ⅱ", "idx_type": "行业板块", "level": "东财二级行业"},
+            {"ts_code": "BK0005.DC", "name": "钛白粉", "idx_type": "行业板块", "level": "东财三级行业"},
+            {"ts_code": "BK0006.DC", "name": "广东板块", "idx_type": "地域板块", "level": None},
+            {"ts_code": "BK0007.DC", "name": "题材股", "idx_type": "概念板块", "level": None},
+        ]
+    )
+
+    filtered = _filter_rankable_sector_universe(frame)
+
+    assert filtered["name"].tolist() == ["培育钻石", "非银金融"]

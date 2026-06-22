@@ -49,6 +49,28 @@ class FakeSectorProvider:
         return records
 
 
+class DuplicateNameSectorProvider(FakeSectorProvider):
+    def fetch_sector_window(self, trade_date: date, lookback_days: int = 5) -> list[SectorRawRecord]:
+        records = super().fetch_sector_window(trade_date, lookback_days)
+        base_day = trade_date - timedelta(days=4)
+        for offset in range(5):
+            day = base_day + timedelta(days=offset)
+            records.append(
+                SectorRawRecord(
+                    sector_code="BK9999.DC",
+                    sector_name="机器人",
+                    trade_date=day,
+                    daily_return=0.5,
+                    amount=500,
+                    up_num=1,
+                    down_num=2,
+                    member_codes=[],
+                    source=self.source,
+                )
+            )
+        return records
+
+
 def _seed_limit_up(session: Session, trade_date: date) -> None:
     for stock_code in ["000001", "000002"]:
         session.add(
@@ -104,6 +126,24 @@ def test_generate_sector_rankings_is_idempotent_for_same_trade_date() -> None:
 
     with Session(engine) as session:
         assert session.query(SectorDaily).count() == 12
+
+
+def test_generate_sector_rankings_deduplicates_sector_names_before_persisting() -> None:
+    engine = _engine()
+    trade_date = date(2026, 6, 18)
+    with Session(engine) as session:
+        _seed_limit_up(session, trade_date)
+        session.commit()
+
+    rankings = generate_sector_rankings(engine, trade_date, DuplicateNameSectorProvider())
+
+    assert len(rankings) == 10
+    with Session(engine) as session:
+        saved = session.scalars(select(SectorDaily).order_by(SectorDaily.rank_no)).all()
+        names = [item.sector_name for item in saved]
+        assert len(names) == len(set(names))
+        assert names.count("机器人") == 1
+        assert [item.rank_no for item in saved] == list(range(1, len(saved) + 1))
 
 
 def test_sector_top_api_returns_latest_rankings() -> None:

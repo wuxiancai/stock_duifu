@@ -14,6 +14,24 @@ class MissingSectorDataTokenError(RuntimeError):
 class TushareDCSectorDataProvider:
     source = "tushare_dc"
 
+    _INDUSTRY_LEVEL = "东财一级行业"
+    _EXCLUDED_CONCEPT_NAMES = {
+        "昨日首板",
+        "昨日炸板",
+        "昨日高换手",
+        "昨日高振幅",
+        "东方财富热股",
+        "昨日打二板以上表现",
+        "先进制造风格",
+        "消费风格",
+        "医药医疗风格",
+        "科技风格",
+        "金融地产风格",
+        "趋势股",
+        "反转股",
+        "题材股",
+    }
+
     def __init__(self, token: str, pro_client=None, member_fetch_limit: int = 80):
         self.token = token.strip()
         self._pro_client = pro_client
@@ -26,6 +44,9 @@ class TushareDCSectorDataProvider:
         start_date = (trade_date - timedelta(days=lookback_days * 2)).strftime("%Y%m%d")
         end_date = trade_date.strftime("%Y%m%d")
         frame = pro.dc_index(start_date=start_date, end_date=end_date)
+        if frame.empty:
+            return []
+        frame = _filter_rankable_sector_universe(frame)
         if frame.empty:
             return []
 
@@ -72,6 +93,19 @@ def _amount_proxy(row) -> float:
     total_mv = _float(row.get("total_mv"))
     turnover_rate = _float(row.get("turnover_rate"))
     return total_mv * turnover_rate / 100
+
+
+def _filter_rankable_sector_universe(frame: pd.DataFrame) -> pd.DataFrame:
+    if "idx_type" not in frame.columns or "level" not in frame.columns:
+        return frame
+
+    concept_mask = frame["idx_type"].eq("概念板块") & ~frame["name"].isin(
+        TushareDCSectorDataProvider._EXCLUDED_CONCEPT_NAMES
+    )
+    first_level_industry_mask = frame["idx_type"].eq("行业板块") & frame["level"].eq(
+        TushareDCSectorDataProvider._INDUSTRY_LEVEL
+    )
+    return frame[concept_mask | first_level_industry_mask].copy()
 
 
 def _float(value, default: Optional[float] = 0.0) -> float:

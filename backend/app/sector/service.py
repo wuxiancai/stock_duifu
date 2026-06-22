@@ -152,15 +152,17 @@ def calculate_sector_rankings(
             score += 20
         scored.append((score, item))
 
-    ranked = sorted(
-        scored,
-        key=lambda pair: (
-            pair[0],
-            pair[1]["record"].daily_return,
-            pair[1]["five_day_return"],
-            pair[1]["amount_change"],
-        ),
-        reverse=True,
+    ranked = _dedupe_ranked_by_sector_name(
+        sorted(
+            scored,
+            key=lambda pair: (
+                pair[0],
+                pair[1]["record"].daily_return,
+                pair[1]["five_day_return"],
+                pair[1]["amount_change"],
+            ),
+            reverse=True,
+        )
     )
 
     return [
@@ -177,6 +179,18 @@ def calculate_sector_rankings(
         )
         for index, (score, item) in enumerate(ranked)
     ]
+
+
+def _dedupe_ranked_by_sector_name(ranked: list[tuple[int, dict]]) -> list[tuple[int, dict]]:
+    seen_names: set[str] = set()
+    unique_ranked: list[tuple[int, dict]] = []
+    for score, item in ranked:
+        sector_name = item["record"].sector_name
+        if sector_name in seen_names:
+            continue
+        seen_names.add(sector_name)
+        unique_ranked.append((score, item))
+    return unique_ranked
 
 
 def load_latest_sector_rankings(engine: Engine) -> Optional[tuple[date, list[SectorRankingResult]]]:

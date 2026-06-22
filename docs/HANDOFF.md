@@ -607,7 +607,7 @@
   - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 - 任务 35 强势板块近 5 日排名轨迹：
   - `GET /api/sectors/top` 和 `GET /api/sectors/strong?date=YYYY-MM-DD` 每个板块项新增 `rank_history`，按查询日期向前取最近 5 个已生成板块排名交易日。
-  - `rank_history[].rank_no=null` 表示该板块在对应日期未进入 Top10。
+  - `rank_history[].rank_no=null` 表示该板块在对应日期缺少排名数据。
   - 强势板块表在“板块”和“今日涨幅”之间新增“近5日排名”列，使用 `06-18 #1` 这类紧凑标签展示；CSV 导出同步包含该字段。
   - `.venv/bin/pytest tests/test_sector_ranking.py`：5 passed，1 个 LibreSSL/urllib3 warning。
   - `cd frontend && npm test -- --run`：2 passed。
@@ -629,7 +629,7 @@
   - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 - 任务 38 强势板块近 5 日排名拆成 5 个日期列：
   - 强势板块表不再把最近 5 个交易日排名挤在单个单元格里；现在使用分组表头“近5日排名”，下方动态生成 5 个日期列。
-  - 日期列来自 `rank_history` 的最近 5 个交易日；单元格只显示该板块当天 Top10 名次，未进入 Top10 显示 `-`。
+  - 日期列来自 `rank_history` 的最近 5 个交易日；单元格显示该板块当天排名，缺少该日排名数据时显示 `-`。
   - 后端 API 和 CSV 导出字段保持兼容。
   - `cd frontend && npm test -- --run`：3 passed。
   - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
@@ -671,10 +671,18 @@
   - `.venv/bin/pytest tests/test_simulation_trading.py tests/test_trade_plan_generation.py tests/test_database_schema.py tests/test_realtime_quote_workflow.py`：57 passed，1 个 LibreSSL/urllib3 warning。
   - `cd frontend && npm test -- --run`：3 passed。
   - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 任务 44 强势板块 511 板块宇宙与历史全量排名回填：
+  - 用户截图中近 5 日排名仍显示 `-` 的直接原因是历史数据库没有全量排名；`sector_daily` 旧数据每天只有 Top10 行，Top10 之外板块没有记录。
+  - 二次根因：直接持久化 TuShare/DC 原始 `1021` 行会把概念、地域、东财一级/二级/三级行业和风格/策略伪板块混在一起，导致历史名次出现 `800+`，超出用户确认的约 `511` 个板块宇宙。
+  - `TushareDCSectorDataProvider` 现在只保留 `概念板块` 和 `东财一级行业`，并排除 `东方财富热股`、`题材股`、`趋势股`、`反转股`、`金融地产风格`、`昨日首板/炸板/高换手/高振幅` 等 14 个风格/策略伪板块；`2026-06-22` 实测从原始 `1021` 行过滤为 `511` 行。
+  - 当前代码已在排名排序后按 `sector_name` 去重，避免 TuShare/DC 返回不同 `sector_code` 但同名板块时触发唯一约束。
+  - 已回填最近 5 个开市日 `2026-06-15`、`2026-06-16`、`2026-06-17`、`2026-06-18`、`2026-06-22` 的板块排名，每日 `sector_daily count=511, max(rank_no)=511`。
+  - 当前 `GET /api/sectors/top` 返回：`培育钻石` 历史名次 `1/27/98/141/31`，已不再对这些开市日显示 `-`，且不会再出现 `800+` 名次。
+  - `.venv/bin/pytest tests/test_sector_provider.py tests/test_sector_ranking.py`：10 passed，1 个 LibreSSL/urllib3 warning。
 
 ## 验收口径
 
-当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹、任务 36 模拟交易 latest 持仓现价刷新、任务 37 首页盘中自动触发实时行情回补、任务 38 强势板块近 5 日排名 5 列展示、任务 39 强势板块近 5 日排名交易日历过滤、任务 40 今日决策面板一周视图与盘中跟踪板块列、任务 41 模拟持仓持续显示与交易记录历史滚动、任务 42 决策/板块/盘中跟踪数据口径修复、任务 43 模拟交易记录防级联删除与孤儿资金曲线防护，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
+当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹、任务 36 模拟交易 latest 持仓现价刷新、任务 37 首页盘中自动触发实时行情回补、任务 38 强势板块近 5 日排名 5 列展示、任务 39 强势板块近 5 日排名交易日历过滤、任务 40 今日决策面板一周视图与盘中跟踪板块列、任务 41 模拟持仓持续显示与交易记录历史滚动、任务 42 决策/板块/盘中跟踪数据口径修复、任务 43 模拟交易记录防级联删除与孤儿资金曲线防护、任务 44 强势板块 511 板块宇宙与历史全量排名回填，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
 
 仍不得把以下事项宣称为已完成：
 
