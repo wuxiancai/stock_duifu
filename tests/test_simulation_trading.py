@@ -486,6 +486,72 @@ def test_load_latest_simulation_ignores_closed_calendar_equity_dates() -> None:
     assert [point.trade_date for point in summary.equity_curve] == [date(2026, 6, 22)]
 
 
+def test_load_latest_simulation_refreshes_position_price_from_latest_daily() -> None:
+    engine = _engine()
+    trade_date = date(2026, 6, 22)
+    with Session(engine) as session:
+        plan = _seed_trade_plan(session, stock_code="300308", target_trade_date=trade_date)
+        account = SimulationAccount(
+            account_name="默认模拟账户",
+            initial_cash=1000000,
+            available_cash=700000,
+            frozen_cash=0,
+            market_value=271648,
+            total_assets=971648,
+            total_profit=-28352,
+            total_return=-0.0284,
+            max_drawdown=0.0284,
+        )
+        session.add(account)
+        session.flush()
+        session.add(
+            SimulationPosition(
+                account_id=account.id,
+                trade_plan_id=plan.id,
+                stock_code="300308",
+                stock_name="中际旭创",
+                sector_name="科技风格",
+                strategy_type="趋势强势",
+                buy_price=1367.78,
+                current_price=1358.24,
+                quantity=200,
+                market_value=271648,
+                cost_amount=273640.0,
+                unrealized_profit=-1992.0,
+                unrealized_return=-0.0073,
+                stop_loss_price=1299.49,
+                take_profit_price=1641.46,
+                position_status="持仓中",
+                buy_reason="目标交易日价格触达计划买入区间",
+                sell_reason="",
+            )
+        )
+        session.add(
+            SimulationEquity(
+                account_id=account.id,
+                trade_date=trade_date,
+                available_cash=700000,
+                market_value=271648,
+                total_assets=971648,
+                daily_profit=-28352,
+                daily_return=-0.0284,
+                max_drawdown=0.0284,
+            )
+        )
+        _add_daily(session, "300308", trade_date, 1367.78, 1388, 1358.24, 1382.33)
+        session.commit()
+
+    summary = load_latest_simulation(engine)
+
+    assert summary is not None
+    assert summary.as_of_date == trade_date
+    assert summary.positions[0].current_price == 1382.33
+    assert summary.positions[0].market_value == 276466.0
+    assert summary.positions[0].unrealized_profit == 2826.0
+    assert summary.account.market_value == 276466.0
+    assert summary.account.total_assets == 976466.0
+
+
 def test_load_latest_simulation_returns_none_without_account() -> None:
     engine = _engine()
 

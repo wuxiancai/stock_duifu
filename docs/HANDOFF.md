@@ -613,10 +613,17 @@
   - `cd frontend && npm test -- --run`：2 passed。
   - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
   - 临时当前代码 API `http://127.0.0.1:8010/api/sectors/top` 返回真实 PostgreSQL 最新 `trade_date=2026-06-18`，板块项包含 `rank_history`，如 `非金属材料Ⅲ` 返回 `2026-06-18 #1` 和 `2026-06-16 -`。
+- 任务 36 模拟交易 latest 持仓现价按最新日线刷新：
+  - `GET /api/simulation/latest` 不再直接返回旧 `simulation_position.current_price`；加载 latest summary 前会用 latest equity 日期对应的 `stock_daily.close` 重新 mark-to-market，并刷新 equity。
+  - 这修复了 2026-06-22 收盘后模拟交易仍显示盘中旧价的问题；正常运行环境中，若 `stock_daily` 已写入 `300308=1382.33`、`603986=156.11`，页面应随 API latest 展示这些收盘价。
+  - `.venv/bin/pytest tests/test_simulation_trading.py`：18 passed，1 个 LibreSSL/urllib3 warning。
+  - `cd frontend && npm test -- --run`：2 passed。
+  - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+  - 本轮 Codex 沙箱限制本地 TCP，无法直连 `127.0.0.1:15432` 做真实 PostgreSQL 快验；在非沙箱/正常启动环境重启 API 后需再 curl `/api/simulation/latest` 复查。
 
 ## 验收口径
 
-当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
+当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹、任务 36 模拟交易 latest 持仓现价刷新，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
 
 仍不得把以下事项宣称为已完成：
 

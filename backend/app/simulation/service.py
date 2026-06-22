@@ -202,6 +202,9 @@ def load_latest_simulation(engine: Engine) -> Optional[SimulationSummary]:
         latest_date = _latest_open_equity_date(session, account.id)
         if latest_date is None:
             return None
+        _mark_to_market(session, account, latest_date)
+        _save_equity(session, account, latest_date)
+        session.commit()
         return _load_summary(session, account.id, latest_date, [])
 
 

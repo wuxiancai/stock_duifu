@@ -1000,3 +1000,18 @@ TuShare 全市场初始化验证：
 - `cd frontend && npm test -- --run`：2 passed。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 - 临时当前代码 API `http://127.0.0.1:8010/api/sectors/top` 返回真实 PostgreSQL 最新 `trade_date=2026-06-18`，板块项包含 `rank_history`，如 `非金属材料Ⅲ` 返回 `2026-06-18 #1` 和 `2026-06-16 -`。
+
+### 36. 模拟交易 latest 持仓现价按最新日线刷新
+
+- 修复 `GET /api/simulation/latest` 直接读取旧 `simulation_position.current_price`，导致收盘后页面仍显示盘中实时价的问题。
+- `load_latest_simulation` 在返回前会按 latest equity 日期调用 `_mark_to_market` 和 `_save_equity`，用同日 `stock_daily.close` 刷新持仓现价、市值、浮盈亏、账户市值和总资产。
+- 页面无需额外改动；模拟交易持仓表继续展示 API 返回的 `current_price`。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_simulation_trading.py`：18 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：2 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 本轮环境因沙箱限制无法直连本地 PostgreSQL `127.0.0.1:15432`，真实库中的 `300308=1382.33`、`603986=156.11` 需在正常运行环境重启 API 后复验；新增回归测试已覆盖旧持仓价 `1358.24` 被同日 `stock_daily.close=1382.33` 刷新。
