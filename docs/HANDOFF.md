@@ -10,6 +10,7 @@
 - 当前已完成任务 32「get_data.sh workflow 采集摘要字段修复」、任务 33「模拟交易与复盘交易日历修复」和任务 34「get_data.sh 区间批量拉取」。
 - 当前已完成 Web 可读性优化：今日交易计划主区改为紧凑卡片，避免宽表横向滚动；盘中跟踪按钮会调用实时行情回补接口再跟踪；强势板块、盘中跟踪、模拟交易和复盘中的涨跌/收益/盈亏类数值已统一红涨绿跌。
 - 当前已修复盘中跟踪实时展示链路：实时快照写入后，最新交易计划 API 会带出 `current_price` / `pct_chg`，Web 盘中跟踪刷新后不会再把当前价和涨跌幅清空；Web “跟踪并模拟交易” 会先刷新实时行情、再跟踪和模拟撮合。
+- 当前已优化模拟交易与股票详情阅读体验：模拟持仓现价按实时涨跌着色，买入交易记录在后端未返回已实现盈亏时用同股票当前持仓浮盈亏兜底展示；股票详情默认隐藏，点击交易计划卡片股票名称展开，再次点击收起。
 - `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
@@ -327,6 +328,10 @@
   - `curl -sS -X POST http://127.0.0.1:5173/api/simulation/run-workflow -H 'Content-Type: application/json' -d '{"trade_date":"2026-06-22"}'` 基于 2026-06-22 实时快照买入 `300308`，返回 `trade_plan_id=3`、买入价 `1367.78`、数量 `200`。
   - `.venv/bin/pytest tests/test_trade_plan_generation.py tests/test_realtime_quote_workflow.py tests/test_simulation_trading.py`：43 passed，1 个 LibreSSL/urllib3 warning。
   - `cd frontend && npm test -- --run`：2 passed。
+  - `cd frontend && npm run build`：通过，仍有 VueUse pure annotation 和 chunk size warning。
+- 模拟交易颜色与股票详情折叠修复验证：
+  - `curl -sS http://127.0.0.1:5173/api/simulation/latest` 当前真实数据包含 `300308 buy_price=1367.78 current_price=1358.24 unrealized_profit=-1992.8024 unrealized_return=-0.0073`，买入交易 `profit_loss=null`、`profit_loss_return=null`；前端用持仓浮盈亏作为买入交易盈亏展示兜底。
+  - `cd frontend && npm test -- --run`：2 passed，覆盖股票详情默认隐藏、点击股票名展开、再次点击收起，以及买入交易记录显示浮盈亏兜底。
   - `cd frontend && npm run build`：通过，仍有 VueUse pure annotation 和 chunk size warning。
 - 任务 34 get_data.sh 区间批量拉取：`bash get_data.sh --start 20260615 --end 20260618` 会规范化为 `2026-06-15` 到 `2026-06-18`，逐日执行 `run-after-close-workflow` 和 `audit-market-data`；原单日位置参数和 `TRADE_DATE=...` 用法继续可用。
 - 任务 32 相关测试：`.venv/bin/pytest tests/test_market_data_ingest.py tests/test_after_close_workflow.py tests/test_after_close_workflow_cli.py`：5 passed，1 个 LibreSSL/urllib3 warning。

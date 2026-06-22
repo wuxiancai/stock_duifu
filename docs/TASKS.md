@@ -44,6 +44,7 @@
 - [x] 已增强 `get_data.sh`：支持 `--start YYYYMMDD --end YYYYMMDD` 区间批量拉取并逐日生成结果
 - [x] 已优化 Web 可读性：今日交易计划改为紧凑卡片展示，盘中跟踪按钮会先回补延迟实时行情，涨跌/盈亏/收益类数值统一红涨绿跌。
 - [x] 已修复盘中跟踪实时展示链路：实时快照写入后，最新交易计划 API 和页面刷新会直接展示当前价/涨跌幅；模拟交易按钮会先刷新实时行情再跟踪和撮合，避免用空目标日日线或收盘后日线决定买卖。
+- [x] 已优化模拟交易与股票详情阅读体验：模拟持仓现价按实时涨跌着色，买入交易记录用当前持仓浮盈亏兜底展示盈亏；股票详情默认隐藏，点击交易计划卡片股票名称展开，再次点击收起。
 
 ## 开发原则
 
@@ -66,6 +67,18 @@
   - `POST /api/simulation/run-workflow` 基于 2026-06-22 实时快照买入 `300308`，返回模拟买入记录 `trade_plan_id=3`、`price=1367.78`、`quantity=200`。
 - 自动化验证：
   - `.venv/bin/pytest tests/test_trade_plan_generation.py tests/test_realtime_quote_workflow.py tests/test_simulation_trading.py`：43 passed，1 个 LibreSSL/urllib3 warning。
+  - `cd frontend && npm test -- --run`：2 passed。
+  - `cd frontend && npm run build`：通过，仍有 VueUse pure annotation 和 chunk size warning。
+
+### 2026-06-22 模拟交易颜色与股票详情折叠修复
+
+- 修复点：
+  - 模拟持仓表“成本/现价”中的现价按当前价相对买入价红涨绿跌显示。
+  - 模拟交易记录“盈亏”列在后端买入记录未产生已实现盈亏时，使用同股票当前持仓浮盈亏和浮盈亏率兜底展示。
+  - 今日交易计划不再默认展示股票详情；点击计划卡片股票名称展开详情，再次点击同一股票名称收起。
+- 真实 API 依据：
+  - `GET /api/simulation/latest` 当前返回 `300308 buy_price=1367.78 current_price=1358.24 unrealized_profit=-1992.8024 unrealized_return=-0.0073`，但买入交易 `profit_loss=null`；前端因此以持仓浮盈亏兜底显示买入后的实时盈亏。
+- 自动化验证：
   - `cd frontend && npm test -- --run`：2 passed。
   - `cd frontend && npm run build`：通过，仍有 VueUse pure annotation 和 chunk size warning。
 

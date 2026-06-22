@@ -142,6 +142,18 @@ const trackingRows = computed(() => {
   }))
 })
 
+const simulationTrades = computed(() => {
+  const positionsByCode = new Map((simulation.value?.positions ?? []).map((position) => [position.stock_code, position]))
+  return (simulation.value?.trades ?? []).map((trade) => {
+    const position = positionsByCode.get(trade.stock_code)
+    return {
+      ...trade,
+      display_profit_loss: trade.profit_loss ?? position?.unrealized_profit ?? null,
+      display_profit_loss_return: trade.profit_loss_return ?? position?.unrealized_return ?? null
+    }
+  })
+})
+
 function planStatusType(status: string) {
   switch (status) {
     case '已触发':
@@ -178,7 +190,7 @@ async function loadDashboard() {
     tradeReviews.value = tradeReviewsResult
     simulation.value = simulationResult
     trackingItems.value = []
-    await loadPlanDetail(tradePlansResult.items[0]?.id)
+    selectedPlanDetail.value = null
   } catch (err) {
     error.value = err instanceof Error ? err.message : '业务数据加载失败'
   } finally {
@@ -225,6 +237,14 @@ async function loadPlanDetail(planId: number | undefined) {
     return
   }
   selectedPlanDetail.value = await fetchTradePlanDetail(planId)
+}
+
+async function togglePlanDetail(row: TradePlanItem) {
+  if (selectedPlanDetail.value?.id === row.id) {
+    selectedPlanDetail.value = null
+    return
+  }
+  await loadPlanDetail(row.id)
 }
 
 function formatPercent(value: number | null | undefined, digits = 2) {
@@ -523,7 +543,7 @@ onBeforeUnmount(() => {
           <el-icon><Finished /></el-icon>
           <span>交易计划</span>
         </a>
-        <a class="nav-item" href="#plan-detail">
+        <a v-if="selectedPlanDetail" class="nav-item" href="#plan-detail">
           <el-icon><DataAnalysis /></el-icon>
           <span>股票详情</span>
         </a>
@@ -818,8 +838,15 @@ onBeforeUnmount(() => {
           <article v-for="row in filteredTradePlans" :key="row.id" class="plan-card">
             <header class="plan-card-header">
               <div>
-                <strong>{{ row.stock_name }}</strong>
-                <small class="muted-code">{{ row.stock_code }} · {{ row.sector_name }}</small>
+                <button
+                  type="button"
+                  class="plan-stock-button"
+                  :aria-expanded="selectedPlanDetail?.id === row.id"
+                  @click="togglePlanDetail(row)"
+                >
+                  <strong>{{ row.stock_name }}</strong>
+                  <small class="muted-code">{{ row.stock_code }} · {{ row.sector_name }}</small>
+                </button>
               </div>
               <div class="plan-tags">
                 <el-tag :type="planStatusType(row.status)">{{ row.status }}</el-tag>
@@ -858,7 +885,6 @@ onBeforeUnmount(() => {
             <p class="plan-risk">{{ row.risk_note }}</p>
 
             <footer class="plan-card-actions">
-              <el-button size="small" :disabled="planTrackingLoading" @click="loadPlanDetail(row.id)">详情</el-button>
               <el-button size="small" :disabled="planTrackingLoading" @click="togglePlanWatch(row)">
                 {{ row.is_watched ? '取消关注' : '关注' }}
               </el-button>
@@ -870,7 +896,7 @@ onBeforeUnmount(() => {
         <el-empty v-else description="暂无交易计划数据" />
       </section>
 
-      <section id="plan-detail" class="panel">
+      <section v-if="selectedPlanDetail" id="plan-detail" class="panel">
         <div class="section-heading">
           <div>
             <h2>股票详情</h2>
@@ -881,8 +907,7 @@ onBeforeUnmount(() => {
           </el-tag>
         </div>
 
-        <template v-if="selectedPlanDetail">
-          <section class="metric-grid detail-grid">
+        <section class="metric-grid detail-grid">
             <article class="metric">
               <el-icon><TrendCharts /></el-icon>
               <div>
@@ -911,23 +936,21 @@ onBeforeUnmount(() => {
                 <strong>{{ formatPrice(selectedPlanDetail.stop_loss_price) }} / {{ formatPrice(selectedPlanDetail.take_profit_price) }}</strong>
               </div>
             </article>
-          </section>
+        </section>
 
-          <el-descriptions border :column="2">
-            <el-descriptions-item label="所属板块">{{ selectedPlanDetail.sector_name }}</el-descriptions-item>
-            <el-descriptions-item label="建议仓位">{{ formatPosition(selectedPlanDetail.position_ratio) }}</el-descriptions-item>
-            <el-descriptions-item label="MA5">{{ formatPrice(selectedPlanDetail.key_indicators.ma5) }}</el-descriptions-item>
-            <el-descriptions-item label="MA10">{{ formatPrice(selectedPlanDetail.key_indicators.ma10) }}</el-descriptions-item>
-            <el-descriptions-item label="MA20">{{ formatPrice(selectedPlanDetail.key_indicators.ma20) }}</el-descriptions-item>
-            <el-descriptions-item label="ATR14">{{ formatPrice(selectedPlanDetail.key_indicators.atr14) }}</el-descriptions-item>
-            <el-descriptions-item label="成交额">{{ formatLargeAmount(selectedPlanDetail.key_indicators.amount) }}</el-descriptions-item>
-            <el-descriptions-item label="换手率">{{ formatPercent(selectedPlanDetail.key_indicators.turnover_rate) }}</el-descriptions-item>
-            <el-descriptions-item label="买入条件" :span="2">{{ selectedPlanDetail.buy_condition }}</el-descriptions-item>
-            <el-descriptions-item label="入选理由" :span="2">{{ selectedPlanDetail.selection_reason || '候选入选理由未入库' }}</el-descriptions-item>
-            <el-descriptions-item label="风险提示" :span="2">{{ selectedPlanDetail.risk_note }}</el-descriptions-item>
-          </el-descriptions>
-        </template>
-        <el-empty v-else description="暂无股票详情，请先生成交易计划" />
+        <el-descriptions border :column="2">
+          <el-descriptions-item label="所属板块">{{ selectedPlanDetail.sector_name }}</el-descriptions-item>
+          <el-descriptions-item label="建议仓位">{{ formatPosition(selectedPlanDetail.position_ratio) }}</el-descriptions-item>
+          <el-descriptions-item label="MA5">{{ formatPrice(selectedPlanDetail.key_indicators.ma5) }}</el-descriptions-item>
+          <el-descriptions-item label="MA10">{{ formatPrice(selectedPlanDetail.key_indicators.ma10) }}</el-descriptions-item>
+          <el-descriptions-item label="MA20">{{ formatPrice(selectedPlanDetail.key_indicators.ma20) }}</el-descriptions-item>
+          <el-descriptions-item label="ATR14">{{ formatPrice(selectedPlanDetail.key_indicators.atr14) }}</el-descriptions-item>
+          <el-descriptions-item label="成交额">{{ formatLargeAmount(selectedPlanDetail.key_indicators.amount) }}</el-descriptions-item>
+          <el-descriptions-item label="换手率">{{ formatPercent(selectedPlanDetail.key_indicators.turnover_rate) }}</el-descriptions-item>
+          <el-descriptions-item label="买入条件" :span="2">{{ selectedPlanDetail.buy_condition }}</el-descriptions-item>
+          <el-descriptions-item label="入选理由" :span="2">{{ selectedPlanDetail.selection_reason || '候选入选理由未入库' }}</el-descriptions-item>
+          <el-descriptions-item label="风险提示" :span="2">{{ selectedPlanDetail.risk_note }}</el-descriptions-item>
+        </el-descriptions>
       </section>
 
       <section id="tracking" class="panel">
@@ -1061,7 +1084,8 @@ onBeforeUnmount(() => {
             <el-table-column prop="quantity" label="数量" min-width="100" sortable />
             <el-table-column label="成本/现价" min-width="130">
               <template #default="{ row }: { row: SimulationPosition }">
-                {{ formatPrice(row.buy_price) }} / {{ formatPrice(row.current_price) }}
+                {{ formatPrice(row.buy_price) }} /
+                <span :class="priceVsClass(row.current_price, row.buy_price)">{{ formatPrice(row.current_price) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="市值" min-width="120" sortable prop="market_value">
@@ -1083,7 +1107,7 @@ onBeforeUnmount(() => {
             <el-table-column prop="position_status" label="状态" min-width="100" sortable />
           </el-table>
 
-          <el-table :data="simulation.trades" border stripe empty-text="暂无今日模拟交易记录">
+          <el-table :data="simulationTrades" border stripe empty-text="暂无今日模拟交易记录">
             <el-table-column label="时间" min-width="90" sortable prop="trade_time">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatTime(row.trade_time) }}</template>
             </el-table-column>
@@ -1111,9 +1135,11 @@ onBeforeUnmount(() => {
             <el-table-column label="交易后仓位" min-width="120" sortable prop="position_ratio_after">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatPosition(row.position_ratio_after) }}</template>
             </el-table-column>
-            <el-table-column label="盈亏" min-width="110" sortable prop="profit_loss">
-              <template #default="{ row }: { row: SimulationTrade }">
-                <span :class="polarityClass(row.profit_loss)">{{ formatMoney(row.profit_loss) }}</span>
+            <el-table-column label="盈亏" min-width="130" sortable prop="display_profit_loss">
+              <template #default="{ row }: { row: SimulationTrade & { display_profit_loss: number | null, display_profit_loss_return: number | null } }">
+                <span :class="polarityClass(row.display_profit_loss)">{{ formatMoney(row.display_profit_loss) }}</span>
+                /
+                <span :class="polarityClass(row.display_profit_loss_return)">{{ formatReturn(row.display_profit_loss_return) }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="reason" label="原因" min-width="260" show-overflow-tooltip />

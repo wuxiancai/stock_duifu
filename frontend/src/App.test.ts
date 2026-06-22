@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import { describe, expect, it, vi } from 'vitest'
 import App from './App.vue'
@@ -264,7 +264,7 @@ describe('App', () => {
       }
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await flushPromises()
     await wrapper.vm.$nextTick()
 
     expect(wrapper.text()).toContain('今日决策面板')
@@ -285,10 +285,30 @@ describe('App', () => {
     expect(wrapper.text()).toContain('39%')
     expect(wrapper.text()).toContain('买入')
     expect(wrapper.text()).toContain('目标交易日价格触达计划买入区间')
+    expect(wrapper.findAll('.el-table').some((table) => {
+      const text = table.text()
+      return text.includes('买入') && text.includes('29,878.00') && text.includes('7.66%')
+    })).toBe(true)
+    expect(wrapper.html()).toContain('quote-up')
     expect(wrapper.html()).toContain('href="/simulation"')
+    expect(wrapper.text()).not.toContain('股票详情')
+    expect(wrapper.text()).not.toContain('板块排名 Top 10，趋势多头排列')
+
+    const stockButton = wrapper.find('.plan-stock-button')
+    expect(stockButton.exists()).toBe(true)
+    await stockButton.trigger('click')
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
     expect(wrapper.text()).toContain('股票详情')
     expect(wrapper.text()).toContain('入选理由')
     expect(wrapper.text()).toContain('板块排名 Top 10，趋势多头排列')
+
+    await stockButton.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).not.toContain('股票详情')
+    expect(wrapper.text()).not.toContain('板块排名 Top 10，趋势多头排列')
     expect(wrapper.text()).toContain('盘中跟踪')
     expect(wrapper.text()).toContain('当前价')
     expect(wrapper.text()).toContain('交易复盘')

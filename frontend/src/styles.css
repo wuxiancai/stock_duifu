@@ -293,6 +293,29 @@ textarea {
   font-size: 16px;
 }
 
+.plan-stock-button {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plan-stock-button:hover strong,
+.plan-stock-button:focus-visible strong {
+  color: #2468d8;
+}
+
+.plan-stock-button:focus-visible {
+  outline: 2px solid rgba(36, 104, 216, 0.35);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
 .plan-card-meta {
   color: #607089;
   font-size: 13px;
