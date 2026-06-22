@@ -124,6 +124,16 @@ def test_sector_top_api_returns_latest_rankings() -> None:
     assert payload["items"][0]["five_day_return"] == 12.0
 
 
+def test_sector_top_api_returns_empty_state_without_rankings() -> None:
+    engine = _engine()
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+
+    response = client.get("/api/sectors/top")
+
+    assert response.status_code == 200
+    assert response.json() == {"trade_date": "", "items": []}
+
+
 def test_prd_sector_strong_api_returns_rankings_by_date() -> None:
     engine = _engine()
     trade_date = date(2026, 6, 18)

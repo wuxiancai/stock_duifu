@@ -185,7 +185,19 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
     def latest_market_environment() -> dict:
         result = load_latest_market_environment(database_engine)
         if result is None:
-            raise HTTPException(status_code=404, detail="market environment is not generated")
+            return {
+                "trade_date": "",
+                "market_score": None,
+                "market_status": "",
+                "suggested_position": "",
+                "up_count": None,
+                "down_count": None,
+                "limit_up_count": None,
+                "limit_down_count": None,
+                "limit_up_height": None,
+                "total_amount": None,
+                "suggestion": "暂无市场建议，请先生成市场环境数据。",
+            }
         return {
             "trade_date": result.trade_date.isoformat(),
             "market_score": result.market_score,
@@ -208,7 +220,7 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
     def top_sectors() -> dict:
         result = load_latest_sector_rankings(database_engine)
         if result is None:
-            raise HTTPException(status_code=404, detail="sector rankings are not generated")
+            return {"trade_date": "", "items": []}
         trade_date, items = result
         return {
             "trade_date": trade_date.isoformat(),
@@ -257,7 +269,7 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
     def latest_candidates() -> dict:
         result = load_latest_candidates(database_engine)
         if result is None:
-            raise HTTPException(status_code=404, detail="candidates are not generated")
+            return {"trade_date": "", "items": []}
         trade_date, items = result
         return {
             "trade_date": trade_date.isoformat(),
@@ -283,7 +295,7 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
     def latest_trade_plans() -> dict:
         result = load_latest_trade_plans(database_engine)
         if result is None:
-            raise HTTPException(status_code=404, detail="trade plans are not generated")
+            return {"plan_date": "", "target_trade_date": "", "items": []}
         plan_date, target_trade_date, items = result
         return {
             "plan_date": plan_date.isoformat(),

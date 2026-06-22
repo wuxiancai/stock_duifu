@@ -37,6 +37,7 @@
 - [x] 已修复 Ubuntu 前端 API 访问口径：浏览器固定走同源 `/api`，由 Vite 代理到实际 API 端口，并提示局域网防火墙放通 Web 端口
 - [x] 已修复 `.env` 残留 `VITE_API_BASE_URL` 污染前端：`start.sh` 启动前端时强制清空浏览器端绝对 API 地址
 - [x] 已修复启动脚本端口事实源不一致：`start.sh` 选定 PostgreSQL/API/Web 端口后写回 `.env`
+- [x] 已修复新部署空库首页误报 404：latest 接口无数据时返回 200 空态而不是错误
 
 ## 开发原则
 
@@ -872,3 +873,20 @@ TuShare 全市场初始化验证：
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 - `.venv/bin/pytest`：98 passed，1 个 LibreSSL/urllib3 warning。
 - 真实启动验证：占住 `127.0.0.1:8000` 且 `.env` 初始写 `API_PORT=8000` 后运行 `bash start.sh`，脚本选择 `API_PORT=8001`；API 和前端都 ready 后，把 `API_PORT=8001`、实际 `WEB_PORT`、`POSTGRES_HOST_PORT`、`DATABASE_URL` 写回 `.env`，同时删除 `VITE_API_BASE_URL`。
+
+### 30. 新部署空库 latest 接口空态
+
+- 修复新部署空库时首页请求 `/api/trade-plans/latest` 返回 `404`，导致前端显示红色 `failed: 404` 的问题。
+- `/api/market/latest` 无数据时返回 200 空市场状态和“暂无市场建议”。
+- `/api/sectors/top`、`/api/candidates/latest`、`/api/trade-plans/latest` 无数据时返回 200 和空 `items`。
+- 按日期查询、详情查询等明确指定资源的接口仍保留 404，避免把真正不存在的资源伪装成成功。
+- 前端增加空态测试，确认空库首页不会显示 `failed: 404` 或“数据异常”。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_market_environment.py tests/test_sector_ranking.py tests/test_candidate_screening.py tests/test_trade_plan_generation.py`：33 passed。
+- `cd frontend && npm test -- --run`：2 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- `.venv/bin/pytest`：102 passed，1 个 LibreSSL/urllib3 warning。

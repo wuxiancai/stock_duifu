@@ -167,6 +167,16 @@ def test_trade_plans_latest_api_returns_persisted_plans() -> None:
     assert all("tracking_note" in item for item in payload["items"])
 
 
+def test_trade_plans_latest_api_returns_empty_state_without_plans() -> None:
+    engine = _engine()
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+
+    response = client.get("/api/trade-plans/latest")
+
+    assert response.status_code == 200
+    assert response.json() == {"plan_date": "", "target_trade_date": "", "items": []}
+
+
 def test_prd_trade_plan_api_returns_plans_by_date_and_detail_reason() -> None:
     engine = _engine()
     plan_date = _seed_fixture(engine)

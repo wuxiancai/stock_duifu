@@ -310,4 +310,83 @@ describe('App', () => {
     expect(wrapper.text()).toContain('该板块交易计划')
     expect(wrapper.text()).toContain('返回强势板块')
   })
+
+  it('renders empty dashboard state without showing data errors', async () => {
+    window.history.pushState({}, '', '/')
+
+    const responses: Record<string, unknown> = {
+      '/api/health': {
+        status: 'ok',
+        service: 'A股短线量化辅助决策系统',
+        environment: 'development',
+        database: {
+          engine: 'postgresql',
+          configured: true
+        }
+      },
+      '/api/market/latest': {
+        trade_date: '',
+        market_score: null,
+        market_status: '',
+        suggested_position: '',
+        up_count: null,
+        down_count: null,
+        limit_up_count: null,
+        limit_down_count: null,
+        limit_up_height: null,
+        total_amount: null,
+        suggestion: '暂无市场建议，请先生成市场环境数据。'
+      },
+      '/api/sectors/top': {
+        trade_date: '',
+        items: []
+      },
+      '/api/candidates/latest': {
+        trade_date: '',
+        items: []
+      },
+      '/api/trade-plans/latest': {
+        plan_date: '',
+        target_trade_date: '',
+        items: []
+      },
+      '/api/simulation/latest': {
+        detail: 'simulation is not generated'
+      },
+      '/api/trade-reviews/latest': {
+        detail: 'trade reviews are not generated'
+      }
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString()
+        const path = new URL(url, 'http://localhost').pathname
+        const response = responses[path]
+        const ok = !['/api/simulation/latest', '/api/trade-reviews/latest'].includes(path)
+
+        return {
+          ok,
+          json: async () => response
+        }
+      })
+    )
+
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus]
+      }
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('今日决策面板')
+    expect(wrapper.text()).toContain('暂无市场建议，请先生成市场环境数据。')
+    expect(wrapper.text()).toContain('暂无强势板块数据')
+    expect(wrapper.text()).toContain('暂无交易计划数据')
+    expect(wrapper.text()).not.toContain('failed: 404')
+    expect(wrapper.text()).not.toContain('数据异常')
+  })
 })

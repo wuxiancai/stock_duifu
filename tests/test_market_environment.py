@@ -221,6 +221,20 @@ def test_market_latest_api_returns_persisted_environment() -> None:
     assert payload["limit_up_height"] == 1
 
 
+def test_market_latest_api_returns_empty_state_without_generated_environment() -> None:
+    engine = _engine()
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+
+    response = client.get("/api/market/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["trade_date"] == ""
+    assert payload["market_score"] is None
+    assert payload["market_status"] == ""
+    assert "暂无市场建议" in payload["suggestion"]
+
+
 def test_prd_market_today_api_returns_latest_environment() -> None:
     engine = _engine()
     trade_date = date(2026, 6, 18)

@@ -185,3 +185,13 @@ def test_candidates_latest_api_returns_persisted_candidates() -> None:
         "放量突破",
         "强势回踩",
     }
+
+
+def test_candidates_latest_api_returns_empty_state_without_candidates() -> None:
+    engine = _engine()
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+
+    response = client.get("/api/candidates/latest")
+
+    assert response.status_code == 200
+    assert response.json() == {"trade_date": "", "items": []}
