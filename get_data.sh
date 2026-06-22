@@ -5,15 +5,111 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 DRY_RUN="${STOCK_GET_DATA_DRY_RUN:-0}"
-TRADE_DATE="${TRADE_DATE:-${1:-}}"
-PROVIDER="${PROVIDER:-auto}"
-MEMBER_FETCH_LIMIT="${MEMBER_FETCH_LIMIT:-80}"
-CANDIDATE_LIMIT="${CANDIDATE_LIMIT:-50}"
+TRADE_DATE="${TRADE_DATE:-}"
+START_DATE="${START_DATE:-}"
+END_DATE="${END_DATE:-}"
+PROVIDER="${PROVIDER:-}"
+MEMBER_FETCH_LIMIT="${MEMBER_FETCH_LIMIT:-}"
+CANDIDATE_LIMIT="${CANDIDATE_LIMIT:-}"
 TRADE_PLAN_LIMIT="${TRADE_PLAN_LIMIT:-}"
 POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-5432}"
 
 info() {
   printf '[stock-data] %s\n' "$*"
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  bash get_data.sh [YYYY-MM-DD|YYYYMMDD]
+  bash get_data.sh --start YYYYMMDD --end YYYYMMDD
+
+Environment overrides remain supported:
+  TRADE_DATE=YYYY-MM-DD bash get_data.sh
+  START_DATE=YYYYMMDD END_DATE=YYYYMMDD bash get_data.sh
+  PROVIDER=auto|tushare|akshare bash get_data.sh --start YYYYMMDD --end YYYYMMDD
+
+Options:
+  --start DATE              Start date for batch mode, accepts YYYYMMDD or YYYY-MM-DD.
+  --end DATE                End date for batch mode, accepts YYYYMMDD or YYYY-MM-DD.
+  --provider PROVIDER       Data provider: auto, tushare, or akshare.
+  --member-fetch-limit N    Sector member fetch limit, default 80.
+  --candidate-limit N       Candidate stock limit, default 50.
+  --trade-plan-limit N      Trade plan limit.
+  -h, --help                Show this help.
+EOF
+}
+
+parse_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --start)
+        if [ "$#" -lt 2 ]; then
+          echo "Missing value for --start" >&2
+          exit 2
+        fi
+        START_DATE="$2"
+        shift 2
+        ;;
+      --end)
+        if [ "$#" -lt 2 ]; then
+          echo "Missing value for --end" >&2
+          exit 2
+        fi
+        END_DATE="$2"
+        shift 2
+        ;;
+      --provider)
+        if [ "$#" -lt 2 ]; then
+          echo "Missing value for --provider" >&2
+          exit 2
+        fi
+        PROVIDER="$2"
+        shift 2
+        ;;
+      --member-fetch-limit)
+        if [ "$#" -lt 2 ]; then
+          echo "Missing value for --member-fetch-limit" >&2
+          exit 2
+        fi
+        MEMBER_FETCH_LIMIT="$2"
+        shift 2
+        ;;
+      --candidate-limit)
+        if [ "$#" -lt 2 ]; then
+          echo "Missing value for --candidate-limit" >&2
+          exit 2
+        fi
+        CANDIDATE_LIMIT="$2"
+        shift 2
+        ;;
+      --trade-plan-limit)
+        if [ "$#" -lt 2 ]; then
+          echo "Missing value for --trade-plan-limit" >&2
+          exit 2
+        fi
+        TRADE_PLAN_LIMIT="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      --*)
+        echo "Unknown option: $1" >&2
+        usage >&2
+        exit 2
+        ;;
+      *)
+        if [ -n "$TRADE_DATE" ]; then
+          echo "Only one positional trade date is allowed" >&2
+          exit 2
+        fi
+        TRADE_DATE="$1"
+        shift
+        ;;
+    esac
+  done
 }
 
 run_shell() {
@@ -27,6 +123,13 @@ run_shell() {
 load_env_file() {
   local explicit_database_url="${DATABASE_URL:-}"
   local explicit_tushare_token="${TUSHARE_TOKEN:-}"
+  local explicit_trade_date="${TRADE_DATE:-}"
+  local explicit_start_date="${START_DATE:-}"
+  local explicit_end_date="${END_DATE:-}"
+  local explicit_provider="${PROVIDER:-}"
+  local explicit_member_fetch_limit="${MEMBER_FETCH_LIMIT:-}"
+  local explicit_candidate_limit="${CANDIDATE_LIMIT:-}"
+  local explicit_trade_plan_limit="${TRADE_PLAN_LIMIT:-}"
   if [ -f ".env" ]; then
     set -a
     # shellcheck disable=SC1091
@@ -41,6 +144,30 @@ load_env_file() {
   if [ -n "$explicit_tushare_token" ]; then
     TUSHARE_TOKEN="$explicit_tushare_token"
   fi
+  if [ -n "$explicit_trade_date" ]; then
+    TRADE_DATE="$explicit_trade_date"
+  fi
+  if [ -n "$explicit_start_date" ]; then
+    START_DATE="$explicit_start_date"
+  fi
+  if [ -n "$explicit_end_date" ]; then
+    END_DATE="$explicit_end_date"
+  fi
+  if [ -n "$explicit_provider" ]; then
+    PROVIDER="$explicit_provider"
+  fi
+  if [ -n "$explicit_member_fetch_limit" ]; then
+    MEMBER_FETCH_LIMIT="$explicit_member_fetch_limit"
+  fi
+  if [ -n "$explicit_candidate_limit" ]; then
+    CANDIDATE_LIMIT="$explicit_candidate_limit"
+  fi
+  if [ -n "$explicit_trade_plan_limit" ]; then
+    TRADE_PLAN_LIMIT="$explicit_trade_plan_limit"
+  fi
+  PROVIDER="${PROVIDER:-auto}"
+  MEMBER_FETCH_LIMIT="${MEMBER_FETCH_LIMIT:-80}"
+  CANDIDATE_LIMIT="${CANDIDATE_LIMIT:-50}"
   export DATABASE_URL TUSHARE_TOKEN
 }
 
@@ -75,33 +202,110 @@ EOF
   fi
 }
 
+normalize_date() {
+  .venv/bin/python - "$1" <<'PY'
+from datetime import datetime
+import sys
+
+raw = sys.argv[1].strip()
+for fmt in ("%Y-%m-%d", "%Y%m%d"):
+    try:
+        print(datetime.strptime(raw, fmt).date().isoformat())
+        raise SystemExit(0)
+    except ValueError:
+        pass
+print(f"Invalid date: {raw}. Expected YYYYMMDD or YYYY-MM-DD.", file=sys.stderr)
+raise SystemExit(2)
+PY
+}
+
+print_date_range() {
+  .venv/bin/python - "$1" "$2" <<'PY'
+from datetime import date, timedelta
+import sys
+
+start = date.fromisoformat(sys.argv[1])
+end = date.fromisoformat(sys.argv[2])
+if start > end:
+    print(f"--start must be earlier than or equal to --end: {start} > {end}", file=sys.stderr)
+    raise SystemExit(2)
+current = start
+while current <= end:
+    print(current.isoformat())
+    current += timedelta(days=1)
+PY
+}
+
 run_after_close_workflow() {
+  local trade_date="$1"
   local command
-  command="DATABASE_URL='$DATABASE_URL' TUSHARE_TOKEN='${TUSHARE_TOKEN:-}' bash scripts/run-after-close-workflow.sh --trade-date $TRADE_DATE --provider $PROVIDER --member-fetch-limit $MEMBER_FETCH_LIMIT --candidate-limit $CANDIDATE_LIMIT"
+  command="DATABASE_URL='$DATABASE_URL' TUSHARE_TOKEN='${TUSHARE_TOKEN:-}' bash scripts/run-after-close-workflow.sh --trade-date $trade_date --provider $PROVIDER --member-fetch-limit $MEMBER_FETCH_LIMIT --candidate-limit $CANDIDATE_LIMIT"
   if [ -n "$TRADE_PLAN_LIMIT" ]; then
     command="$command --trade-plan-limit $TRADE_PLAN_LIMIT"
   fi
-  info "running after-close workflow for $TRADE_DATE"
+  info "running after-close workflow for $trade_date"
   run_shell "$command"
 }
 
 run_coverage_audit() {
-  info "auditing stored market data coverage for $TRADE_DATE"
-  run_shell "DATABASE_URL='$DATABASE_URL' bash scripts/audit-market-data.sh --trade-date $TRADE_DATE"
+  local trade_date="$1"
+  info "auditing stored market data coverage for $trade_date"
+  run_shell "DATABASE_URL='$DATABASE_URL' bash scripts/audit-market-data.sh --trade-date $trade_date"
+}
+
+run_one_date() {
+  local trade_date="$1"
+  run_after_close_workflow "$trade_date"
+  run_coverage_audit "$trade_date"
+}
+
+validate_mode() {
+  if { [ -n "$START_DATE" ] && [ -z "$END_DATE" ]; } || { [ -z "$START_DATE" ] && [ -n "$END_DATE" ]; }; then
+    echo "--start and --end must be provided together" >&2
+    exit 2
+  fi
+  if [ -n "$TRADE_DATE" ] && [ -n "$START_DATE" ]; then
+    echo "Use either a single trade date or --start/--end, not both" >&2
+    exit 2
+  fi
 }
 
 main() {
+  parse_args "$@"
   load_env_file
-  if [ -z "$TRADE_DATE" ]; then
+  validate_mode
+
+  if [ -z "$TRADE_DATE" ] && [ -z "$START_DATE" ]; then
     TRADE_DATE="$(china_today)"
     info "TRADE_DATE not provided; using China date $TRADE_DATE"
   fi
 
   require_runtime
   require_market_token
+
+  if [ -n "$TRADE_DATE" ]; then
+    TRADE_DATE="$(normalize_date "$TRADE_DATE")"
+  fi
+  local date_range=""
+  if [ -n "$START_DATE" ]; then
+    START_DATE="$(normalize_date "$START_DATE")"
+    END_DATE="$(normalize_date "$END_DATE")"
+    date_range="$(print_date_range "$START_DATE" "$END_DATE")"
+  fi
+
   run_shell "DATABASE_URL='$DATABASE_URL' scripts/db-upgrade.sh"
-  run_after_close_workflow
-  run_coverage_audit
+
+  if [ -n "$START_DATE" ]; then
+    info "running data workflow from $START_DATE to $END_DATE"
+    while IFS= read -r trade_date; do
+      if [ -z "$trade_date" ]; then
+        continue
+      fi
+      run_one_date "$trade_date"
+    done <<< "$date_range"
+  else
+    run_one_date "$TRADE_DATE"
+  fi
 
   if [ "$DRY_RUN" = "1" ]; then
     cat <<EOF
@@ -112,7 +316,18 @@ EOF
     return
   fi
 
-  cat <<EOF
+  if [ -n "$START_DATE" ]; then
+    cat <<EOF
+
+Data workflow finished from $START_DATE to $END_DATE.
+
+The database now contains the market snapshots, market environments, strong
+sectors, candidate stocks, and next-trading-day trade plans generated from
+real data available to the workflow.
+
+EOF
+  else
+    cat <<EOF
 
 Data workflow finished for $TRADE_DATE.
 
@@ -121,6 +336,7 @@ sectors, candidate stocks, and next-trading-day trade plans generated from
 real data available to the workflow.
 
 EOF
+  fi
 }
 
 main "$@"

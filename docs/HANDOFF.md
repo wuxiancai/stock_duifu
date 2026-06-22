@@ -7,7 +7,7 @@
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
 - 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」、任务 18「市场环境连板高度补口」、任务 19「强势板块 5 日涨幅与候选股票页面补口」、任务 20「Ubuntu 部署与数据拉取脚本」、任务 21「强势板块独立详情页」、任务 22「部署 PostgreSQL 端口占用顺延」、任务 23「部署迁移数据库端口同步」、任务 24「部署默认避开 5432」、任务 25「Ubuntu 启动脚本诊断与 API 非 reload 启动」、任务 26「start.sh API 端口 bind 探测」、任务 27「Ubuntu 前端 API 同源代理」、任务 28「清理 `.env` 残留前端 API 端口污染」、任务 29「start.sh 运行端口写回 `.env`」、任务 30「新部署空库 latest 接口空态」和任务 31「get_data.sh 权限与日期口径」。
-- 当前已完成任务 32「get_data.sh workflow 采集摘要字段修复」和任务 33「模拟交易与复盘交易日历修复」。
+- 当前已完成任务 32「get_data.sh workflow 采集摘要字段修复」、任务 33「模拟交易与复盘交易日历修复」和任务 34「get_data.sh 区间批量拉取」。
 - `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
@@ -22,7 +22,7 @@
 - `start.sh` 启动前端时会显式清空 `VITE_API_BASE_URL`，避免 `.env` 里残留的 `http://127.0.0.1:8000` 污染浏览器端代码。
 - `start.sh` 在 PostgreSQL/API/Web 都 ready 后写回 `.env`，并删除 `VITE_API_BASE_URL`，让 `.env` 跟运行事实保持一致。
 - 新部署空库时，首页依赖的 latest 接口会返回 200 空态，不再把“尚未生成数据”显示成红色 404。
-- `get_data.sh` 默认使用中国时区当天作为 `TRADE_DATE`，可显式传 `TRADE_DATE=YYYY-MM-DD`；内部子脚本通过 `bash scripts/...` 调用，不依赖执行位。
+- `get_data.sh` 默认使用中国时区当天作为 `TRADE_DATE`，可显式传 `TRADE_DATE=YYYY-MM-DD` 或位置参数；也支持 `--start YYYYMMDD --end YYYYMMDD` 按日期区间逐日运行盘后 workflow 和覆盖审计；内部子脚本通过 `bash scripts/...` 调用，不依赖执行位。
 - 模拟交易和交易复盘现在以 `trading_calendar` 为准：请求日期若明确闭市，会顺延到下一开市日；latest 接口和资金曲线会过滤闭市日记录，避免页面显示非交易日。
 
 ## 已完成
@@ -316,6 +316,7 @@
 - 任务 31 dry-run：`STOCK_GET_DATA_DRY_RUN=1 TRADE_DATE=2026-06-18 TUSHARE_TOKEN=token-for-dry-run bash get_data.sh` 输出 `bash scripts/run-after-close-workflow.sh ...` 和 `bash scripts/audit-market-data.sh ...`。
 - 任务 31 脚本语法：`bash -n get_data.sh scripts/run-after-close-workflow.sh scripts/audit-market-data.sh`：通过。
 - 任务 32 get_data.sh workflow 字段修复：`TRADE_DATE=2026-06-18 bash get_data.sh` 报 `AttributeError: 'IngestSummary' object has no attribute 'ingest_run_id'` 的根因已修复；`ingest_market_snapshot` 现在返回真实 `data_ingest_run.id`。
+- 任务 34 get_data.sh 区间批量拉取：`bash get_data.sh --start 20260615 --end 20260618` 会规范化为 `2026-06-15` 到 `2026-06-18`，逐日执行 `run-after-close-workflow` 和 `audit-market-data`；原单日位置参数和 `TRADE_DATE=...` 用法继续可用。
 - 任务 32 相关测试：`.venv/bin/pytest tests/test_market_data_ingest.py tests/test_after_close_workflow.py tests/test_after_close_workflow_cli.py`：5 passed，1 个 LibreSSL/urllib3 warning。
 - 任务 32 后端全量测试：`.venv/bin/pytest`：102 passed，1 个 LibreSSL/urllib3 warning。
 - 任务 33 交易日历修复相关测试：`.venv/bin/pytest tests/test_simulation_trading.py tests/test_trade_plan_generation.py`：37 passed。
@@ -603,7 +604,7 @@
 
 1. `bash deploy_ubuntu.sh`，确认依赖、空库迁移和前端构建完成。
 2. `PUBLIC_HOST=服务器局域网IP bash start.sh`，确认局域网浏览器可访问页面；若其他电脑访问 `http://服务器局域网IP:<WEB_PORT>` 超时，在 Ubuntu 上执行 `sudo ufw allow <WEB_PORT>/tcp` 后重试。
-3. `TRADE_DATE=YYYY-MM-DD bash get_data.sh`，拉真实行情并生成市场环境、强势板块、候选股票和交易计划。
+3. `TRADE_DATE=YYYY-MM-DD bash get_data.sh` 或 `bash get_data.sh --start YYYYMMDD --end YYYYMMDD`，拉真实行情并生成市场环境、强势板块、候选股票和交易计划。
 4. 目标交易日当天再执行 `bash scripts/run-realtime-workflow.sh --provider auto --target-trade-date YYYY-MM-DD`，确认真实实时快照能写入计划股并驱动跟踪/模拟。
 5. 每轮完成前继续更新 `docs/HANDOFF.md` 并提交 git commit。
 

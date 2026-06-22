@@ -41,6 +41,7 @@
 - [x] 已修复 `get_data.sh` 子脚本权限问题：统一用 `bash scripts/...` 调用，不依赖执行位
 - [x] 已修复 `get_data.sh` 盘后 workflow 采集摘要字段缺失：返回真实 `data_ingest_run.id`
 - [x] 已修复模拟交易和复盘闭市日展示错误：请求闭市日会按交易日历顺延到下一开市日，latest 接口过滤闭市日记录
+- [x] 已增强 `get_data.sh`：支持 `--start YYYYMMDD --end YYYYMMDD` 区间批量拉取并逐日生成结果
 
 ## 开发原则
 
@@ -898,8 +899,9 @@ TuShare 全市场初始化验证：
 
 - 修复 Ubuntu 上执行 `bash get_data.sh` 时，`scripts/run-after-close-workflow.sh` 没有执行位导致 `Permission denied` 的问题。
 - `get_data.sh` 调用 workflow 和覆盖审计时统一使用 `bash scripts/...`，不依赖子脚本 chmod 状态。
-- `TRADE_DATE` 未显式提供时，脚本使用中国时区当天日期；也可以用 `TRADE_DATE=YYYY-MM-DD bash get_data.sh` 指定目标交易日。
-- `get_data.sh` 是围绕一个目标交易日运行盘后工作流；为计算市场环境、板块、候选和交易计划，会拉取该目标日所需的交易日历、指数历史窗口、全市场日线、基础信息、涨跌停和板块数据。
+- `TRADE_DATE` 未显式提供时，脚本使用中国时区当天日期；也可以用 `TRADE_DATE=YYYY-MM-DD bash get_data.sh` 或 `bash get_data.sh YYYYMMDD` 指定目标交易日。
+- `get_data.sh` 是围绕目标交易日运行盘后工作流；为计算市场环境、板块、候选和交易计划，会拉取该目标日所需的交易日历、指数历史窗口、全市场日线、基础信息、涨跌停和板块数据。
+- `get_data.sh --start YYYYMMDD --end YYYYMMDD` 会按自然日区间逐日执行同一套盘后 workflow 和覆盖审计，适合一次回补多天数据。
 
 状态：已完成。
 
@@ -935,3 +937,18 @@ TuShare 全市场初始化验证：
 
 - `.venv/bin/pytest tests/test_simulation_trading.py tests/test_trade_plan_generation.py`：37 passed。
 - `.venv/bin/pytest`：107 passed，1 个 LibreSSL/urllib3 warning。
+
+### 34. get_data.sh 区间批量拉取
+
+- 新增 `--start DATE --end DATE` 参数，日期支持 `YYYYMMDD` 和 `YYYY-MM-DD` 两种格式。
+- 区间模式会先执行一次数据库迁移，然后按日期顺序逐日执行盘后 workflow 和覆盖审计。
+- 保持原有单日用法兼容：`TRADE_DATE=YYYY-MM-DD bash get_data.sh`、`bash get_data.sh YYYY-MM-DD` 和 `bash get_data.sh YYYYMMDD` 均可继续使用。
+- 支持通过命令行覆盖 `--provider`、`--member-fetch-limit`、`--candidate-limit` 和 `--trade-plan-limit`。
+
+状态：已完成。
+
+验证：
+
+- `bash -n get_data.sh`：通过。
+- `STOCK_GET_DATA_DRY_RUN=1 TUSHARE_TOKEN=dummy bash get_data.sh --start 20260615 --end 20260618`：输出 2026-06-15 至 2026-06-18 每天的 `run-after-close-workflow` 和 `audit-market-data` 命令，不写库。
+- `STOCK_GET_DATA_DRY_RUN=1 TUSHARE_TOKEN=dummy bash get_data.sh 20260618`：输出单日 workflow 和覆盖审计命令，不写库。
