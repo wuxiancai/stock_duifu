@@ -208,6 +208,28 @@ describe('App', () => {
             profit_loss: null,
             profit_loss_return: null,
             reason: '目标交易日价格触达计划买入区间'
+          },
+          {
+            id: 0,
+            trade_plan_id: 1,
+            stock_code: '300308',
+            stock_name: '中际旭创',
+            trade_date: '2026-06-18',
+            trade_time: '2026-06-18T14:30:00+08:00',
+            trade_type: '买入',
+            price: 1280,
+            quantity: 100,
+            amount: 128000,
+            commission: 38.4,
+            stamp_tax: 0,
+            transfer_fee: 1.28,
+            total_fee: 39.68,
+            net_amount: -128039.68,
+            cash_after: 871960.32,
+            position_ratio_after: 0.13,
+            profit_loss: null,
+            profit_loss_return: null,
+            reason: '历史模拟买入记录'
           }
         ],
         equity_curve: [
@@ -324,7 +346,9 @@ describe('App', () => {
     expect(wrapper.text()).toContain('当前总资产')
     expect(wrapper.text()).toContain('当日盈亏')
     expect(wrapper.text()).toContain('10:01')
+    expect(wrapper.text()).toContain('14:30')
     expect(wrapper.text()).toContain('39%')
+    expect(wrapper.text()).toContain('历史模拟买入记录')
     expect(wrapper.text()).toContain('买入')
     expect(wrapper.text()).toContain('目标交易日价格触达计划买入区间')
     expect(wrapper.findAll('.el-table').some((table) => {

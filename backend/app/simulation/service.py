@@ -31,7 +31,7 @@ TRADING_END = time(15, 0)
 DEFAULT_LOOP_INTERVAL_SECONDS = 300
 MAX_HOLDING_DAYS = 5
 SECOND_TAKE_PROFIT_MULTIPLIER = 1.5
-ACTIVE_POSITION_STATUSES = ("持仓中", "部分止盈")
+ACTIVE_POSITION_STATUSES = ("持仓中", "部分止盈", "待卖出")
 
 
 @dataclass(frozen=True)
@@ -432,8 +432,8 @@ def _load_summary(session: Session, account_id: int, as_of_date: date, messages:
     ).all()
     trades = session.scalars(
         select(SimulationTrade)
-        .where(SimulationTrade.account_id == account_id, SimulationTrade.trade_date == as_of_date)
-        .order_by(SimulationTrade.id)
+        .where(SimulationTrade.account_id == account_id)
+        .order_by(desc(SimulationTrade.trade_date), desc(SimulationTrade.trade_time), desc(SimulationTrade.id))
     ).all()
     equity = session.scalars(
         _simulation_equity_query(session, account_id)

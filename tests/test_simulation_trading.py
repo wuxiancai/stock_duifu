@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi.testclient import TestClient
@@ -550,6 +550,155 @@ def test_load_latest_simulation_refreshes_position_price_from_latest_daily() -> 
     assert summary.positions[0].unrealized_profit == 2826.0
     assert summary.account.market_value == 276466.0
     assert summary.account.total_assets == 976466.0
+
+
+def test_load_latest_simulation_keeps_unsold_pending_positions_visible() -> None:
+    engine = _engine()
+    trade_date = date(2026, 6, 22)
+    with Session(engine) as session:
+        plan = _seed_trade_plan(session, stock_code="300308", target_trade_date=trade_date)
+        account = SimulationAccount(
+            account_name="默认模拟账户",
+            initial_cash=1000000,
+            available_cash=700000,
+            frozen_cash=0,
+            market_value=271648,
+            total_assets=971648,
+            total_profit=-28352,
+            total_return=-0.0284,
+            max_drawdown=0.0284,
+        )
+        session.add(account)
+        session.flush()
+        session.add(
+            SimulationPosition(
+                account_id=account.id,
+                trade_plan_id=plan.id,
+                stock_code="300308",
+                stock_name="中际旭创",
+                sector_name="科技风格",
+                strategy_type="趋势强势",
+                buy_price=1367.78,
+                current_price=1358.24,
+                quantity=200,
+                market_value=271648,
+                cost_amount=273640.0,
+                unrealized_profit=-1992.0,
+                unrealized_return=-0.0073,
+                stop_loss_price=1299.49,
+                take_profit_price=1641.46,
+                position_status="待卖出",
+                buy_reason="目标交易日价格触达计划买入区间",
+                sell_reason="等待下一次可成交卖出",
+            )
+        )
+        session.add(
+            SimulationEquity(
+                account_id=account.id,
+                trade_date=trade_date,
+                available_cash=700000,
+                market_value=271648,
+                total_assets=971648,
+                daily_profit=-28352,
+                daily_return=-0.0284,
+                max_drawdown=0.0284,
+            )
+        )
+        session.commit()
+
+    summary = load_latest_simulation(engine)
+
+    assert summary is not None
+    assert len(summary.positions) == 1
+    assert summary.positions[0].position_status == "待卖出"
+    assert summary.risk.position_count == 1
+
+
+def test_load_latest_simulation_returns_trade_history_with_latest_first() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        plan = _seed_trade_plan(session, stock_code="300308", target_trade_date=date(2026, 6, 22))
+        account = SimulationAccount(
+            account_name="默认模拟账户",
+            initial_cash=1000000,
+            available_cash=700000,
+            frozen_cash=0,
+            market_value=0,
+            total_assets=700000,
+            total_profit=-300000,
+            total_return=-0.3,
+            max_drawdown=0.3,
+        )
+        session.add(account)
+        session.flush()
+        for equity_date in [date(2026, 6, 19), date(2026, 6, 22)]:
+            session.add(
+                SimulationEquity(
+                    account_id=account.id,
+                    trade_date=equity_date,
+                    available_cash=700000,
+                    market_value=0,
+                    total_assets=700000,
+                    daily_profit=0,
+                    daily_return=0,
+                    max_drawdown=0.3,
+                )
+            )
+        session.add(
+            SimulationTrade(
+                account_id=account.id,
+                trade_plan_id=plan.id,
+                stock_code="300308",
+                stock_name="中际旭创",
+                trade_date=date(2026, 6, 19),
+                trade_time=datetime(2026, 6, 19, 10, 1, tzinfo=timezone.utc),
+                trade_type="买入",
+                price=1367.78,
+                quantity=200,
+                amount=273556,
+                commission=82.0668,
+                stamp_tax=0,
+                transfer_fee=2.7356,
+                total_fee=84.8024,
+                net_amount=-273640.8024,
+                cash_after=726359.1976,
+                position_ratio_after=0.27,
+                profit_loss=None,
+                profit_loss_return=None,
+                reason="目标交易日价格触达计划买入区间",
+            )
+        )
+        session.add(
+            SimulationTrade(
+                account_id=account.id,
+                trade_plan_id=plan.id,
+                stock_code="300308",
+                stock_name="中际旭创",
+                trade_date=date(2026, 6, 22),
+                trade_time=datetime(2026, 6, 22, 14, 55, tzinfo=timezone.utc),
+                trade_type="卖出",
+                price=1299.49,
+                quantity=200,
+                amount=259898,
+                commission=77.9694,
+                stamp_tax=129.949,
+                transfer_fee=2.599,
+                total_fee=210.5174,
+                net_amount=259687.4826,
+                cash_after=986046.6802,
+                position_ratio_after=0,
+                profit_loss=-13953.3198,
+                profit_loss_return=-0.051,
+                reason="跌破计划止损价，模拟全仓止损",
+            )
+        )
+        session.commit()
+
+    summary = load_latest_simulation(engine)
+
+    assert summary is not None
+    assert [trade.trade_date for trade in summary.trades] == [date(2026, 6, 22), date(2026, 6, 19)]
+    assert [trade.trade_type for trade in summary.trades] == ["卖出", "买入"]
 
 
 def test_load_latest_simulation_returns_none_without_account() -> None:

@@ -648,10 +648,17 @@
   - `.venv/bin/pytest tests/test_market_environment.py`：7 passed，1 个 LibreSSL/urllib3 warning。
   - `cd frontend && npm test -- --run`：3 passed。
   - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 任务 41 模拟持仓持续显示与交易记录历史滚动：
+  - 根因之一：`ACTIVE_POSITION_STATUSES` 原本只包含 `持仓中`、`部分止盈`，`待卖出` 这类尚未清仓状态会被 latest summary 过滤掉。
+  - 根因之二：`_load_summary` 原本只返回 `trade_date == as_of_date` 的交易记录，旧买入/卖出记录不会出现在页面。
+  - 修复后，`待卖出` 也作为未清仓持仓持续显示；交易记录返回账户全部历史，按交易日/交易时间倒序排列，前端表格限高滚动查看。
+  - `.venv/bin/pytest tests/test_simulation_trading.py`：20 passed，1 个 LibreSSL/urllib3 warning。
+  - `cd frontend && npm test -- --run`：3 passed。
+  - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 
 ## 验收口径
 
-当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹、任务 36 模拟交易 latest 持仓现价刷新、任务 37 首页盘中自动触发实时行情回补、任务 38 强势板块近 5 日排名 5 列展示、任务 39 强势板块近 5 日排名交易日历过滤、任务 40 今日决策面板一周视图与盘中跟踪板块列，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
+当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹、任务 36 模拟交易 latest 持仓现价刷新、任务 37 首页盘中自动触发实时行情回补、任务 38 强势板块近 5 日排名 5 列展示、任务 39 强势板块近 5 日排名交易日历过滤、任务 40 今日决策面板一周视图与盘中跟踪板块列、任务 41 模拟持仓持续显示与交易记录历史滚动，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
 
 仍不得把以下事项宣称为已完成：
 

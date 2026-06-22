@@ -1075,3 +1075,18 @@ TuShare 全市场初始化验证：
 - `.venv/bin/pytest tests/test_market_environment.py`：7 passed，1 个 LibreSSL/urllib3 warning。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+
+### 41. 模拟持仓持续显示与交易记录历史滚动
+
+- 修复模拟交易 latest 只把 `持仓中`、`部分止盈` 视为未清仓持仓，导致 `待卖出` 这类还没真正卖掉的持仓不显示的问题。
+- `ACTIVE_POSITION_STATUSES` 增加 `待卖出`；只要不是 `已清仓`，仍应在模拟持仓表持续显示。
+- `GET /api/simulation/latest` 的交易记录不再只返回 `as_of_date` 当天记录，而是返回账户全部历史交易，按交易日/交易时间倒序排列，方便当天记录在上、旧记录向下滚动查看。
+- 前端模拟持仓表和模拟交易记录表增加最大高度，超出后用表格滚动；交易记录空态改为“暂无模拟交易记录”。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_simulation_trading.py`：20 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：3 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。

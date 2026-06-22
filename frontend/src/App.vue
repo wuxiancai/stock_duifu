@@ -1119,7 +1119,7 @@ onBeforeUnmount(() => {
             show-icon
           />
 
-          <el-table :data="simulation.positions" border stripe empty-text="暂无模拟持仓">
+          <el-table :data="simulation.positions" border stripe max-height="260" empty-text="暂无模拟持仓">
             <el-table-column label="股票" min-width="150" sortable prop="stock_name">
               <template #default="{ row }: { row: SimulationPosition }">
                 <strong>{{ row.stock_name }}</strong>
@@ -1154,7 +1154,7 @@ onBeforeUnmount(() => {
             <el-table-column prop="position_status" label="状态" min-width="100" sortable />
           </el-table>
 
-          <el-table :data="simulationTrades" border stripe empty-text="暂无今日模拟交易记录">
+          <el-table :data="simulationTrades" border stripe max-height="300" empty-text="暂无模拟交易记录">
             <el-table-column label="时间" min-width="90" sortable prop="trade_time">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatTime(row.trade_time) }}</template>
             </el-table-column>
