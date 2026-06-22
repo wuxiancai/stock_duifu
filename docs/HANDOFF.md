@@ -662,10 +662,19 @@
   - `.venv/bin/pytest tests/test_market_environment.py tests/test_sector_ranking.py tests/test_trade_plan_generation.py`：37 passed，1 个 LibreSSL/urllib3 warning。
   - `cd frontend && npm test -- --run`：3 passed。
   - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 任务 43 模拟交易记录防级联删除与孤儿资金曲线防护：
+  - 根因已确认：`simulation_position.trade_plan_id` 和 `simulation_trade.trade_plan_id` 原本对 `trade_plan.id` 使用 `ON DELETE CASCADE`；当更新/重生成交易计划时，旧 `trade_plan` 被整批删除，数据库级联删掉模拟持仓和模拟交易记录，但账户和资金曲线仍残留，造成页面“无持仓、无记录、现金 231205.75、当日亏损 -76.88%”。
+  - 新增迁移 `0008_preserve_simulation_records`，模拟持仓/交易到交易计划的外键不再级联删除；真实 PostgreSQL 已升级到 `0008_preserve_simulation_records (head)`。
+  - `_replace_trade_plans` 改为按自然键更新/插入，不再整批删除计划；有关联模拟记录的计划会保留执行状态和历史关联。
+  - `load_latest_simulation` 对“只有账户/资金曲线、没有任何持仓和交易记录”的孤儿状态返回空态，避免继续展示虚假巨亏；`run_simulation` 遇到孤儿账户会先重置账户并清理不可信资金曲线。
+  - 当前真实库此前被级联删掉的模拟持仓/交易记录无法从数据库中恢复；修复后新的模拟记录不会再因重生成交易计划被级联删除。
+  - `.venv/bin/pytest tests/test_simulation_trading.py tests/test_trade_plan_generation.py tests/test_database_schema.py tests/test_realtime_quote_workflow.py`：57 passed，1 个 LibreSSL/urllib3 warning。
+  - `cd frontend && npm test -- --run`：3 passed。
+  - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 
 ## 验收口径
 
-当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹、任务 36 模拟交易 latest 持仓现价刷新、任务 37 首页盘中自动触发实时行情回补、任务 38 强势板块近 5 日排名 5 列展示、任务 39 强势板块近 5 日排名交易日历过滤、任务 40 今日决策面板一周视图与盘中跟踪板块列、任务 41 模拟持仓持续显示与交易记录历史滚动、任务 42 决策/板块/盘中跟踪数据口径修复，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
+当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹、任务 36 模拟交易 latest 持仓现价刷新、任务 37 首页盘中自动触发实时行情回补、任务 38 强势板块近 5 日排名 5 列展示、任务 39 强势板块近 5 日排名交易日历过滤、任务 40 今日决策面板一周视图与盘中跟踪板块列、任务 41 模拟持仓持续显示与交易记录历史滚动、任务 42 决策/板块/盘中跟踪数据口径修复、任务 43 模拟交易记录防级联删除与孤儿资金曲线防护，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
 
 仍不得把以下事项宣称为已完成：
 

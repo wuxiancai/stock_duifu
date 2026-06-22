@@ -205,6 +205,8 @@ def test_simulation_tables_have_required_columns_indexes_and_duplicate_guards() 
     }.issubset(position_columns)
     assert ("account_id", "trade_plan_id") in _unique_columns("simulation_position")
     assert ("position_status",) in _index_columns("simulation_position")
+    position_plan_fk = next(iter(metadata.tables["simulation_position"].c.trade_plan_id.foreign_keys))
+    assert position_plan_fk.ondelete is None
 
     assert {
         "id",
@@ -226,6 +228,8 @@ def test_simulation_tables_have_required_columns_indexes_and_duplicate_guards() 
         "profit_loss_return",
         "reason",
     }.issubset(trade_columns)
+    trade_plan_fk = next(iter(metadata.tables["simulation_trade"].c.trade_plan_id.foreign_keys))
+    assert trade_plan_fk.ondelete is None
     assert ("trade_date",) in _index_columns("simulation_trade")
 
     assert {

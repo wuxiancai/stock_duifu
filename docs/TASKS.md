@@ -1105,3 +1105,23 @@ TuShare 全市场初始化验证：
 - `.venv/bin/pytest tests/test_market_environment.py tests/test_sector_ranking.py tests/test_trade_plan_generation.py`：37 passed，1 个 LibreSSL/urllib3 warning。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+
+### 43. 模拟交易记录防级联删除与孤儿资金曲线防护
+
+- 修复模拟交易持仓和交易记录在更新/重生成交易计划后消失的问题。
+- 根因：`simulation_position.trade_plan_id` 和 `simulation_trade.trade_plan_id` 原本对 `trade_plan.id` 使用 `ON DELETE CASCADE`；交易计划重生成时 `_replace_trade_plans` 整批删除旧计划，数据库随即级联删除模拟持仓和模拟交易记录，但 `simulation_account` / `simulation_equity` 仍保留，导致页面出现“无持仓、无记录、现金只剩买入后余额”的不一致状态。
+- 新增迁移 `0008_preserve_simulation_records`，将模拟持仓/交易到交易计划的外键改为非级联删除；真实 PostgreSQL 已升级到 `0008_preserve_simulation_records (head)`。
+- `_replace_trade_plans` 改为按 `plan_date + target_trade_date + stock_code + strategy_type` 更新/插入，不再整批删除已有交易计划；已有模拟记录关联的计划会保留执行状态和历史关联。
+- `load_latest_simulation` 遇到“只有账户/资金曲线、没有任何持仓和交易记录”的孤儿模拟状态时返回空态，不再把这类脏数据重算为 -76% 之类的虚假亏损。
+- `run_simulation` 在孤儿账户状态下会先重置账户到初始资金并清理不可信资金曲线，再执行新的模拟，避免后续交易沿用错误现金余额。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_simulation_trading.py tests/test_trade_plan_generation.py tests/test_database_schema.py tests/test_realtime_quote_workflow.py`：57 passed，1 个 LibreSSL/urllib3 warning。
+- `scripts/db-current.sh`：`0008_preserve_simulation_records (head)`。
+- 真实 PostgreSQL 外键检查：`fk_simulation_position_trade_plan_id_trade_plan` 和 `fk_simulation_trade_trade_plan_id_trade_plan` 的 `confdeltype='a'`，不再级联删除。
+- 真实 PostgreSQL `load_latest_simulation` 对当前孤儿状态返回 `None`，页面不应再展示虚假 -76.88% 当日亏损。
+- `cd frontend && npm test -- --run`：3 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。

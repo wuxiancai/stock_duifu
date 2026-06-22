@@ -7,7 +7,16 @@ from sqlalchemy import delete, desc, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from backend.app.db.models import CandidateStock, MarketDaily, StockDaily, TradePlan, TradeReview, TradingCalendar
+from backend.app.db.models import (
+    CandidateStock,
+    MarketDaily,
+    SimulationPosition,
+    SimulationTrade,
+    StockDaily,
+    TradePlan,
+    TradeReview,
+    TradingCalendar,
+)
 
 
 @dataclass(frozen=True)
@@ -851,20 +860,55 @@ def _replace_trade_plans(
     target_trade_date: date,
     plans: list[TradePlanResult],
 ) -> None:
-    session.execute(
-        delete(TradePlan).where(
+    existing_records = session.scalars(
+        select(TradePlan).where(
             TradePlan.plan_date == plan_date,
             TradePlan.target_trade_date == target_trade_date,
         )
-    )
-    session.flush()
+    ).all()
+    existing_by_key = {
+        (record.stock_code, record.strategy_type): record
+        for record in existing_records
+    }
+    incoming_keys: set[tuple[str, str]] = set()
     for plan in plans:
+        natural_key = (plan.stock_code, plan.strategy_type)
+        incoming_keys.add(natural_key)
         payload = {
             key: value
             for key, value in plan.__dict__.items()
             if key not in {"id", "current_price", "pct_chg"}
         }
-        session.add(TradePlan(**payload))
+        existing = existing_by_key.get(natural_key)
+        if existing is None:
+            session.add(TradePlan(**payload))
+            continue
+        preserve_execution = _trade_plan_has_simulation_records(session, existing.id)
+        for key, value in payload.items():
+            if preserve_execution and key in {"status", "trigger_price", "trigger_time", "tracking_note"}:
+                continue
+            setattr(existing, key, value)
+
+    for record in existing_records:
+        natural_key = (record.stock_code, record.strategy_type)
+        if natural_key in incoming_keys:
+            continue
+        if _trade_plan_has_simulation_records(session, record.id):
+            record.status = "取消" if record.status in {"待触发", "未触发"} else record.status
+            if not record.tracking_note:
+                record.tracking_note = "交易计划重生成后保留，用于关联历史模拟交易记录"
+            continue
+        session.delete(record)
+
+
+def _trade_plan_has_simulation_records(session: Session, trade_plan_id: int) -> bool:
+    position_count = session.scalar(
+        select(func.count()).select_from(SimulationPosition).where(SimulationPosition.trade_plan_id == trade_plan_id)
+    )
+    trade_count = session.scalar(
+        select(func.count()).select_from(SimulationTrade).where(SimulationTrade.trade_plan_id == trade_plan_id)
+    )
+    return bool(position_count or trade_count)
 
 
 def _next_open_trade_date(session: Session, plan_date: date) -> date:

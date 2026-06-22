@@ -5,7 +5,7 @@ from time import sleep
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import delete, desc, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -199,6 +199,8 @@ def load_latest_simulation(engine: Engine) -> Optional[SimulationSummary]:
         account = session.scalar(select(SimulationAccount).where(SimulationAccount.account_name == DEFAULT_ACCOUNT_NAME))
         if account is None:
             return None
+        if _has_no_positions_or_trades(session, account.id):
+            return None
         latest_date = _latest_open_equity_date(session, account.id)
         if latest_date is None:
             return None
@@ -211,6 +213,7 @@ def load_latest_simulation(engine: Engine) -> Optional[SimulationSummary]:
 def _get_or_create_account(session: Session) -> SimulationAccount:
     account = session.scalar(select(SimulationAccount).where(SimulationAccount.account_name == DEFAULT_ACCOUNT_NAME))
     if account is not None:
+        _reset_orphan_account(session, account)
         return account
     account = SimulationAccount(
         account_name=DEFAULT_ACCOUNT_NAME,
@@ -226,6 +229,30 @@ def _get_or_create_account(session: Session) -> SimulationAccount:
     session.add(account)
     session.flush()
     return account
+
+
+def _reset_orphan_account(session: Session, account: SimulationAccount) -> None:
+    if not _has_no_positions_or_trades(session, account.id):
+        return
+    account.available_cash = _number(account.initial_cash)
+    account.frozen_cash = 0
+    account.market_value = 0
+    account.total_assets = _number(account.initial_cash)
+    account.total_profit = 0
+    account.total_return = 0
+    account.max_drawdown = 0
+    session.execute(delete(SimulationEquity).where(SimulationEquity.account_id == account.id))
+    session.flush()
+
+
+def _has_no_positions_or_trades(session: Session, account_id: int) -> bool:
+    position_count = session.scalar(
+        select(func.count()).select_from(SimulationPosition).where(SimulationPosition.account_id == account_id)
+    )
+    trade_count = session.scalar(
+        select(func.count()).select_from(SimulationTrade).where(SimulationTrade.account_id == account_id)
+    )
+    return not position_count and not trade_count
 
 
 def _sell_positions(session: Session, account: SimulationAccount, trade_date: date, messages: list[str]) -> None:

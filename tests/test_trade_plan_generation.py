@@ -1,12 +1,23 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from backend.app.data.types import StockDailyRecord
-from backend.app.db.models import CandidateStock, MarketDaily, StockDaily, TradePlan, TradeReview, TradingCalendar, metadata
+from backend.app.db.models import (
+    CandidateStock,
+    MarketDaily,
+    SimulationAccount,
+    SimulationPosition,
+    SimulationTrade,
+    StockDaily,
+    TradePlan,
+    TradeReview,
+    TradingCalendar,
+    metadata,
+)
 from backend.app.main import create_app
 import backend.app.main as app_main
 from backend.app.trade.service import (
@@ -24,6 +35,21 @@ def _engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    metadata.create_all(engine)
+    return engine
+
+
+def _engine_with_foreign_keys():
+    engine = create_engine(
+        "sqlite+pysqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def _enable_foreign_keys(dbapi_connection, _connection_record):
+        dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
     metadata.create_all(engine)
     return engine
 
@@ -140,6 +166,82 @@ def test_generate_trade_plans_is_idempotent_for_same_plan_date() -> None:
 
     with Session(engine) as session:
         assert session.query(TradePlan).count() == len(first)
+
+
+def test_regenerating_trade_plans_preserves_simulation_history() -> None:
+    engine = _engine_with_foreign_keys()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        plan = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
+        account = SimulationAccount(
+            account_name="默认模拟账户",
+            initial_cash=1000000,
+            available_cash=726359.1976,
+            frozen_cash=0,
+            market_value=276466,
+            total_assets=1002825.1976,
+            total_profit=2825.1976,
+            total_return=0.0028,
+            max_drawdown=0,
+        )
+        session.add(account)
+        session.flush()
+        session.add(
+            SimulationPosition(
+                account_id=account.id,
+                trade_plan_id=plan.id,
+                stock_code=plan.stock_code,
+                stock_name=plan.stock_name,
+                sector_name=plan.sector_name,
+                strategy_type=plan.strategy_type,
+                buy_price=1367.78,
+                current_price=1382.33,
+                quantity=200,
+                market_value=276466,
+                cost_amount=273640.8024,
+                unrealized_profit=2825.1976,
+                unrealized_return=0.0103,
+                stop_loss_price=1299.49,
+                take_profit_price=1641.46,
+                position_status="持仓中",
+                buy_reason="目标交易日价格触达计划买入区间",
+                sell_reason="",
+            )
+        )
+        session.add(
+            SimulationTrade(
+                account_id=account.id,
+                trade_plan_id=plan.id,
+                stock_code=plan.stock_code,
+                stock_name=plan.stock_name,
+                trade_date=date(2026, 6, 19),
+                trade_time=datetime(2026, 6, 19, 10, 1, tzinfo=timezone.utc),
+                trade_type="买入",
+                price=1367.78,
+                quantity=200,
+                amount=273556,
+                commission=82.0668,
+                stamp_tax=0,
+                transfer_fee=2.7356,
+                total_fee=84.8024,
+                net_amount=-273640.8024,
+                cash_after=726359.1976,
+                position_ratio_after=0.27,
+                profit_loss=None,
+                profit_loss_return=None,
+                reason="目标交易日价格触达计划买入区间",
+            )
+        )
+        session.commit()
+
+    generate_trade_plans(engine, plan_date)
+
+    with Session(engine) as session:
+        assert session.query(SimulationPosition).count() == 1
+        assert session.query(SimulationTrade).count() == 1
+        position = session.scalar(select(SimulationPosition))
+        assert session.get(TradePlan, position.trade_plan_id) is not None
 
 
 def test_generate_trade_plans_skips_risk_market() -> None:

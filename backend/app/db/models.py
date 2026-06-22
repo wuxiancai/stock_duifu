@@ -336,7 +336,7 @@ class SimulationPosition(Base):
         ForeignKey("simulation_account.id", ondelete="CASCADE"), nullable=False
     )
     trade_plan_id: Mapped[int] = mapped_column(
-        ForeignKey("trade_plan.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("trade_plan.id"), nullable=False
     )
     stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
     stock_name: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -375,7 +375,7 @@ class SimulationTrade(Base):
         ForeignKey("simulation_account.id", ondelete="CASCADE"), nullable=False
     )
     trade_plan_id: Mapped[int] = mapped_column(
-        ForeignKey("trade_plan.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("trade_plan.id"), nullable=False
     )
     stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
     stock_name: Mapped[str] = mapped_column(String(100), nullable=False)

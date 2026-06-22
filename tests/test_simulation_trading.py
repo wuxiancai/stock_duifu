@@ -440,6 +440,7 @@ def test_load_latest_simulation_ignores_closed_calendar_equity_dates() -> None:
     with Session(engine) as session:
         session.add(TradingCalendar(trade_date=date(2026, 6, 19), is_open=False, source="unit-test"))
         session.add(TradingCalendar(trade_date=date(2026, 6, 22), is_open=True, source="unit-test"))
+        plan = _seed_trade_plan(session, target_trade_date=date(2026, 6, 22))
         account = SimulationAccount(
             account_name="默认模拟账户",
             initial_cash=1000000,
@@ -475,6 +476,30 @@ def test_load_latest_simulation_ignores_closed_calendar_equity_dates() -> None:
                 daily_profit=10000,
                 daily_return=0.01,
                 max_drawdown=0,
+            )
+        )
+        session.add(
+            SimulationTrade(
+                account_id=account.id,
+                trade_plan_id=plan.id,
+                stock_code=plan.stock_code,
+                stock_name=plan.stock_name,
+                trade_date=date(2026, 6, 22),
+                trade_time=datetime(2026, 6, 22, 10, 1, tzinfo=timezone.utc),
+                trade_type="买入",
+                price=10,
+                quantity=100,
+                amount=1000,
+                commission=5,
+                stamp_tax=0,
+                transfer_fee=0.01,
+                total_fee=5.01,
+                net_amount=-1005.01,
+                cash_after=990000,
+                position_ratio_after=0.02,
+                profit_loss=None,
+                profit_loss_return=None,
+                reason="目标交易日价格触达计划买入区间",
             )
         )
         session.commit()
@@ -699,6 +724,92 @@ def test_load_latest_simulation_returns_trade_history_with_latest_first() -> Non
     assert summary is not None
     assert [trade.trade_date for trade in summary.trades] == [date(2026, 6, 22), date(2026, 6, 19)]
     assert [trade.trade_type for trade in summary.trades] == ["卖出", "买入"]
+
+
+def test_load_latest_simulation_returns_none_for_orphan_equity_without_positions_or_trades() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        account = SimulationAccount(
+            account_name="默认模拟账户",
+            initial_cash=1000000,
+            available_cash=231205.7476,
+            frozen_cash=0,
+            market_value=0,
+            total_assets=231205.7476,
+            total_profit=-768794.2524,
+            total_return=-0.7688,
+            max_drawdown=0.7735,
+        )
+        session.add(account)
+        session.flush()
+        session.add(
+            SimulationEquity(
+                account_id=account.id,
+                trade_date=date(2026, 6, 17),
+                available_cash=504846.55,
+                market_value=513018,
+                total_assets=1017864.55,
+                daily_profit=17864.55,
+                daily_return=0.0179,
+                max_drawdown=0,
+            )
+        )
+        session.add(
+            SimulationEquity(
+                account_id=account.id,
+                trade_date=date(2026, 6, 22),
+                available_cash=231205.7476,
+                market_value=0,
+                total_assets=231205.7476,
+                daily_profit=-768794.2524,
+                daily_return=-0.7688,
+                max_drawdown=0.7735,
+            )
+        )
+        session.commit()
+
+    assert load_latest_simulation(engine) is None
+
+
+def test_run_simulation_resets_orphan_account_before_new_trades() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_trade_plan(session)
+        _add_daily(session, "000001", date(2026, 6, 19), 10.2, 10.8, 10.0, 10.5)
+        account = SimulationAccount(
+            account_name="默认模拟账户",
+            initial_cash=1000000,
+            available_cash=231205.7476,
+            frozen_cash=0,
+            market_value=0,
+            total_assets=231205.7476,
+            total_profit=-768794.2524,
+            total_return=-0.7688,
+            max_drawdown=0.7735,
+        )
+        session.add(account)
+        session.flush()
+        session.add(
+            SimulationEquity(
+                account_id=account.id,
+                trade_date=date(2026, 6, 22),
+                available_cash=231205.7476,
+                market_value=0,
+                total_assets=231205.7476,
+                daily_profit=-768794.2524,
+                daily_return=-0.7688,
+                max_drawdown=0.7735,
+            )
+        )
+        session.commit()
+
+    summary = run_simulation(engine, date(2026, 6, 19))
+
+    assert summary.account.initial_cash == 1000000.0
+    assert summary.account.total_return > -0.01
+    assert len(summary.trades) == 1
+    assert summary.trades[0].trade_type == "买入"
+    assert [point.trade_date for point in summary.equity_curve] == [date(2026, 6, 19)]
 
 
 def test_load_latest_simulation_returns_none_without_account() -> None:
