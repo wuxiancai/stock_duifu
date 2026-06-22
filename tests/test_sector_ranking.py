@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from backend.app.db.models import LimitSnapshot, SectorDaily, metadata
+from backend.app.db.models import LimitSnapshot, SectorDaily, TradingCalendar, metadata
 from backend.app.main import create_app
 from backend.app.sector.service import SectorRawRecord, generate_sector_rankings
 
@@ -126,6 +126,59 @@ def test_sector_top_api_returns_latest_rankings() -> None:
     assert payload["items"][0]["sector_score"] == 100
     assert payload["items"][0]["five_day_return"] == 12.0
     assert payload["items"][0]["rank_history"] == [
+        {"trade_date": "2026-06-18", "rank_no": 1},
+        {"trade_date": "2026-06-17", "rank_no": 1},
+    ]
+
+
+def test_sector_rank_history_ignores_closed_calendar_dates() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        for day, is_open in [
+            (date(2026, 6, 22), True),
+            (date(2026, 6, 21), False),
+            (date(2026, 6, 20), False),
+            (date(2026, 6, 19), False),
+            (date(2026, 6, 18), True),
+            (date(2026, 6, 17), True),
+        ]:
+            session.add(TradingCalendar(trade_date=day, is_open=is_open, source="unit-test"))
+            session.add(
+                SectorDaily(
+                    trade_date=day,
+                    sector_name="机器人",
+                    rank_no=1,
+                    daily_return=1,
+                    five_day_return=5,
+                    amount_change=1000,
+                    limit_up_count=0,
+                    strong_stock_count=0,
+                    sector_score=80,
+                )
+            )
+        session.add(
+            SectorDaily(
+                trade_date=date(2026, 6, 22),
+                sector_name="半导体",
+                rank_no=2,
+                daily_return=1,
+                five_day_return=5,
+                amount_change=1000,
+                limit_up_count=0,
+                strong_stock_count=0,
+                sector_score=79,
+            )
+        )
+        session.commit()
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.get("/api/sectors/top")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["trade_date"] == "2026-06-22"
+    assert payload["items"][0]["rank_history"] == [
+        {"trade_date": "2026-06-22", "rank_no": 1},
         {"trade_date": "2026-06-18", "rank_no": 1},
         {"trade_date": "2026-06-17", "rank_no": 1},
     ]

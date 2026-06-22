@@ -8,7 +8,7 @@ from sqlalchemy import delete, desc, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from backend.app.db.models import LimitSnapshot, SectorDaily
+from backend.app.db.models import LimitSnapshot, SectorDaily, TradingCalendar
 
 
 @dataclass(frozen=True)
@@ -230,13 +230,21 @@ def _rank_history_by_sector(
     if not sector_names:
         return {}
 
-    history_dates = session.scalars(
+    has_calendar = bool(session.scalar(select(func.count()).select_from(TradingCalendar)))
+    history_dates_query = (
         select(SectorDaily.trade_date)
         .where(SectorDaily.trade_date <= trade_date)
         .distinct()
         .order_by(desc(SectorDaily.trade_date))
         .limit(days)
-    ).all()
+    )
+    if has_calendar:
+        history_dates_query = (
+            history_dates_query
+            .join(TradingCalendar, TradingCalendar.trade_date == SectorDaily.trade_date)
+            .where(TradingCalendar.is_open.is_(True))
+        )
+    history_dates = session.scalars(history_dates_query).all()
     if not history_dates:
         return {sector_name: [] for sector_name in sector_names}
 

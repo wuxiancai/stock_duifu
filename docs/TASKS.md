@@ -1044,3 +1044,19 @@ TuShare 全市场初始化验证：
 
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+
+### 39. 强势板块近 5 日排名过滤休市日
+
+- 修复强势板块近 5 日排名把休市日 `06-19`、`06-20`、`06-21` 当成排名日期的问题。
+- 根因：`rank_history` 原本只按 `sector_daily.trade_date` 取最近 5 个日期，没有与 TuShare 交易日历 `trading_calendar.is_open=true` 做交集；如果休市日存在脏 `sector_daily` 记录，API 会直接返回。
+- `_rank_history_by_sector` 在交易日历存在时严格 join `trading_calendar` 并只保留开市日；仅在完全没有交易日历数据的旧/空环境中回退到旧逻辑。
+- 新增回归测试覆盖：即使 `sector_daily` 中存在休市日排名，`GET /api/sectors/top` 的 `rank_history` 也只能返回开市日。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_sector_ranking.py::test_sector_rank_history_ignores_closed_calendar_dates`：先失败，确认复现休市日混入；修复后通过。
+- `.venv/bin/pytest tests/test_sector_ranking.py`：6 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：3 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
