@@ -109,8 +109,11 @@ def test_sector_top_api_returns_latest_rankings() -> None:
     engine = _engine()
     trade_date = date(2026, 6, 18)
     with Session(engine) as session:
+        previous_date = trade_date - timedelta(days=1)
+        _seed_limit_up(session, previous_date)
         _seed_limit_up(session, trade_date)
         session.commit()
+    generate_sector_rankings(engine, previous_date, FakeSectorProvider())
     generate_sector_rankings(engine, trade_date, FakeSectorProvider())
 
     client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
@@ -122,6 +125,10 @@ def test_sector_top_api_returns_latest_rankings() -> None:
     assert payload["items"][0]["sector_name"] == "机器人"
     assert payload["items"][0]["sector_score"] == 100
     assert payload["items"][0]["five_day_return"] == 12.0
+    assert payload["items"][0]["rank_history"] == [
+        {"trade_date": "2026-06-18", "rank_no": 1},
+        {"trade_date": "2026-06-17", "rank_no": 1},
+    ]
 
 
 def test_sector_top_api_returns_empty_state_without_rankings() -> None:

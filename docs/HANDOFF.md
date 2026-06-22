@@ -605,10 +605,18 @@
   - `.venv/bin/python -m backend.app.workflow.cli after-close --help`：正常展示 `--trade-date`、`--provider`、`--member-fetch-limit`、`--candidate-limit`、`--trade-plan-limit`。
   - `cd frontend && npm test -- --run`：1 passed。
   - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 任务 35 强势板块近 5 日排名轨迹：
+  - `GET /api/sectors/top` 和 `GET /api/sectors/strong?date=YYYY-MM-DD` 每个板块项新增 `rank_history`，按查询日期向前取最近 5 个已生成板块排名交易日。
+  - `rank_history[].rank_no=null` 表示该板块在对应日期未进入 Top10。
+  - 强势板块表在“板块”和“今日涨幅”之间新增“近5日排名”列，使用 `06-18 #1` 这类紧凑标签展示；CSV 导出同步包含该字段。
+  - `.venv/bin/pytest tests/test_sector_ranking.py`：5 passed，1 个 LibreSSL/urllib3 warning。
+  - `cd frontend && npm test -- --run`：2 passed。
+  - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+  - 临时当前代码 API `http://127.0.0.1:8010/api/sectors/top` 返回真实 PostgreSQL 最新 `trade_date=2026-06-18`，板块项包含 `rank_history`，如 `非金属材料Ⅲ` 返回 `2026-06-18 #1` 和 `2026-06-16 -`。
 
 ## 验收口径
 
-当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
+当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
 
 仍不得把以下事项宣称为已完成：
 

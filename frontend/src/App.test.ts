@@ -40,7 +40,14 @@ describe('App', () => {
             amount_change: 1000000000,
             limit_up_count: 3,
             strong_stock_count: 79,
-            sector_score: 100
+            sector_score: 100,
+            rank_history: [
+              { trade_date: '2026-06-18', rank_no: 7 },
+              { trade_date: '2026-06-17', rank_no: 2 },
+              { trade_date: '2026-06-16', rank_no: null },
+              { trade_date: '2026-06-15', rank_no: 5 },
+              { trade_date: '2026-06-12', rank_no: 8 }
+            ]
           }
         ]
       },
@@ -273,6 +280,11 @@ describe('App', () => {
     expect(wrapper.text()).toContain('连板高度')
     expect(wrapper.text()).toContain('强势板块')
     expect(wrapper.text()).toContain('科技风格')
+    expect(wrapper.text()).toContain('近5日排名')
+    expect(wrapper.text()).toContain('06-18')
+    expect(wrapper.text()).toContain('#7')
+    expect(wrapper.text()).toContain('06-17')
+    expect(wrapper.text()).toContain('#2')
     expect(wrapper.text()).toContain('5日涨幅')
     expect(wrapper.text()).toContain('今日交易计划')
     expect(wrapper.text()).toContain('中际旭创')

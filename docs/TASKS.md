@@ -984,3 +984,19 @@ TuShare 全市场初始化验证：
 - `bash -n get_data.sh`：通过。
 - `STOCK_GET_DATA_DRY_RUN=1 TUSHARE_TOKEN=dummy bash get_data.sh --start 20260615 --end 20260618`：输出 2026-06-15 至 2026-06-18 每天的 `run-after-close-workflow` 和 `audit-market-data` 命令，不写库。
 - `STOCK_GET_DATA_DRY_RUN=1 TUSHARE_TOKEN=dummy bash get_data.sh 20260618`：输出单日 workflow 和覆盖审计命令，不写库。
+
+### 35. 强势板块近 5 日排名轨迹
+
+- `GET /api/sectors/top` 和 `GET /api/sectors/strong?date=YYYY-MM-DD` 每个板块项新增 `rank_history`。
+- `rank_history` 按当前查询日期向前取最近 5 个已生成板块排名交易日，返回每个日期该板块的 Top10 名次；该日未进入 Top10 时 `rank_no=null`。
+- 强势板块表在“板块”和“今日涨幅”之间新增“近5日排名”列，用日期和 `#名次` 标签展示，例如 `06-18 #1`、`06-17 #2`。
+- 强势板块 CSV 导出同步增加“近5日排名”字段。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_sector_ranking.py`：5 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：2 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+- 临时当前代码 API `http://127.0.0.1:8010/api/sectors/top` 返回真实 PostgreSQL 最新 `trade_date=2026-06-18`，板块项包含 `rank_history`，如 `非金属材料Ⅲ` 返回 `2026-06-18 #1` 和 `2026-06-16 -`。

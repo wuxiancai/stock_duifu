@@ -227,6 +227,42 @@ textarea {
   min-width: 0;
 }
 
+.rank-history-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.rank-history-item {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  border: 1px solid #dbe4ef;
+  border-radius: 6px;
+  padding: 2px 6px;
+  color: #607089;
+  background: #fbfdff;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.rank-history-item strong {
+  color: #273348;
+  font-size: 12px;
+}
+
+.rank-history-item.missing {
+  color: #9aa6b8;
+  background: #f5f7fa;
+}
+
+.rank-history-item.missing strong {
+  color: #9aa6b8;
+}
+
 .table-heading {
   align-items: center;
 }

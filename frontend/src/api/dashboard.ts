@@ -50,6 +50,10 @@ export interface SectorTopItem {
   limit_up_count: number
   strong_stock_count: number
   sector_score: number
+  rank_history: Array<{
+    trade_date: string
+    rank_no: number | null
+  }>
 }
 
 export interface SectorTopResponse {

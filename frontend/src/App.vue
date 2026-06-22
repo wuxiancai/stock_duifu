@@ -276,6 +276,13 @@ function formatTime(value: string | null | undefined) {
   }).format(new Date(value))
 }
 
+function formatRankHistoryDate(value: string | null | undefined) {
+  if (!value) return '-'
+  const [, , month, day] = value.match(/^(\d{4})-(\d{2})-(\d{2})$/) ?? []
+  if (!month || !day) return value
+  return `${month}-${day}`
+}
+
 function formatPosition(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return '-'
   const percentValue = Math.abs(value) <= 1 ? value * 100 : value
@@ -330,10 +337,11 @@ function exportCsv(filename: string, headers: string[], rows: Array<Array<string
 function exportSectors() {
   exportCsv(
     `top-sectors-${sectors.value?.trade_date ?? 'latest'}.csv`,
-    ['排名', '板块', '今日涨幅', '5日涨幅', '成交额代理变化', '涨停数', '强势股数', '评分'],
+    ['排名', '板块', '近5日排名', '今日涨幅', '5日涨幅', '成交额代理变化', '涨停数', '强势股数', '评分'],
     filteredSectors.value.map((item) => [
       item.rank_no,
       item.sector_name,
+      item.rank_history.map((history) => `${history.trade_date}:${history.rank_no ? `#${history.rank_no}` : '-'}`).join(' / '),
       item.daily_return,
       item.five_day_return,
       item.amount_change,
@@ -799,6 +807,21 @@ onBeforeUnmount(() => {
           <el-table-column prop="sector_name" label="板块" min-width="150" sortable>
             <template #default="{ row }: { row: SectorTopItem }">
               <el-button link type="primary" @click="navigateToSector(row.sector_name)">{{ row.sector_name }}</el-button>
+            </template>
+          </el-table-column>
+          <el-table-column label="近5日排名" min-width="230">
+            <template #default="{ row }: { row: SectorTopItem }">
+              <div class="rank-history-list">
+                <span
+                  v-for="history in row.rank_history"
+                  :key="`${row.sector_name}-${history.trade_date}`"
+                  class="rank-history-item"
+                  :class="{ missing: !history.rank_no }"
+                >
+                  <span>{{ formatRankHistoryDate(history.trade_date) }}</span>
+                  <strong>{{ history.rank_no ? `#${history.rank_no}` : '-' }}</strong>
+                </span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column prop="daily_return" label="今日涨幅" min-width="120" sortable>

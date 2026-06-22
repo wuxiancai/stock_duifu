@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from math import ceil
@@ -35,10 +35,17 @@ class SectorRankingResult:
     limit_up_count: int
     strong_stock_count: int
     sector_score: int
+    rank_history: list["SectorRankHistoryItem"] = field(default_factory=list)
 
     @property
     def three_day_return(self) -> float:
         return self.five_day_return
+
+
+@dataclass(frozen=True)
+class SectorRankHistoryItem:
+    trade_date: date
+    rank_no: Optional[int]
 
 
 class SectorDataProvider(Protocol):
@@ -193,6 +200,7 @@ def _load_sector_rankings_for_date(session: Session, trade_date: date) -> Option
     ).all()
     if not records:
         return None
+    rank_history = _rank_history_by_sector(session, trade_date, [record.sector_name for record in records])
     return (
         trade_date,
         [
@@ -206,10 +214,53 @@ def _load_sector_rankings_for_date(session: Session, trade_date: date) -> Option
                 limit_up_count=record.limit_up_count,
                 strong_stock_count=record.strong_stock_count,
                 sector_score=record.sector_score,
+                rank_history=rank_history.get(record.sector_name, []),
             )
             for record in records
         ],
     )
+
+
+def _rank_history_by_sector(
+    session: Session,
+    trade_date: date,
+    sector_names: list[str],
+    days: int = 5,
+) -> dict[str, list[SectorRankHistoryItem]]:
+    if not sector_names:
+        return {}
+
+    history_dates = session.scalars(
+        select(SectorDaily.trade_date)
+        .where(SectorDaily.trade_date <= trade_date)
+        .distinct()
+        .order_by(desc(SectorDaily.trade_date))
+        .limit(days)
+    ).all()
+    if not history_dates:
+        return {sector_name: [] for sector_name in sector_names}
+
+    history_records = session.scalars(
+        select(SectorDaily).where(
+            SectorDaily.trade_date.in_(history_dates),
+            SectorDaily.sector_name.in_(sector_names),
+        )
+    ).all()
+    rank_by_key = {
+        (record.sector_name, record.trade_date): record.rank_no
+        for record in history_records
+    }
+
+    return {
+        sector_name: [
+            SectorRankHistoryItem(
+                trade_date=history_date,
+                rank_no=rank_by_key.get((sector_name, history_date)),
+            )
+            for history_date in history_dates
+        ]
+        for sector_name in sector_names
+    }
 
 
 def _top_codes(candidates: list[dict], key, size: int) -> set[str]:

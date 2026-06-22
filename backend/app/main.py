@@ -197,6 +197,27 @@ def _realtime_quote_provider():
     )
 
 
+def _sector_payload(item) -> dict:
+    return {
+        "rank_no": item.rank_no,
+        "sector_name": item.sector_name,
+        "daily_return": item.daily_return,
+        "five_day_return": item.five_day_return,
+        "three_day_return": item.three_day_return,
+        "amount_change": item.amount_change,
+        "limit_up_count": item.limit_up_count,
+        "strong_stock_count": item.strong_stock_count,
+        "sector_score": item.sector_score,
+        "rank_history": [
+            {
+                "trade_date": history.trade_date.isoformat(),
+                "rank_no": history.rank_no,
+            }
+            for history in item.rank_history
+        ],
+    }
+
+
 def _parse_iso_date(value: str, field_name: str) -> date:
     try:
         return date.fromisoformat(value)
@@ -279,20 +300,7 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
         trade_date, items = result
         return {
             "trade_date": trade_date.isoformat(),
-            "items": [
-                {
-                    "rank_no": item.rank_no,
-                    "sector_name": item.sector_name,
-                    "daily_return": item.daily_return,
-                    "five_day_return": item.five_day_return,
-                    "three_day_return": item.three_day_return,
-                    "amount_change": item.amount_change,
-                    "limit_up_count": item.limit_up_count,
-                    "strong_stock_count": item.strong_stock_count,
-                    "sector_score": item.sector_score,
-                }
-                for item in items
-            ],
+            "items": [_sector_payload(item) for item in items],
         }
 
     @app.get("/api/sectors/strong", tags=["sector"])
@@ -304,20 +312,7 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
         trade_date, items = result
         return {
             "trade_date": trade_date.isoformat(),
-            "items": [
-                {
-                    "rank_no": item.rank_no,
-                    "sector_name": item.sector_name,
-                    "daily_return": item.daily_return,
-                    "five_day_return": item.five_day_return,
-                    "three_day_return": item.three_day_return,
-                    "amount_change": item.amount_change,
-                    "limit_up_count": item.limit_up_count,
-                    "strong_stock_count": item.strong_stock_count,
-                    "sector_score": item.sector_score,
-                }
-                for item in items
-            ],
+            "items": [_sector_payload(item) for item in items],
         }
 
     @app.get("/api/candidates/latest", tags=["candidate"])
