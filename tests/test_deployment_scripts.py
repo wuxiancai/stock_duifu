@@ -180,9 +180,9 @@ def test_get_data_script_runs_after_close_workflow_in_dry_run() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "scripts/run-after-close-workflow.sh --trade-date 2026-06-18" in result.stdout
+    assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-18" in result.stdout
     assert "--provider auto" in result.stdout
-    assert "scripts/audit-market-data.sh --trade-date 2026-06-18" in result.stdout
+    assert "bash scripts/audit-market-data.sh --trade-date 2026-06-18" in result.stdout
 
 
 def test_start_script_defaults_to_lan_listen_host() -> None:

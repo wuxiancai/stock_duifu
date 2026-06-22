@@ -38,6 +38,7 @@
 - [x] 已修复 `.env` 残留 `VITE_API_BASE_URL` 污染前端：`start.sh` 启动前端时强制清空浏览器端绝对 API 地址
 - [x] 已修复启动脚本端口事实源不一致：`start.sh` 选定 PostgreSQL/API/Web 端口后写回 `.env`
 - [x] 已修复新部署空库首页误报 404：latest 接口无数据时返回 200 空态而不是错误
+- [x] 已修复 `get_data.sh` 子脚本权限问题：统一用 `bash scripts/...` 调用，不依赖执行位
 
 ## 开发原则
 
@@ -890,3 +891,18 @@ TuShare 全市场初始化验证：
 - `cd frontend && npm test -- --run`：2 passed。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 - `.venv/bin/pytest`：102 passed，1 个 LibreSSL/urllib3 warning。
+
+### 31. get_data.sh 权限与日期口径
+
+- 修复 Ubuntu 上执行 `bash get_data.sh` 时，`scripts/run-after-close-workflow.sh` 没有执行位导致 `Permission denied` 的问题。
+- `get_data.sh` 调用 workflow 和覆盖审计时统一使用 `bash scripts/...`，不依赖子脚本 chmod 状态。
+- `TRADE_DATE` 未显式提供时，脚本使用中国时区当天日期；也可以用 `TRADE_DATE=YYYY-MM-DD bash get_data.sh` 指定目标交易日。
+- `get_data.sh` 是围绕一个目标交易日运行盘后工作流；为计算市场环境、板块、候选和交易计划，会拉取该目标日所需的交易日历、指数历史窗口、全市场日线、基础信息、涨跌停和板块数据。
+
+状态：已完成。
+
+验证：
+
+- `STOCK_GET_DATA_DRY_RUN=1 TRADE_DATE=2026-06-18 TUSHARE_TOKEN=token-for-dry-run bash get_data.sh`：输出 `bash scripts/run-after-close-workflow.sh ...` 和 `bash scripts/audit-market-data.sh ...`。
+- `bash -n get_data.sh scripts/run-after-close-workflow.sh scripts/audit-market-data.sh`：通过。
+- `.venv/bin/pytest tests/test_deployment_scripts.py`：8 passed。

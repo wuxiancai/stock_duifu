@@ -6,7 +6,7 @@
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
-- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」、任务 18「市场环境连板高度补口」、任务 19「强势板块 5 日涨幅与候选股票页面补口」、任务 20「Ubuntu 部署与数据拉取脚本」、任务 21「强势板块独立详情页」、任务 22「部署 PostgreSQL 端口占用顺延」、任务 23「部署迁移数据库端口同步」、任务 24「部署默认避开 5432」、任务 25「Ubuntu 启动脚本诊断与 API 非 reload 启动」、任务 26「start.sh API 端口 bind 探测」、任务 27「Ubuntu 前端 API 同源代理」、任务 28「清理 `.env` 残留前端 API 端口污染」、任务 29「start.sh 运行端口写回 `.env`」和任务 30「新部署空库 latest 接口空态」。
+- 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」、任务 18「市场环境连板高度补口」、任务 19「强势板块 5 日涨幅与候选股票页面补口」、任务 20「Ubuntu 部署与数据拉取脚本」、任务 21「强势板块独立详情页」、任务 22「部署 PostgreSQL 端口占用顺延」、任务 23「部署迁移数据库端口同步」、任务 24「部署默认避开 5432」、任务 25「Ubuntu 启动脚本诊断与 API 非 reload 启动」、任务 26「start.sh API 端口 bind 探测」、任务 27「Ubuntu 前端 API 同源代理」、任务 28「清理 `.env` 残留前端 API 端口污染」、任务 29「start.sh 运行端口写回 `.env`」、任务 30「新部署空库 latest 接口空态」和任务 31「get_data.sh 权限与日期口径」。
 - `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
@@ -21,6 +21,7 @@
 - `start.sh` 启动前端时会显式清空 `VITE_API_BASE_URL`，避免 `.env` 里残留的 `http://127.0.0.1:8000` 污染浏览器端代码。
 - `start.sh` 在 PostgreSQL/API/Web 都 ready 后写回 `.env`，并删除 `VITE_API_BASE_URL`，让 `.env` 跟运行事实保持一致。
 - 新部署空库时，首页依赖的 latest 接口会返回 200 空态，不再把“尚未生成数据”显示成红色 404。
+- `get_data.sh` 默认使用中国时区当天作为 `TRADE_DATE`，可显式传 `TRADE_DATE=YYYY-MM-DD`；内部子脚本通过 `bash scripts/...` 调用，不依赖执行位。
 
 ## 已完成
 
@@ -269,6 +270,10 @@
   - `/api/market/latest`、`/api/sectors/top`、`/api/candidates/latest`、`/api/trade-plans/latest` 无数据时返回 200 空态。
   - 首页空库状态不会显示 `failed: 404` 或“数据异常”。
   - 指定日期和详情资源不存在时仍保留 404。
+- 已完成任务 31 get_data.sh 权限与日期口径：
+  - `get_data.sh` 未提供 `TRADE_DATE` 时使用中国时区当天日期，显式 `TRADE_DATE=YYYY-MM-DD` 可指定目标交易日。
+  - 脚本围绕一个目标交易日跑盘后 workflow，但会拉取该日计算所需的交易日历、指数历史窗口、全市场日线、基础信息、涨跌停和板块数据。
+  - 子脚本调用改为 `bash scripts/run-after-close-workflow.sh` 和 `bash scripts/audit-market-data.sh`，避免 Ubuntu 上执行位缺失导致 `Permission denied`。
 
 ## 未完成
 - 全市场 `2026-06-18` 覆盖审计仍有 `missing_stock_daily_rows=22`，首批清单包含 ST、退市风险或当日无交易个股；任务 6 已在基础过滤中处理缺失日线、ST/退市风险和非 active 股票。
@@ -306,6 +311,9 @@
 - 任务 30 前端空态回归：`cd frontend && npm test -- --run`：2 passed。
 - 任务 30 前端构建：`cd frontend && npm run build`：通过，仍有 VueUse pure annotation 和 chunk size warning。
 - 任务 30 全量验证：`.venv/bin/pytest`：102 passed，1 个 LibreSSL/urllib3 warning。
+- 任务 31 dry-run：`STOCK_GET_DATA_DRY_RUN=1 TRADE_DATE=2026-06-18 TUSHARE_TOKEN=token-for-dry-run bash get_data.sh` 输出 `bash scripts/run-after-close-workflow.sh ...` 和 `bash scripts/audit-market-data.sh ...`。
+- 任务 31 脚本语法：`bash -n get_data.sh scripts/run-after-close-workflow.sh scripts/audit-market-data.sh`：通过。
+- 任务 31 回归验证：`.venv/bin/pytest tests/test_deployment_scripts.py`：8 passed。
 - 任务 25 脚本语法：`bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
 - 任务 25 回归验证：`.venv/bin/pytest tests/test_deployment_scripts.py`：7 passed。
 - 任务 25 全量验证：`.venv/bin/pytest`：97 passed，1 个 LibreSSL/urllib3 warning。

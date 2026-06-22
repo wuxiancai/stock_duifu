@@ -77,7 +77,7 @@ EOF
 
 run_after_close_workflow() {
   local command
-  command="DATABASE_URL='$DATABASE_URL' TUSHARE_TOKEN='${TUSHARE_TOKEN:-}' scripts/run-after-close-workflow.sh --trade-date $TRADE_DATE --provider $PROVIDER --member-fetch-limit $MEMBER_FETCH_LIMIT --candidate-limit $CANDIDATE_LIMIT"
+  command="DATABASE_URL='$DATABASE_URL' TUSHARE_TOKEN='${TUSHARE_TOKEN:-}' bash scripts/run-after-close-workflow.sh --trade-date $TRADE_DATE --provider $PROVIDER --member-fetch-limit $MEMBER_FETCH_LIMIT --candidate-limit $CANDIDATE_LIMIT"
   if [ -n "$TRADE_PLAN_LIMIT" ]; then
     command="$command --trade-plan-limit $TRADE_PLAN_LIMIT"
   fi
@@ -87,7 +87,7 @@ run_after_close_workflow() {
 
 run_coverage_audit() {
   info "auditing stored market data coverage for $TRADE_DATE"
-  run_shell "DATABASE_URL='$DATABASE_URL' scripts/audit-market-data.sh --trade-date $TRADE_DATE"
+  run_shell "DATABASE_URL='$DATABASE_URL' bash scripts/audit-market-data.sh --trade-date $TRADE_DATE"
 }
 
 main() {
