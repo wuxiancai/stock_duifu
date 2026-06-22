@@ -10,6 +10,7 @@ from backend.app.main import create_app
 from backend.app.trade.service import (
     generate_trade_plans,
     generate_trade_reviews,
+    load_latest_trade_reviews,
     retarget_closed_trade_plans,
     track_trade_plans,
 )
@@ -503,6 +504,58 @@ def test_trade_review_api_generates_and_returns_latest_summary() -> None:
     latest = client.get("/api/trade-reviews/latest")
     assert latest.status_code == 200
     assert latest.json()["win_rate"] == 1.0
+
+
+def test_generate_trade_reviews_uses_next_open_date_when_requested_date_is_closed() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        calendar = session.scalar(select(TradingCalendar).where(TradingCalendar.trade_date == date(2026, 6, 19)))
+        calendar.is_open = False
+        session.add(TradingCalendar(trade_date=date(2026, 6, 22), is_open=True, source="unit-test"))
+        triggered = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
+        triggered.target_trade_date = date(2026, 6, 22)
+        triggered.status = "已触发"
+        triggered.trigger_price = float(triggered.buy_price_low)
+        triggered.tracking_note = "目标交易日价格触达计划买入区间"
+        untriggered = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000002"))
+        untriggered.target_trade_date = date(2026, 6, 22)
+        untriggered.status = "未触发"
+        untriggered.tracking_note = "收盘未触达计划买入区间"
+        _add_daily(session, "000001", date(2026, 6, 22), float(triggered.buy_price_low) * 1.05)
+        _add_daily(session, "000002", date(2026, 6, 22), float(untriggered.buy_price_high) * 1.01)
+        session.commit()
+
+    summary = generate_trade_reviews(engine, date(2026, 6, 19))
+
+    assert summary.review_date == date(2026, 6, 22)
+    assert summary.total_count == 2
+    with Session(engine) as session:
+        assert session.scalar(select(TradeReview).where(TradeReview.trade_date == date(2026, 6, 19))) is None
+
+
+def test_load_latest_trade_reviews_ignores_closed_calendar_dates() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    _seed_review_target_day(engine)
+    generate_trade_reviews(engine, date(2026, 6, 19))
+    with Session(engine) as session:
+        calendar = session.scalar(select(TradingCalendar).where(TradingCalendar.trade_date == date(2026, 6, 19)))
+        calendar.is_open = False
+        session.add(TradingCalendar(trade_date=date(2026, 6, 22), is_open=True, source="unit-test"))
+        plans = session.scalars(select(TradePlan)).all()
+        for plan in plans:
+            plan.target_trade_date = date(2026, 6, 22)
+        session.commit()
+
+    generate_trade_reviews(engine, date(2026, 6, 22))
+
+    summary = load_latest_trade_reviews(engine)
+
+    assert summary is not None
+    assert summary.review_date == date(2026, 6, 22)
 
 
 def test_prd_review_post_api_generates_review_records() -> None:

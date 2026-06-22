@@ -355,6 +355,7 @@ def track_trade_plans(
 
 def generate_trade_reviews(engine: Engine, trade_date: date) -> TradeReviewSummary:
     with Session(engine) as session:
+        trade_date = _resolve_open_trade_date(session, trade_date)
         plans = session.scalars(
             select(TradePlan)
             .where(TradePlan.target_trade_date == trade_date)
@@ -378,7 +379,7 @@ def generate_trade_reviews(engine: Engine, trade_date: date) -> TradeReviewSumma
 
 def load_latest_trade_reviews(engine: Engine) -> Optional[TradeReviewSummary]:
     with Session(engine) as session:
-        latest_trade_date = session.scalar(select(func.max(TradeReview.trade_date)))
+        latest_trade_date = _latest_open_review_date(session)
         if latest_trade_date is None:
             return None
         return _load_trade_review_summary(session, latest_trade_date)
@@ -386,6 +387,8 @@ def load_latest_trade_reviews(engine: Engine) -> Optional[TradeReviewSummary]:
 
 def load_trade_reviews_by_date(engine: Engine, trade_date: date) -> Optional[TradeReviewSummary]:
     with Session(engine) as session:
+        if _target_is_open(session, trade_date) is False:
+            return None
         exists = session.scalar(
             select(func.count()).select_from(TradeReview).where(TradeReview.trade_date == trade_date)
         )
@@ -622,6 +625,28 @@ def _target_is_open(session: Session, target_trade_date: date) -> Optional[bool]
         select(TradingCalendar).where(TradingCalendar.trade_date == target_trade_date)
     )
     return calendar.is_open if calendar is not None else None
+
+
+def _resolve_open_trade_date(session: Session, requested_date: date) -> date:
+    is_open = _target_is_open(session, requested_date)
+    if is_open is not False:
+        return requested_date
+    next_open = _next_open_trade_date_after(session, requested_date)
+    return next_open or requested_date
+
+
+def _latest_open_review_date(session: Session) -> Optional[date]:
+    query = select(func.max(TradeReview.trade_date)).select_from(TradeReview)
+    if _calendar_has_rows(session):
+        query = (
+            query.join(TradingCalendar, TradingCalendar.trade_date == TradeReview.trade_date)
+            .where(TradingCalendar.is_open.is_(True))
+        )
+    return session.scalar(query)
+
+
+def _calendar_has_rows(session: Session) -> bool:
+    return bool(session.scalar(select(func.count()).select_from(TradingCalendar)))
 
 
 def _evaluate_plan_tracking(

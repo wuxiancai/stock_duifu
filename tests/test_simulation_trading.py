@@ -16,6 +16,7 @@ from backend.app.db.models import (
     SimulationTrade,
     StockDaily,
     TradePlan,
+    TradingCalendar,
     metadata,
 )
 from backend.app.main import create_app
@@ -38,10 +39,11 @@ def _seed_trade_plan(
     status: str = "已触发",
     trigger_price: Optional[float] = 10.2,
     tracking_note: str = "目标交易日价格触达计划买入区间",
+    target_trade_date: date = date(2026, 6, 19),
 ) -> TradePlan:
     plan = TradePlan(
         plan_date=date(2026, 6, 18),
-        target_trade_date=date(2026, 6, 19),
+        target_trade_date=target_trade_date,
         stock_code=stock_code,
         stock_name="计划内股票",
         sector_name="科技风格",
@@ -390,6 +392,98 @@ def test_simulation_workflow_api_tracks_and_runs_simulation() -> None:
     assert payload["tracking"][0]["status"] == "已触发"
     assert payload["simulation"]["positions"][0]["stock_code"] == "000001"
     assert payload["simulation"]["trades"][0]["trade_type"] == "买入"
+
+
+def test_run_simulation_uses_next_open_trade_date_when_requested_date_is_closed() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        session.add(TradingCalendar(trade_date=date(2026, 6, 19), is_open=False, source="unit-test"))
+        session.add(TradingCalendar(trade_date=date(2026, 6, 22), is_open=True, source="unit-test"))
+        _seed_trade_plan(session, target_trade_date=date(2026, 6, 22))
+        _add_daily(session, "000001", date(2026, 6, 22), 10.2, 10.8, 10.0, 10.5)
+        session.commit()
+
+    summary = run_simulation(engine, date(2026, 6, 19))
+
+    assert summary.as_of_date == date(2026, 6, 22)
+    assert summary.trades[0].trade_date == date(2026, 6, 22)
+    assert [point.trade_date for point in summary.equity_curve] == [date(2026, 6, 22)]
+    with Session(engine) as session:
+        assert session.scalar(select(SimulationEquity).where(SimulationEquity.trade_date == date(2026, 6, 19))) is None
+
+
+def test_run_simulation_workflow_uses_next_open_trade_date_when_requested_date_is_closed() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        session.add(TradingCalendar(trade_date=date(2026, 6, 19), is_open=False, source="unit-test"))
+        session.add(TradingCalendar(trade_date=date(2026, 6, 22), is_open=True, source="unit-test"))
+        _seed_trade_plan(
+            session,
+            status="待触发",
+            trigger_price=None,
+            tracking_note="",
+            target_trade_date=date(2026, 6, 22),
+        )
+        _add_daily(session, "000001", date(2026, 6, 22), 10.1, 10.8, 10.0, 10.5)
+        session.commit()
+
+    workflow = run_simulation_workflow(engine, date(2026, 6, 19))
+
+    assert workflow.target_trade_date == date(2026, 6, 22)
+    assert workflow.tracking[0].target_trade_date == date(2026, 6, 22)
+    assert workflow.simulation.as_of_date == date(2026, 6, 22)
+    assert workflow.simulation.positions[0].stock_code == "000001"
+
+
+def test_load_latest_simulation_ignores_closed_calendar_equity_dates() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        session.add(TradingCalendar(trade_date=date(2026, 6, 19), is_open=False, source="unit-test"))
+        session.add(TradingCalendar(trade_date=date(2026, 6, 22), is_open=True, source="unit-test"))
+        account = SimulationAccount(
+            account_name="默认模拟账户",
+            initial_cash=1000000,
+            available_cash=1000000,
+            frozen_cash=0,
+            market_value=0,
+            total_assets=1000000,
+            total_profit=0,
+            total_return=0,
+            max_drawdown=0,
+        )
+        session.add(account)
+        session.flush()
+        session.add(
+            SimulationEquity(
+                account_id=account.id,
+                trade_date=date(2026, 6, 19),
+                available_cash=1000000,
+                market_value=0,
+                total_assets=1000000,
+                daily_profit=0,
+                daily_return=0,
+                max_drawdown=0,
+            )
+        )
+        session.add(
+            SimulationEquity(
+                account_id=account.id,
+                trade_date=date(2026, 6, 22),
+                available_cash=990000,
+                market_value=20000,
+                total_assets=1010000,
+                daily_profit=10000,
+                daily_return=0.01,
+                max_drawdown=0,
+            )
+        )
+        session.commit()
+
+    summary = load_latest_simulation(engine)
+
+    assert summary is not None
+    assert summary.as_of_date == date(2026, 6, 22)
+    assert [point.trade_date for point in summary.equity_curve] == [date(2026, 6, 22)]
 
 
 def test_load_latest_simulation_returns_none_without_account() -> None:

@@ -40,6 +40,7 @@
 - [x] 已修复新部署空库首页误报 404：latest 接口无数据时返回 200 空态而不是错误
 - [x] 已修复 `get_data.sh` 子脚本权限问题：统一用 `bash scripts/...` 调用，不依赖执行位
 - [x] 已修复 `get_data.sh` 盘后 workflow 采集摘要字段缺失：返回真实 `data_ingest_run.id`
+- [x] 已修复模拟交易和复盘闭市日展示错误：请求闭市日会按交易日历顺延到下一开市日，latest 接口过滤闭市日记录
 
 ## 开发原则
 
@@ -920,3 +921,17 @@ TuShare 全市场初始化验证：
 
 - `.venv/bin/pytest tests/test_market_data_ingest.py tests/test_after_close_workflow.py tests/test_after_close_workflow_cli.py`：5 passed，1 个 LibreSSL/urllib3 warning。
 - `.venv/bin/pytest`：102 passed，1 个 LibreSSL/urllib3 warning。
+
+### 33. 模拟交易与复盘交易日历修复
+
+- 修复 `/simulation` 页面中“模拟日”和“复盘日”可能显示闭市日期的问题。
+- `run_simulation`、`run_simulation_workflow` 和 `run_trading_loop` 会先查询 `trading_calendar`；如果请求日期明确为闭市日，则顺延到之后最近的开市日。
+- `load_latest_simulation` 只从交易日历标记为开市的资金曲线中取最新日期；资金曲线展示也过滤闭市日记录。
+- `generate_trade_reviews` 在请求闭市日时顺延到下一开市日生成复盘；`load_latest_trade_reviews` 只返回开市日复盘，按日期查询闭市日复盘返回空态。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_simulation_trading.py tests/test_trade_plan_generation.py`：37 passed。
+- `.venv/bin/pytest`：107 passed，1 个 LibreSSL/urllib3 warning。

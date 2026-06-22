@@ -19,6 +19,7 @@ from backend.app.db.models import (
     SimulationTrade,
     StockDaily,
     TradePlan,
+    TradingCalendar,
 )
 from backend.app.trade.service import TradePlanTrackingResult, track_trade_plans
 
@@ -143,9 +144,11 @@ def run_simulation_workflow(
     trade_date: date,
     mark_untriggered_at_close: bool = False,
 ) -> SimulationWorkflowSummary:
-    tracking = track_trade_plans(engine, trade_date, mark_untriggered_at_close=mark_untriggered_at_close)
-    simulation = run_simulation(engine, trade_date)
-    return SimulationWorkflowSummary(target_trade_date=trade_date, tracking=tracking, simulation=simulation)
+    with Session(engine) as session:
+        target_trade_date = _resolve_open_trade_date(session, trade_date)
+    tracking = track_trade_plans(engine, target_trade_date, mark_untriggered_at_close=mark_untriggered_at_close)
+    simulation = run_simulation(engine, target_trade_date)
+    return SimulationWorkflowSummary(target_trade_date=target_trade_date, tracking=tracking, simulation=simulation)
 
 
 def run_trading_loop(
@@ -156,19 +159,21 @@ def run_trading_loop(
 ) -> SimulationLoopSummary:
     iterations = 0
     messages: list[str] = []
+    with Session(engine) as session:
+        target_trade_date = _resolve_open_trade_date(session, trade_date)
     while True:
         now = datetime.now(TRADING_TZ)
         if not _is_trading_time(now):
             if iterations == 0:
                 messages.append("当前不在交易时段 09:30-15:00，未启动模拟交易轮询")
             break
-        run_simulation_workflow(engine, trade_date)
+        run_simulation_workflow(engine, target_trade_date)
         iterations += 1
         if max_iterations is not None and iterations >= max_iterations:
             break
         sleep(max(1, interval_seconds))
     return SimulationLoopSummary(
-        target_trade_date=trade_date,
+        target_trade_date=target_trade_date,
         iterations=iterations,
         started=iterations > 0,
         messages=messages,
@@ -177,6 +182,7 @@ def run_trading_loop(
 
 def run_simulation(engine: Engine, trade_date: date) -> SimulationSummary:
     with Session(engine) as session:
+        trade_date = _resolve_open_trade_date(session, trade_date)
         account = _get_or_create_account(session)
         messages: list[str] = []
 
@@ -193,9 +199,7 @@ def load_latest_simulation(engine: Engine) -> Optional[SimulationSummary]:
         account = session.scalar(select(SimulationAccount).where(SimulationAccount.account_name == DEFAULT_ACCOUNT_NAME))
         if account is None:
             return None
-        latest_date = session.scalar(
-            select(func.max(SimulationEquity.trade_date)).where(SimulationEquity.account_id == account.id)
-        )
+        latest_date = _latest_open_equity_date(session, account.id)
         if latest_date is None:
             return None
         return _load_summary(session, account.id, latest_date, [])
@@ -429,10 +433,7 @@ def _load_summary(session: Session, account_id: int, as_of_date: date, messages:
         .order_by(SimulationTrade.id)
     ).all()
     equity = session.scalars(
-        select(SimulationEquity)
-        .where(SimulationEquity.account_id == account_id)
-        .order_by(SimulationEquity.trade_date)
-        .limit(30)
+        _simulation_equity_query(session, account_id)
     ).all()
     position_ratio = round(_number(account.market_value) / _number(account.total_assets), 4) if _number(account.total_assets) > 0 else 0
     risk_stats = _risk_stats(session, account_id)
@@ -451,6 +452,42 @@ def _load_summary(session: Session, account_id: int, as_of_date: date, messages:
         ),
         messages=messages,
     )
+
+
+def _resolve_open_trade_date(session: Session, requested_date: date) -> date:
+    calendar = session.scalar(select(TradingCalendar).where(TradingCalendar.trade_date == requested_date))
+    if calendar is None or calendar.is_open:
+        return requested_date
+    next_open = session.scalar(
+        select(TradingCalendar.trade_date)
+        .where(TradingCalendar.trade_date > requested_date, TradingCalendar.is_open.is_(True))
+        .order_by(TradingCalendar.trade_date)
+        .limit(1)
+    )
+    return next_open or requested_date
+
+
+def _latest_open_equity_date(session: Session, account_id: int) -> Optional[date]:
+    query = select(func.max(SimulationEquity.trade_date)).select_from(SimulationEquity).where(SimulationEquity.account_id == account_id)
+    if _calendar_has_rows(session):
+        query = (
+            query.join(TradingCalendar, TradingCalendar.trade_date == SimulationEquity.trade_date)
+            .where(TradingCalendar.is_open.is_(True))
+        )
+    return session.scalar(query)
+
+
+def _simulation_equity_query(session: Session, account_id: int):
+    query = select(SimulationEquity).where(SimulationEquity.account_id == account_id)
+    if _calendar_has_rows(session):
+        query = query.join(TradingCalendar, TradingCalendar.trade_date == SimulationEquity.trade_date).where(
+            TradingCalendar.is_open.is_(True)
+        )
+    return query.order_by(SimulationEquity.trade_date).limit(30)
+
+
+def _calendar_has_rows(session: Session) -> bool:
+    return bool(session.scalar(select(func.count()).select_from(TradingCalendar)))
 
 
 def _refresh_position_price(position: SimulationPosition, price: float) -> None:
