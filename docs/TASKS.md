@@ -1015,3 +1015,18 @@ TuShare 全市场初始化验证：
 - `cd frontend && npm test -- --run`：2 passed。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 - 本轮环境因沙箱限制无法直连本地 PostgreSQL `127.0.0.1:15432`，真实库中的 `300308=1382.33`、`603986=156.11` 需在正常运行环境重启 API 后复验；新增回归测试已覆盖旧持仓价 `1358.24` 被同日 `stock_daily.close=1382.33` 刷新。
+
+### 37. 首页盘中自动触发实时行情回补
+
+- 修复首页刷新/打开时只读取已有模拟交易快照、不主动触发实时行情的问题。
+- 根因：盘中实时价回补原本只在用户点击“跟踪触发”/“跟踪并模拟交易”时调用 `POST /api/trade-plans/track-realtime`；`GET /api/simulation/latest` 只会基于已入库行情重估，不负责主动拉取盘中实时行情。
+- `loadDashboard` 在交易计划 `target_trade_date` 等于中国时区今天时，会先调用 `trackRealtimeTradePlans` 写入/更新实时跟踪结果，再重新读取最新交易计划和模拟交易 summary。
+- 该逻辑保证盘中打开或刷新首页时，模拟交易现价会使用刚回补的实时价；收盘后仍由任务 36 的 latest 日线重估逻辑兜底展示收盘价。
+- 当前实现是“页面打开/刷新时更新”，不是分钟级自动轮询；若需要持续自动刷新，需要另开轮询/节流任务。
+
+状态：已完成。
+
+验证：
+
+- `cd frontend && npm test -- --run`：3 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。

@@ -1,9 +1,15 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App.vue'
 
 describe('App', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    window.history.pushState({}, '', '/')
+  })
+
   it('renders the P0 trading workbench from dashboard endpoints', async () => {
     const responses: Record<string, unknown> = {
       '/api/health': {
@@ -341,6 +347,208 @@ describe('App', () => {
     expect(wrapper.text()).toContain('板块共振，趋势多头排列，量价健康')
     expect(wrapper.text()).toContain('该板块交易计划')
     expect(wrapper.text()).toContain('返回强势板块')
+  })
+
+  it('refreshes realtime quotes before loading simulation when target trade date is today', async () => {
+    window.history.pushState({}, '', '/')
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-22T10:00:00+08:00'))
+    let simulationFetchCount = 0
+    const responses: Record<string, unknown> = {
+      '/api/health': {
+        status: 'ok',
+        service: 'A股短线量化辅助决策系统',
+        environment: 'development',
+        database: {
+          engine: 'postgresql',
+          configured: true
+        }
+      },
+      '/api/market/latest': {
+        trade_date: '2026-06-22',
+        market_score: 55,
+        market_status: '中性',
+        suggested_position: '50% - 80%',
+        up_count: 2000,
+        down_count: 3000,
+        limit_up_count: 80,
+        limit_down_count: 10,
+        limit_up_height: 3,
+        total_amount: 3000000000000,
+        suggestion: '盘中刷新实时行情。'
+      },
+      '/api/sectors/top': {
+        trade_date: '2026-06-22',
+        items: []
+      },
+      '/api/candidates/latest': {
+        trade_date: '2026-06-22',
+        items: []
+      },
+      '/api/trade-plans/latest': {
+        plan_date: '2026-06-19',
+        target_trade_date: '2026-06-22',
+        items: [
+          {
+            id: 3,
+            stock_code: '300308',
+            stock_name: '中际旭创',
+            sector_name: '科技风格',
+            strategy_type: '趋势强势',
+            stock_score: 100,
+            sector_score: 100,
+            market_status: '中性',
+            buy_condition: '目标交易日价格触达计划买入区间',
+            buy_price_low: 1200,
+            buy_price_high: 1400,
+            stop_loss_price: 1299.49,
+            take_profit_price: 1641.46,
+            position_ratio: 0.4,
+            status: '已触发',
+            trigger_price: 1367.78,
+            trigger_time: null,
+            tracking_note: '目标交易日价格触达计划买入区间',
+            is_watched: false,
+            risk_note: '严格执行止损',
+            current_price: 1382.33,
+            pct_chg: 1.07
+          }
+        ]
+      },
+      '/api/trade-plans/track-realtime': {
+        target_trade_date: '2026-06-22',
+        items: [
+          {
+            id: 3,
+            stock_code: '300308',
+            stock_name: '中际旭创',
+            status: '已触发',
+            current_price: 1382.33,
+            pct_chg: 1.07,
+            trigger_price: 1367.78,
+            tracking_note: '实时行情已更新'
+          }
+        ],
+        realtime: {
+          target_trade_date: '2026-06-22',
+          china_today: '2026-06-22',
+          provider: 'akshare_sina_realtime',
+          planned_stock_count: 1,
+          existing_stock_count: 0,
+          requested_stock_count: 1,
+          fetched_stock_daily_rows: 1,
+          target_is_open: true,
+          missing_stock_codes: [],
+          skipped_reason: ''
+        }
+      },
+      '/api/trade-reviews/latest': {
+        review_date: '2026-06-22',
+        total_count: 0,
+        triggered_count: 0,
+        win_count: 0,
+        win_rate: 0,
+        avg_day_return: null,
+        avg_t5_return: null,
+        strategy_stats: [],
+        sector_stats: [],
+        items: []
+      }
+    }
+    const simulationBeforeRealtime = {
+      as_of_date: '2026-06-22',
+      account: {
+        id: 1,
+        account_name: '默认模拟账户',
+        initial_cash: 1000000,
+        available_cash: 700000,
+        frozen_cash: 0,
+        market_value: 271648,
+        total_assets: 971648,
+        total_profit: -28352,
+        total_return: -0.0284,
+        max_drawdown: 0.0284
+      },
+      positions: [
+        {
+          id: 1,
+          stock_code: '300308',
+          stock_name: '中际旭创',
+          sector_name: '科技风格',
+          strategy_type: '趋势强势',
+          buy_price: 1367.78,
+          current_price: 1358.24,
+          quantity: 200,
+          market_value: 271648,
+          cost_amount: 273640,
+          unrealized_profit: -1992,
+          unrealized_return: -0.0073,
+          stop_loss_price: 1299.49,
+          take_profit_price: 1641.46,
+          position_status: '持仓中',
+          buy_reason: '目标交易日价格触达计划买入区间',
+          sell_reason: ''
+        }
+      ],
+      trades: [],
+      equity_curve: [],
+      risk: {
+        max_drawdown: 0.0284,
+        position_count: 1,
+        position_ratio: 0.28,
+        win_rate: 0,
+        profit_loss_ratio: null
+      },
+      messages: []
+    }
+    const simulationAfterRealtime = {
+      ...simulationBeforeRealtime,
+      account: {
+        ...simulationBeforeRealtime.account,
+        market_value: 276466,
+        total_assets: 976466,
+        total_profit: -23534,
+        total_return: -0.0235
+      },
+      positions: [
+        {
+          ...simulationBeforeRealtime.positions[0],
+          current_price: 1382.33,
+          market_value: 276466,
+          unrealized_profit: 2826,
+          unrealized_return: 0.0103
+        }
+      ]
+    }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      const path = new URL(url, 'http://localhost').pathname
+      const response = path === '/api/simulation/latest'
+        ? (++simulationFetchCount === 1 ? simulationBeforeRealtime : simulationAfterRealtime)
+        : responses[path]
+
+      return {
+        ok: true,
+        json: async () => response
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(App, {
+      global: {
+        plugins: [ElementPlus]
+      }
+    })
+
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect(fetchMock.mock.calls.map((call) => new URL(String(call[0]), 'http://localhost').pathname)).toContain('/api/trade-plans/track-realtime')
+    expect(simulationFetchCount).toBe(2)
+    expect(wrapper.text()).toContain('1382.33')
+    expect(wrapper.text()).not.toContain('1358.24')
   })
 
   it('renders empty dashboard state without showing data errors', async () => {

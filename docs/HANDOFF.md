@@ -620,10 +620,17 @@
   - `cd frontend && npm test -- --run`：2 passed。
   - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
   - 本轮 Codex 沙箱限制本地 TCP，无法直连 `127.0.0.1:15432` 做真实 PostgreSQL 快验；在非沙箱/正常启动环境重启 API 后需再 curl `/api/simulation/latest` 复查。
+- 任务 37 首页盘中自动触发实时行情回补：
+  - 根因已确认：此前页面打开/刷新只读取已有 `simulation_position.current_price` 和 latest summary；盘中实时行情只在用户手动点击“跟踪触发”/“跟踪并模拟交易”时才调用 `POST /api/trade-plans/track-realtime`。
+  - `frontend/src/App.vue` 的 `loadDashboard` 现在会在 `tradePlans.target_trade_date` 等于中国时区今天时先调用 `trackRealtimeTradePlans`，然后重新读取最新交易计划和模拟交易 summary。
+  - 盘中打开或刷新首页会主动回补实时价；收盘后仍由任务 36 的日线 close 重估逻辑保证收盘价正确。
+  - 当前不是分钟级自动轮询；若用户要求页面停留时持续刷新，需要另加带节流的 polling。
+  - `cd frontend && npm test -- --run`：3 passed。
+  - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
 
 ## 验收口径
 
-当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹、任务 36 模拟交易 latest 持仓现价刷新，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
+当前阶段已完成 PRD MVP 的 P0 闭环、任务 13 的目标日回补/闭市顺延/延迟实时行情基础链路、任务 17 模拟交易模块开发补齐、任务 18 连板高度补口、任务 19 强势板块 5 日涨幅与候选股票页面补口、任务 20 Ubuntu 部署与数据拉取脚本、任务 21 强势板块独立详情页、任务 22 部署 PostgreSQL 端口占用顺延、任务 35 强势板块近 5 日排名轨迹、任务 36 模拟交易 latest 持仓现价刷新、任务 37 首页盘中自动触发实时行情回补，以及 PRD 明确的按日期查询接口、交易计划详情、盘中跟踪页面、复盘人工更新接口、交易计划关注标记、`POST /api/reviews`、复盘导出和盘后 workflow 入口。
 
 仍不得把以下事项宣称为已完成：
 

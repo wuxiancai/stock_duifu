@@ -172,15 +172,26 @@ async function loadDashboard() {
   error.value = ''
 
   try {
-    const [healthResult, marketResult, sectorsResult, candidatesResult, tradePlansResult, tradeReviewsResult, simulationResult] = await Promise.all([
+    const [healthResult, marketResult, sectorsResult, candidatesResult, initialTradePlansResult, tradeReviewsResult] = await Promise.all([
       fetchHealth(),
       fetchMarketLatest(),
       fetchTopSectors(),
       fetchLatestCandidates().catch(() => null),
       fetchLatestTradePlans(),
-      fetchLatestTradeReviews().catch(() => null),
-      fetchLatestSimulation().catch(() => null)
+      fetchLatestTradeReviews().catch(() => null)
     ])
+    let tradePlansResult = initialTradePlansResult
+    let simulationResult = await fetchLatestSimulation().catch(() => null)
+    let realtimeTrackingItems: TradePlanTrackingResponse['items'] = []
+
+    if (isTodayInChina(tradePlansResult.target_trade_date)) {
+      const realtimeResult = await trackRealtimeTradePlans(tradePlansResult.target_trade_date).catch(() => null)
+      if (realtimeResult) {
+        realtimeTrackingItems = realtimeResult.items
+        tradePlansResult = await fetchLatestTradePlans()
+        simulationResult = await fetchLatestSimulation().catch(() => simulationResult)
+      }
+    }
 
     health.value = healthResult
     market.value = marketResult
@@ -189,7 +200,7 @@ async function loadDashboard() {
     tradePlans.value = tradePlansResult
     tradeReviews.value = tradeReviewsResult
     simulation.value = simulationResult
-    trackingItems.value = []
+    trackingItems.value = realtimeTrackingItems
     selectedPlanDetail.value = null
   } catch (err) {
     error.value = err instanceof Error ? err.message : '业务数据加载失败'
@@ -274,6 +285,21 @@ function formatTime(value: string | null | undefined) {
     minute: '2-digit',
     hour12: false
   }).format(new Date(value))
+}
+
+function chinaToday() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date())
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${byType.year}-${byType.month}-${byType.day}`
+}
+
+function isTodayInChina(value: string | null | undefined) {
+  return Boolean(value) && value === chinaToday()
 }
 
 function formatRankHistoryDate(value: string | null | undefined) {
