@@ -78,6 +78,8 @@ export interface TradePlanItem {
   tracking_note: string
   is_watched: boolean
   risk_note: string
+  current_price?: number | null
+  pct_chg?: number | null
 }
 
 export interface CandidateItem {

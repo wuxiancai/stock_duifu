@@ -34,6 +34,8 @@ class TradePlanResult:
     trigger_time: Optional[datetime] = None
     tracking_note: str = ""
     is_watched: bool = False
+    current_price: Optional[float] = None
+    pct_chg: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -255,7 +257,12 @@ def load_latest_trade_plans(engine: Engine) -> Optional[tuple[date, date, list[T
             )
             .order_by(desc(TradePlan.stock_score), TradePlan.stock_code)
         ).all()
-        return (latest_plan_date, latest_target_date, [_plan_result(record) for record in records])
+        daily_by_code = _target_daily_by_code(session, latest_target_date, [record.stock_code for record in records])
+        return (
+            latest_plan_date,
+            latest_target_date,
+            [_plan_result(record, daily_by_code.get(record.stock_code)) for record in records],
+        )
 
 
 def load_trade_plans_by_target_date(engine: Engine, target_trade_date: date) -> Optional[tuple[date, date, list[TradePlanResult]]]:
@@ -268,7 +275,8 @@ def load_trade_plans_by_target_date(engine: Engine, target_trade_date: date) -> 
         if not records:
             return None
         plan_date = max(record.plan_date for record in records)
-        return (plan_date, target_trade_date, [_plan_result(record) for record in records])
+        daily_by_code = _target_daily_by_code(session, target_trade_date, [record.stock_code for record in records])
+        return (plan_date, target_trade_date, [_plan_result(record, daily_by_code.get(record.stock_code)) for record in records])
 
 
 def load_trade_plan_detail(engine: Engine, plan_id: int) -> Optional[dict]:
@@ -674,7 +682,7 @@ def _evaluate_plan_tracking(
     return "待触发", None, "目标交易日尚未触达计划买入区间"
 
 
-def _plan_result(record: TradePlan) -> TradePlanResult:
+def _plan_result(record: TradePlan, current_daily: Optional[StockDaily] = None) -> TradePlanResult:
     return TradePlanResult(
         id=record.id,
         plan_date=record.plan_date,
@@ -698,7 +706,21 @@ def _plan_result(record: TradePlan) -> TradePlanResult:
         trigger_time=record.trigger_time,
         tracking_note=record.tracking_note,
         is_watched=record.is_watched,
+        current_price=_number(current_daily.close) if current_daily else None,
+        pct_chg=_number(current_daily.pct_chg) if current_daily else None,
     )
+
+
+def _target_daily_by_code(session: Session, target_trade_date: date, stock_codes: list[str]) -> dict[str, StockDaily]:
+    if not stock_codes:
+        return {}
+    rows = session.scalars(
+        select(StockDaily).where(
+            StockDaily.trade_date == target_trade_date,
+            StockDaily.stock_code.in_(stock_codes),
+        )
+    ).all()
+    return {row.stock_code: row for row in rows}
 
 
 def _key_indicators(history: list[StockDaily]) -> dict:
@@ -826,7 +848,11 @@ def _replace_trade_plans(
     )
     session.flush()
     for plan in plans:
-        payload = {key: value for key, value in plan.__dict__.items() if key != "id"}
+        payload = {
+            key: value
+            for key, value in plan.__dict__.items()
+            if key not in {"id", "current_price", "pct_chg"}
+        }
         session.add(TradePlan(**payload))
 
 

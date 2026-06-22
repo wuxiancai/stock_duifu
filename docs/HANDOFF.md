@@ -9,6 +9,7 @@
 - 当前已完成任务 1「项目骨架与配置」、任务 2「数据库模型与迁移」、任务 3「数据采集与交易日历」、任务 4「市场环境评分」、任务 5「强势板块排序」、任务 6「候选股票筛选」、任务 7「交易计划生成」、任务 8「P0 Web 页面」、任务 9「盘中跟踪」、任务 10「复盘统计」、任务 11「模拟交易」、任务 12「模拟交易盘中实盘化基础链路」、任务 13 第一阶段「真实目标交易日日线回补入口」、任务 13 第二阶段「闭市目标日计划顺延/重生成」、任务 13 第三阶段基础链路「延迟实时行情入口、目标计划股快照回补、跟踪并模拟 workflow」、任务 13 备用实时源「Sina 实时快照与 auto 降级」、任务 14「PRD MVP 接口与页面对齐补口」、任务 15「PRD MVP 操作补口」、任务 16「PRD MVP 盘后工作流入口」、任务 17「扩展模块 / 模拟交易模块开发补齐」、任务 18「市场环境连板高度补口」、任务 19「强势板块 5 日涨幅与候选股票页面补口」、任务 20「Ubuntu 部署与数据拉取脚本」、任务 21「强势板块独立详情页」、任务 22「部署 PostgreSQL 端口占用顺延」、任务 23「部署迁移数据库端口同步」、任务 24「部署默认避开 5432」、任务 25「Ubuntu 启动脚本诊断与 API 非 reload 启动」、任务 26「start.sh API 端口 bind 探测」、任务 27「Ubuntu 前端 API 同源代理」、任务 28「清理 `.env` 残留前端 API 端口污染」、任务 29「start.sh 运行端口写回 `.env`」、任务 30「新部署空库 latest 接口空态」和任务 31「get_data.sh 权限与日期口径」。
 - 当前已完成任务 32「get_data.sh workflow 采集摘要字段修复」、任务 33「模拟交易与复盘交易日历修复」和任务 34「get_data.sh 区间批量拉取」。
 - 当前已完成 Web 可读性优化：今日交易计划主区改为紧凑卡片，避免宽表横向滚动；盘中跟踪按钮会调用实时行情回补接口再跟踪；强势板块、盘中跟踪、模拟交易和复盘中的涨跌/收益/盈亏类数值已统一红涨绿跌。
+- 当前已修复盘中跟踪实时展示链路：实时快照写入后，最新交易计划 API 会带出 `current_price` / `pct_chg`，Web 盘中跟踪刷新后不会再把当前价和涨跌幅清空；Web “跟踪并模拟交易” 会先刷新实时行情、再跟踪和模拟撮合。
 - `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
@@ -284,9 +285,10 @@
 - AkShare/Eastmoney 板块接口在本机网络环境下仍断连；任务 5 已采用 TuShare `dc_index` 作为真实可运行路径。
 - `amount_change` 当前使用 TuShare `dc_index.total_mv * turnover_rate / 100` 作为成交额代理值；后续若取得板块真实成交额字段，应替换为真实成交额。
 - 真实数据库当前 `2026-06-19` 的两只计划股经 TuShare 回补确认 `target_is_open=false`，已被顺延处理：旧目标日两条计划状态为 `取消`，备注为已重新生成到 `2026-06-22`；新目标日 `2026-06-22` 两条计划状态为 `待触发`。
-- `2026-06-22` 日历已通过 TuShare 采集补入，当前该目标日两只计划股 `stock_daily_rows=0`；实时 workflow 已可在目标日当天用 `--provider auto` 回补计划股快照并驱动跟踪/模拟，但本轮因日期保护未写入未来目标日行情。
-- AkShare/Eastmoney `stock_zh_a_spot_em` 当前在本机网络下仍可能 `RemoteDisconnected`；AkShare/Sina `stock_zh_a_spot` 本轮只读验证可返回 `300308`、`603986` 两只目标计划股实时快照。
-- PRD 第 17 章模拟交易开发已补齐；仍需在 `2026-06-22` 目标交易日当天运行真实实时快照写入、触发跟踪、模拟成交和 loop 轮询验收，不能在当天验证前宣称真实盘中成交链路已完成。
+- `2026-06-22` 日历已通过 TuShare 采集补入；盘前/未运行实时回补前，两只计划股没有 TuShare 收盘日线，不能用收盘日线判断盘中触发。
+- `2026-06-22` 目标交易日两只计划股已通过 `POST /api/trade-plans/track-realtime` 写入实时快照；Sina 实时源返回 `300308`、`603986` 两只计划股，`fetched_stock_daily_rows=2`、`missing_stock_codes=[]`。
+- AkShare/Eastmoney `stock_zh_a_spot_em` 当前在本机网络下仍可能 `RemoteDisconnected`；本轮真实实时路径由 fallback 自动降级到 AkShare/Sina `stock_zh_a_spot`。
+- PRD 第 17 章模拟交易开发已补齐；2026-06-22 本轮已完成一次真实实时快照写入、触发跟踪和模拟成交验证，但持续盘中 loop 轮询仍需在交易时段继续观察，不能把单次验证等同于长期运行稳定。
 - 工作区存在未提交/未跟踪文件 `.gitignore`、`.logs/`、`.venv/`、`frontend/node_modules/`、`frontend/dist/` 等运行现场文件；不是本轮任务创建或修改的长期上下文，未纳入提交。
 - 本机 PostgreSQL 端口可能不是固定 `5432`；部署脚本会把实际端口写入 `.env` 的 `POSTGRES_HOST_PORT` / `DATABASE_URL`，后续以 `.env` 为准。
 
@@ -318,6 +320,14 @@
 - 任务 31 dry-run：`STOCK_GET_DATA_DRY_RUN=1 TRADE_DATE=2026-06-18 TUSHARE_TOKEN=token-for-dry-run bash get_data.sh` 输出 `bash scripts/run-after-close-workflow.sh ...` 和 `bash scripts/audit-market-data.sh ...`。
 - 任务 31 脚本语法：`bash -n get_data.sh scripts/run-after-close-workflow.sh scripts/audit-market-data.sh`：通过。
 - 任务 32 get_data.sh workflow 字段修复：`TRADE_DATE=2026-06-18 bash get_data.sh` 报 `AttributeError: 'IngestSummary' object has no attribute 'ingest_run_id'` 的根因已修复；`ingest_market_snapshot` 现在返回真实 `data_ingest_run.id`。
+- 盘中实时展示修复验证：
+  - 浏览器插件尝试访问 `http://127.0.0.1:5173/` 时被 Browser Use URL policy 拒绝，未能通过插件直接截图复验；本轮改用真实 API 和前端测试/构建验证。
+  - `curl -sS -X POST http://127.0.0.1:5173/api/trade-plans/track-realtime -H 'Content-Type: application/json' -d '{"target_trade_date":"2026-06-22"}'` 返回 `provider=akshare_sina_realtime`、`fetched_stock_daily_rows=2`、`missing_stock_codes=[]`；`300308 current_price=1358.24 pct_chg=-0.705 status=已触发`，`603986 current_price=659.56 pct_chg=4.859 status=待触发`。
+  - `curl -sS http://127.0.0.1:5173/api/trade-plans/latest` 现在直接返回计划项 `current_price` / `pct_chg`，页面刷新后盘中跟踪表可从最新计划 API 兜底显示实时价。
+  - `curl -sS -X POST http://127.0.0.1:5173/api/simulation/run-workflow -H 'Content-Type: application/json' -d '{"trade_date":"2026-06-22"}'` 基于 2026-06-22 实时快照买入 `300308`，返回 `trade_plan_id=3`、买入价 `1367.78`、数量 `200`。
+  - `.venv/bin/pytest tests/test_trade_plan_generation.py tests/test_realtime_quote_workflow.py tests/test_simulation_trading.py`：43 passed，1 个 LibreSSL/urllib3 warning。
+  - `cd frontend && npm test -- --run`：2 passed。
+  - `cd frontend && npm run build`：通过，仍有 VueUse pure annotation 和 chunk size warning。
 - 任务 34 get_data.sh 区间批量拉取：`bash get_data.sh --start 20260615 --end 20260618` 会规范化为 `2026-06-15` 到 `2026-06-18`，逐日执行 `run-after-close-workflow` 和 `audit-market-data`；原单日位置参数和 `TRADE_DATE=...` 用法继续可用。
 - 任务 32 相关测试：`.venv/bin/pytest tests/test_market_data_ingest.py tests/test_after_close_workflow.py tests/test_after_close_workflow_cli.py`：5 passed，1 个 LibreSSL/urllib3 warning。
 - 任务 32 后端全量测试：`.venv/bin/pytest`：102 passed，1 个 LibreSSL/urllib3 warning。

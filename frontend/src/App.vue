@@ -134,8 +134,8 @@ const trackingRows = computed(() => {
   const trackedById = new Map(trackingItems.value.map((item) => [item.id, item]))
   return (tradePlans.value?.items ?? []).map((plan) => ({
     ...plan,
-    current_price: trackedById.get(plan.id)?.current_price ?? null,
-    pct_chg: trackedById.get(plan.id)?.pct_chg ?? null,
+    current_price: trackedById.get(plan.id)?.current_price ?? plan.current_price ?? null,
+    pct_chg: trackedById.get(plan.id)?.pct_chg ?? plan.pct_chg ?? null,
     tracking_note: trackedById.get(plan.id)?.tracking_note ?? plan.tracking_note,
     status: trackedById.get(plan.id)?.status ?? plan.status,
     trigger_price: trackedById.get(plan.id)?.trigger_price ?? plan.trigger_price
@@ -446,10 +446,19 @@ async function runSimulationForTarget() {
   error.value = ''
 
   try {
+    const realtimeResult = await trackRealtimeTradePlans(tradePlans.value.target_trade_date)
+    trackingItems.value = realtimeResult.items
     const result = await runSimulationWorkflow(tradePlans.value.target_trade_date)
     simulation.value = result.simulation
     await loadDashboard()
-    ElMessage.success(`已跟踪 ${result.tracking.length} 条计划，并模拟到 ${result.simulation.as_of_date}`)
+    trackingItems.value = result.tracking
+    const realtime = realtimeResult.realtime
+    const realtimeText = realtime?.skipped_reason
+      ? `，实时行情：${realtime.skipped_reason}`
+      : realtime
+        ? `，实时行情更新 ${realtime.fetched_stock_daily_rows} 条`
+        : ''
+    ElMessage.success(`已实时跟踪 ${result.tracking.length} 条计划，并模拟到 ${result.simulation.as_of_date}${realtimeText}`)
   } catch (err) {
     error.value = err instanceof Error ? err.message : '模拟交易运行失败'
   } finally {

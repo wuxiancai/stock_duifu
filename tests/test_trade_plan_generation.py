@@ -288,6 +288,12 @@ def test_track_realtime_trade_plans_api_backfills_quotes_and_returns_current_pri
     assert all(item["current_price"] is not None for item in payload["items"])
     assert any(item["status"] == "已触发" for item in payload["items"])
 
+    latest = client.get("/api/trade-plans/latest")
+
+    assert latest.status_code == 200
+    assert all(item["current_price"] is not None for item in latest.json()["items"])
+    assert all(item["pct_chg"] is not None for item in latest.json()["items"])
+
 
 def test_track_trade_plans_can_mark_untriggered_after_close() -> None:
     engine = _engine()

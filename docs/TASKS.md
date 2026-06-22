@@ -43,6 +43,7 @@
 - [x] 已修复模拟交易和复盘闭市日展示错误：请求闭市日会按交易日历顺延到下一开市日，latest 接口过滤闭市日记录
 - [x] 已增强 `get_data.sh`：支持 `--start YYYYMMDD --end YYYYMMDD` 区间批量拉取并逐日生成结果
 - [x] 已优化 Web 可读性：今日交易计划改为紧凑卡片展示，盘中跟踪按钮会先回补延迟实时行情，涨跌/盈亏/收益类数值统一红涨绿跌。
+- [x] 已修复盘中跟踪实时展示链路：实时快照写入后，最新交易计划 API 和页面刷新会直接展示当前价/涨跌幅；模拟交易按钮会先刷新实时行情再跟踪和撮合，避免用空目标日日线或收盘后日线决定买卖。
 
 ## 开发原则
 
@@ -50,6 +51,23 @@
 - 每个任务完成后必须更新 `docs/HANDOFF.md`。
 - 不允许用 mock、静态页面、脚本存在或单次测试通过冒充阶段完成。
 - 优先做能独立演示的垂直切片，避免先搭复杂平台。
+
+## 最新验证记录
+
+### 2026-06-22 盘中实时展示与模拟交易修复
+
+- 修复点：
+  - `GET /api/trade-plans/latest` 和 `GET /api/trade-plans?date=YYYY-MM-DD` 在目标交易日已有 `stock_daily` 实时快照时，返回 `current_price` / `pct_chg`。
+  - 盘中跟踪表刷新后优先展示实时跟踪结果，兜底展示交易计划 API 自带的当前价/涨跌幅。
+  - Web “跟踪并模拟交易” 会先调用实时行情回补与跟踪，再运行模拟交易，避免跳过盘中实时触发。
+- 真实 API 验证：
+  - `curl -sS -X POST http://127.0.0.1:5173/api/trade-plans/track-realtime ...` 返回 `provider=akshare_sina_realtime`、`fetched_stock_daily_rows=2`、`missing_stock_codes=[]`。
+  - `GET /api/trade-plans/latest` 返回 `300308 current_price=1358.24 pct_chg=-0.705 status=已触发`，`603986 current_price=659.56 pct_chg=4.859 status=待触发`。
+  - `POST /api/simulation/run-workflow` 基于 2026-06-22 实时快照买入 `300308`，返回模拟买入记录 `trade_plan_id=3`、`price=1367.78`、`quantity=200`。
+- 自动化验证：
+  - `.venv/bin/pytest tests/test_trade_plan_generation.py tests/test_realtime_quote_workflow.py tests/test_simulation_trading.py`：43 passed，1 个 LibreSSL/urllib3 warning。
+  - `cd frontend && npm test -- --run`：2 passed。
+  - `cd frontend && npm run build`：通过，仍有 VueUse pure annotation 和 chunk size warning。
 
 ## 垂直切片计划
 

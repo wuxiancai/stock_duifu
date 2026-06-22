@@ -145,6 +145,8 @@ def _trade_plan_payload(item) -> dict:
         "tracking_note": item.tracking_note,
         "is_watched": item.is_watched,
         "risk_note": item.risk_note,
+        "current_price": item.current_price,
+        "pct_chg": item.pct_chg,
     }
 
 
