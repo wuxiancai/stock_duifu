@@ -1030,3 +1030,17 @@ TuShare 全市场初始化验证：
 
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+
+### 38. 强势板块近 5 日排名拆成 5 个日期列
+
+- 修复强势板块表把最近 5 个交易日排名挤在单个“近5日排名”单元格里的可读性问题。
+- 页面保留分组表头“近5日排名”，并在其下按最近 5 个交易日动态生成 5 个日期列，例如 `06-18`、`06-17`、`06-16`、`06-15`、`06-12`。
+- 每个单元格只显示该板块在对应交易日的 Top10 名次；对应交易日未进入 Top10 时显示 `-`。
+- 后端 `rank_history` API 和 CSV 导出字段保持兼容。
+
+状态：已完成。
+
+验证：
+
+- `cd frontend && npm test -- --run`：3 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。

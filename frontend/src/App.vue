@@ -86,6 +86,20 @@ const filteredSectors = computed(() => {
   return items.filter((item) => item.sector_name.toLowerCase().includes(keyword))
 })
 
+const sectorRankHistoryDates = computed(() => {
+  const dates: string[] = []
+
+  for (const item of filteredSectors.value) {
+    for (const history of item.rank_history) {
+      if (!dates.includes(history.trade_date)) {
+        dates.push(history.trade_date)
+      }
+    }
+  }
+
+  return dates.slice(0, 5)
+})
+
 const selectedSectorName = computed(() => {
   const prefix = '/sectors/'
   if (!routePath.value.startsWith(prefix)) return ''
@@ -300,6 +314,10 @@ function chinaToday() {
 
 function isTodayInChina(value: string | null | undefined) {
   return Boolean(value) && value === chinaToday()
+}
+
+function sectorRankForDate(row: SectorTopItem, tradeDate: string) {
+  return row.rank_history.find((history) => history.trade_date === tradeDate)?.rank_no ?? null
 }
 
 function formatRankHistoryDate(value: string | null | undefined) {
@@ -835,20 +853,20 @@ onBeforeUnmount(() => {
               <el-button link type="primary" @click="navigateToSector(row.sector_name)">{{ row.sector_name }}</el-button>
             </template>
           </el-table-column>
-          <el-table-column label="近5日排名" min-width="230">
-            <template #default="{ row }: { row: SectorTopItem }">
-              <div class="rank-history-list">
-                <span
-                  v-for="history in row.rank_history"
-                  :key="`${row.sector_name}-${history.trade_date}`"
-                  class="rank-history-item"
-                  :class="{ missing: !history.rank_no }"
-                >
-                  <span>{{ formatRankHistoryDate(history.trade_date) }}</span>
-                  <strong>{{ history.rank_no ? `#${history.rank_no}` : '-' }}</strong>
+          <el-table-column label="近5日排名" align="center">
+            <el-table-column
+              v-for="tradeDate in sectorRankHistoryDates"
+              :key="tradeDate"
+              :label="formatRankHistoryDate(tradeDate)"
+              align="center"
+              width="76"
+            >
+              <template #default="{ row }: { row: SectorTopItem }">
+                <span class="rank-history-rank" :class="{ missing: !sectorRankForDate(row, tradeDate) }">
+                  {{ sectorRankForDate(row, tradeDate) ?? '-' }}
                 </span>
-              </div>
-            </template>
+              </template>
+            </el-table-column>
           </el-table-column>
           <el-table-column prop="daily_return" label="今日涨幅" min-width="120" sortable>
             <template #default="{ row }: { row: SectorTopItem }">
