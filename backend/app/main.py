@@ -17,7 +17,7 @@ from backend.app.data.providers import (
 )
 from backend.app.data.realtime_quotes import backfill_trade_plan_realtime_quotes
 from backend.app.db.session import create_database_engine
-from backend.app.market.service import load_latest_market_environment
+from backend.app.market.service import load_latest_market_environment, load_market_environment_history
 from backend.app.sector.service import load_latest_sector_rankings, load_sector_rankings_by_date
 from backend.app.simulation.service import load_latest_simulation, run_simulation, run_simulation_workflow
 from backend.app.trade.service import (
@@ -218,6 +218,22 @@ def _sector_payload(item) -> dict:
     }
 
 
+def _market_payload(result) -> dict:
+    return {
+        "trade_date": result.trade_date.isoformat(),
+        "market_score": result.market_score,
+        "market_status": result.market_status,
+        "suggested_position": result.suggested_position,
+        "up_count": result.up_count,
+        "down_count": result.down_count,
+        "limit_up_count": result.limit_up_count,
+        "limit_down_count": result.limit_down_count,
+        "limit_up_height": result.limit_up_height,
+        "total_amount": result.total_amount,
+        "suggestion": result.suggestion,
+    }
+
+
 def _parse_iso_date(value: str, field_name: str) -> date:
     try:
         return date.fromisoformat(value)
@@ -274,18 +290,17 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
                 "total_amount": None,
                 "suggestion": "暂无市场建议，请先生成市场环境数据。",
             }
+        return _market_payload(result)
+
+    @app.get("/api/market/history", tags=["market"])
+    def market_environment_history(limit: int = 5) -> dict:
+        if limit < 1 or limit > 30:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 30")
         return {
-            "trade_date": result.trade_date.isoformat(),
-            "market_score": result.market_score,
-            "market_status": result.market_status,
-            "suggested_position": result.suggested_position,
-            "up_count": result.up_count,
-            "down_count": result.down_count,
-            "limit_up_count": result.limit_up_count,
-            "limit_down_count": result.limit_down_count,
-            "limit_up_height": result.limit_up_height,
-            "total_amount": result.total_amount,
-            "suggestion": result.suggestion,
+            "items": [
+                _market_payload(result)
+                for result in load_market_environment_history(database_engine, limit=limit)
+            ]
         }
 
     @app.get("/api/market/today", tags=["market"])

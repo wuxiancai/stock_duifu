@@ -40,6 +40,10 @@ export interface MarketLatestResponse {
   suggestion: string
 }
 
+export interface MarketHistoryResponse {
+  items: MarketLatestResponse[]
+}
+
 export interface SectorTopItem {
   rank_no: number
   sector_name: string
@@ -283,6 +287,10 @@ export interface SimulationWorkflowResponse {
 
 export function fetchMarketLatest(): Promise<MarketLatestResponse> {
   return fetchJson<MarketLatestResponse>('/api/market/latest')
+}
+
+export function fetchMarketHistory(): Promise<MarketHistoryResponse> {
+  return fetchJson<MarketHistoryResponse>('/api/market/history')
 }
 
 export function fetchTopSectors(): Promise<SectorTopResponse> {

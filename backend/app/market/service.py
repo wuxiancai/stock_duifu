@@ -130,20 +130,34 @@ def load_latest_market_environment(engine: Engine) -> Optional[MarketEnvironment
         record = session.scalar(select(MarketDaily).order_by(desc(MarketDaily.trade_date)).limit(1))
         if record is None:
             return None
-        status, position, _ = _status_for_score(record.market_score)
-        return MarketEnvironmentResult(
-            trade_date=record.trade_date,
-            market_score=record.market_score,
-            market_status=status,
-            suggested_position=position,
-            up_count=record.up_count,
-            down_count=record.down_count,
-            limit_up_count=record.limit_up_count,
-            limit_down_count=record.limit_down_count,
-            limit_up_height=record.limit_up_height,
-            total_amount=float(record.total_amount),
-            suggestion=record.suggestion,
-        )
+        return _result_from_record(record)
+
+
+def load_market_environment_history(engine: Engine, limit: int = 5) -> list[MarketEnvironmentResult]:
+    with Session(engine) as session:
+        records = session.scalars(
+            select(MarketDaily)
+            .order_by(desc(MarketDaily.trade_date))
+            .limit(limit)
+        ).all()
+        return [_result_from_record(record) for record in records]
+
+
+def _result_from_record(record: MarketDaily) -> MarketEnvironmentResult:
+    status, position, _ = _status_for_score(record.market_score)
+    return MarketEnvironmentResult(
+        trade_date=record.trade_date,
+        market_score=record.market_score,
+        market_status=status,
+        suggested_position=position,
+        up_count=record.up_count,
+        down_count=record.down_count,
+        limit_up_count=record.limit_up_count,
+        limit_down_count=record.limit_down_count,
+        limit_up_height=record.limit_up_height,
+        total_amount=float(record.total_amount),
+        suggestion=record.suggestion,
+    )
 
 
 def _index_close(session: Session, index_code: str, trade_date: date) -> Optional[float]:

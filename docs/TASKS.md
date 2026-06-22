@@ -1060,3 +1060,18 @@ TuShare 全市场初始化验证：
 - `.venv/bin/pytest tests/test_sector_ranking.py`：6 passed，1 个 LibreSSL/urllib3 warning。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+
+### 40. 今日决策面板一周视图与盘中跟踪板块列
+
+- 新增 `GET /api/market/history?limit=5`，按 `trade_date desc` 返回最近 5 条市场环境记录；`limit` 限制为 1 到 30。
+- 今日决策面板从单日指标卡改为最近 5 个交易日表格，一日一行，最新交易日排第一行；表格设置最大高度，数据超过可视区域时使用滚动条。
+- 今日决策面板下方解释框只展示第一行，也就是最新交易日的 `suggestion`。
+- 盘中跟踪表在“股票”和“当前价”之间新增“板块”列，直接展示交易计划的 `sector_name`。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_market_environment.py`：7 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：3 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。

@@ -16,7 +16,7 @@ import {
   fetchLatestSimulation,
   fetchLatestTradePlans,
   fetchLatestTradeReviews,
-  fetchMarketLatest,
+  fetchMarketHistory,
   fetchTradePlanDetail,
   fetchTopSectors,
   runSimulationWorkflow,
@@ -41,7 +41,8 @@ import {
 } from './api/dashboard'
 
 const health = ref<HealthResponse | null>(null)
-const market = ref<MarketLatestResponse | null>(null)
+const marketHistory = ref<MarketLatestResponse[]>([])
+const market = computed(() => marketHistory.value[0] ?? null)
 const sectors = ref<SectorTopResponse | null>(null)
 const candidates = ref<CandidateLatestResponse | null>(null)
 const tradePlans = ref<TradePlansLatestResponse | null>(null)
@@ -63,7 +64,11 @@ const statusType = computed(() => {
 })
 
 const marketTagType = computed(() => {
-  switch (market.value?.market_status) {
+  return marketStatusType(market.value?.market_status)
+})
+
+function marketStatusType(status: string | null | undefined) {
+  switch (status) {
     case '强势':
       return 'success'
     case '中性':
@@ -75,7 +80,7 @@ const marketTagType = computed(() => {
     default:
       return 'info'
   }
-})
+}
 
 const filteredSectors = computed(() => {
   const keyword = sectorKeyword.value.trim().toLowerCase()
@@ -142,8 +147,6 @@ const filteredTradePlans = computed(() => {
   })
 })
 
-const totalAmountText = computed(() => formatLargeAmount(market.value?.total_amount))
-
 const trackingRows = computed(() => {
   const trackedById = new Map(trackingItems.value.map((item) => [item.id, item]))
   return (tradePlans.value?.items ?? []).map((plan) => ({
@@ -186,9 +189,9 @@ async function loadDashboard() {
   error.value = ''
 
   try {
-    const [healthResult, marketResult, sectorsResult, candidatesResult, initialTradePlansResult, tradeReviewsResult] = await Promise.all([
+    const [healthResult, marketHistoryResult, sectorsResult, candidatesResult, initialTradePlansResult, tradeReviewsResult] = await Promise.all([
       fetchHealth(),
-      fetchMarketLatest(),
+      fetchMarketHistory(),
       fetchTopSectors(),
       fetchLatestCandidates().catch(() => null),
       fetchLatestTradePlans(),
@@ -208,7 +211,7 @@ async function loadDashboard() {
     }
 
     health.value = healthResult
-    market.value = marketResult
+    marketHistory.value = marketHistoryResult.items
     sectors.value = sectorsResult
     candidates.value = candidatesResult
     tradePlans.value = tradePlansResult
@@ -771,55 +774,31 @@ onBeforeUnmount(() => {
         <div class="section-heading">
           <div>
             <h2>今日决策面板</h2>
-            <p>交易日：{{ market?.trade_date ?? '-' }}</p>
+            <p>最近 {{ marketHistory.length }} 个交易日，最新日期排第一行。</p>
           </div>
           <el-tag :type="marketTagType" size="large">{{ market?.market_status ?? '待生成' }}</el-tag>
         </div>
 
-        <section class="metric-grid decision-grid">
-          <article class="metric primary-metric">
-            <el-icon><DataAnalysis /></el-icon>
-            <div>
-              <span>市场评分</span>
-              <strong>{{ market?.market_score ?? '-' }}</strong>
-            </div>
-          </article>
-          <article class="metric">
-            <el-icon><Connection /></el-icon>
-            <div>
-              <span>建议总仓位</span>
-              <strong>{{ market?.suggested_position ?? '-' }}</strong>
-            </div>
-          </article>
-          <article class="metric">
-            <el-icon><TrendCharts /></el-icon>
-            <div>
-              <span>涨停 / 跌停</span>
-              <strong>{{ market?.limit_up_count ?? '-' }} / {{ market?.limit_down_count ?? '-' }}</strong>
-            </div>
-          </article>
-          <article class="metric">
-            <el-icon><Finished /></el-icon>
-            <div>
-              <span>连板高度</span>
-              <strong>{{ market?.limit_up_height ?? '-' }}</strong>
-            </div>
-          </article>
-          <article class="metric">
-            <el-icon><Finished /></el-icon>
-            <div>
-              <span>上涨 / 下跌家数</span>
-              <strong>{{ market?.up_count ?? '-' }} / {{ market?.down_count ?? '-' }}</strong>
-            </div>
-          </article>
-          <article class="metric wide-metric">
-            <el-icon><DataAnalysis /></el-icon>
-            <div>
-              <span>全市场成交额</span>
-              <strong>{{ totalAmountText }}</strong>
-            </div>
-          </article>
-        </section>
+        <el-table class="market-history-table" :data="marketHistory" border stripe max-height="320" empty-text="暂无市场环境数据">
+          <el-table-column prop="trade_date" label="交易日" min-width="120" sortable />
+          <el-table-column prop="market_status" label="市场状态" min-width="100" sortable>
+            <template #default="{ row }: { row: MarketLatestResponse }">
+              <el-tag :type="marketStatusType(row.market_status)">{{ row.market_status || '-' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="market_score" label="评分" min-width="90" sortable />
+          <el-table-column prop="suggested_position" label="建议总仓位" min-width="120" sortable />
+          <el-table-column label="上涨 / 下跌" min-width="120">
+            <template #default="{ row }: { row: MarketLatestResponse }">{{ row.up_count ?? '-' }} / {{ row.down_count ?? '-' }}</template>
+          </el-table-column>
+          <el-table-column label="涨停 / 跌停" min-width="120">
+            <template #default="{ row }: { row: MarketLatestResponse }">{{ row.limit_up_count ?? '-' }} / {{ row.limit_down_count ?? '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="limit_up_height" label="连板高度" min-width="100" sortable />
+          <el-table-column label="全市场成交额" min-width="140" sortable prop="total_amount">
+            <template #default="{ row }: { row: MarketLatestResponse }">{{ formatLargeAmount(row.total_amount) }}</template>
+          </el-table-column>
+        </el-table>
 
         <el-alert
           class="suggestion-alert"
@@ -1039,6 +1018,7 @@ onBeforeUnmount(() => {
               <small class="muted-code">{{ row.stock_code }}</small>
             </template>
           </el-table-column>
+          <el-table-column prop="sector_name" label="板块" min-width="120" sortable />
           <el-table-column label="当前价" min-width="100" sortable prop="current_price">
             <template #default="{ row }: { row: TradePlanItem & { current_price: number | null, buy_price_low: number | null } }">
               <span :class="priceVsClass(row.current_price, row.buy_price_low)">{{ formatPrice(row.current_price) }}</span>

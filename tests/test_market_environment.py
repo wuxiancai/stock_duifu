@@ -252,3 +252,40 @@ def test_prd_market_today_api_returns_latest_environment() -> None:
     assert payload["trade_date"] == "2026-06-18"
     assert payload["market_status"] == "强势"
     assert payload["suggested_position"] == "80% - 100%"
+
+
+def test_market_history_api_returns_latest_five_environments_descending() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        for offset in range(6):
+            day = date(2026, 6, 15) + timedelta(days=offset)
+            session.add(
+                MarketDaily(
+                    trade_date=day,
+                    market_score=50 + offset,
+                    market_status="中性",
+                    up_count=2000 + offset,
+                    down_count=3000 - offset,
+                    limit_up_count=40 + offset,
+                    limit_down_count=10 - offset,
+                    limit_up_height=1 + offset,
+                    total_amount=1000000000000 + offset,
+                    suggestion=f"{day.isoformat()} 市场建议",
+                )
+            )
+        session.commit()
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.get("/api/market/history")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["trade_date"] for item in payload["items"]] == [
+        "2026-06-20",
+        "2026-06-19",
+        "2026-06-18",
+        "2026-06-17",
+        "2026-06-16",
+    ]
+    assert payload["items"][0]["market_score"] == 55
+    assert payload["items"][0]["suggestion"] == "2026-06-20 市场建议"

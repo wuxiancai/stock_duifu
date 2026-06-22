@@ -21,18 +21,35 @@ describe('App', () => {
           configured: true
         }
       },
-      '/api/market/latest': {
-        trade_date: '2026-06-18',
-        market_score: 55,
-        market_status: '中性',
-        suggested_position: '50% - 80%',
-        up_count: 2023,
-        down_count: 3395,
-        limit_up_count: 91,
-        limit_down_count: 12,
-        limit_up_height: 3,
-        total_amount: 3331719013167.08,
-        suggestion: '市场震荡，轻仓参与，优先选择强势板块。'
+      '/api/market/history': {
+        items: [
+          {
+            trade_date: '2026-06-18',
+            market_score: 55,
+            market_status: '中性',
+            suggested_position: '50% - 80%',
+            up_count: 2023,
+            down_count: 3395,
+            limit_up_count: 91,
+            limit_down_count: 12,
+            limit_up_height: 3,
+            total_amount: 3331719013167.08,
+            suggestion: '市场震荡，轻仓参与，优先选择强势板块。'
+          },
+          {
+            trade_date: '2026-06-17',
+            market_score: 48,
+            market_status: '中性',
+            suggested_position: '30% - 50%',
+            up_count: 1800,
+            down_count: 3600,
+            limit_up_count: 60,
+            limit_down_count: 18,
+            limit_up_height: 2,
+            total_amount: 2800000000000,
+            suggestion: '上一交易日说明不应作为当前解释。'
+          }
+        ]
       },
       '/api/sectors/top': {
         trade_date: '2026-06-18',
@@ -281,9 +298,14 @@ describe('App', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.text()).toContain('今日决策面板')
+    expect(wrapper.text()).toContain('最近 2 个交易日')
+    expect(wrapper.text()).toContain('2026-06-18')
+    expect(wrapper.text()).toContain('2026-06-17')
     expect(wrapper.text()).toContain('中性')
     expect(wrapper.text()).toContain('91 / 12')
     expect(wrapper.text()).toContain('连板高度')
+    expect(wrapper.text()).toContain('市场震荡，轻仓参与，优先选择强势板块。')
+    expect(wrapper.text()).not.toContain('上一交易日说明不应作为当前解释。')
     expect(wrapper.text()).toContain('强势板块')
     expect(wrapper.text()).toContain('科技风格')
     expect(wrapper.text()).toContain('近5日排名')
@@ -331,6 +353,10 @@ describe('App', () => {
     expect(wrapper.text()).not.toContain('板块排名 Top 10，趋势多头排列')
     expect(wrapper.text()).toContain('盘中跟踪')
     expect(wrapper.text()).toContain('当前价')
+    expect(wrapper.findAll('.el-table').some((table) => {
+      const text = table.text()
+      return text.includes('当前价') && text.includes('买入条件') && text.includes('板块') && text.includes('科技风格')
+    })).toBe(true)
     expect(wrapper.text()).toContain('交易复盘')
     expect(wrapper.text()).toContain('导出复盘')
     expect(wrapper.text()).toContain('复盘日：2026-06-19')
@@ -366,18 +392,22 @@ describe('App', () => {
           configured: true
         }
       },
-      '/api/market/latest': {
-        trade_date: '2026-06-22',
-        market_score: 55,
-        market_status: '中性',
-        suggested_position: '50% - 80%',
-        up_count: 2000,
-        down_count: 3000,
-        limit_up_count: 80,
-        limit_down_count: 10,
-        limit_up_height: 3,
-        total_amount: 3000000000000,
-        suggestion: '盘中刷新实时行情。'
+      '/api/market/history': {
+        items: [
+          {
+            trade_date: '2026-06-22',
+            market_score: 55,
+            market_status: '中性',
+            suggested_position: '50% - 80%',
+            up_count: 2000,
+            down_count: 3000,
+            limit_up_count: 80,
+            limit_down_count: 10,
+            limit_up_height: 3,
+            total_amount: 3000000000000,
+            suggestion: '盘中刷新实时行情。'
+          }
+        ]
       },
       '/api/sectors/top': {
         trade_date: '2026-06-22',
@@ -566,18 +596,8 @@ describe('App', () => {
           configured: true
         }
       },
-      '/api/market/latest': {
-        trade_date: '',
-        market_score: null,
-        market_status: '',
-        suggested_position: '',
-        up_count: null,
-        down_count: null,
-        limit_up_count: null,
-        limit_down_count: null,
-        limit_up_height: null,
-        total_amount: null,
-        suggestion: '暂无市场建议，请先生成市场环境数据。'
+      '/api/market/history': {
+        items: []
       },
       '/api/sectors/top': {
         trade_date: '',
