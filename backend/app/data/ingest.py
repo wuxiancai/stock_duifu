@@ -58,7 +58,7 @@ def ingest_market_snapshot(engine: Engine, snapshot: MarketDataSnapshot) -> Inge
             session.flush()
             session.add(LimitSnapshot(**record.__dict__))
 
-        summary = IngestSummary(
+        ingest_run = DataIngestRun(
             provider=snapshot.provider,
             trade_date=snapshot.trade_date,
             status="success",
@@ -69,6 +69,20 @@ def ingest_market_snapshot(engine: Engine, snapshot: MarketDataSnapshot) -> Inge
             stock_daily_rows=len(snapshot.stock_daily),
             limit_snapshot_rows=len(snapshot.limit_snapshot),
         )
-        session.add(DataIngestRun(**summary.__dict__))
+        session.add(ingest_run)
+        session.flush()
+
+        summary = IngestSummary(
+            provider=snapshot.provider,
+            trade_date=snapshot.trade_date,
+            status="success",
+            message="market data snapshot ingested",
+            ingest_run_id=ingest_run.id,
+            trading_calendar_rows=len(snapshot.trading_calendar),
+            stock_basic_rows=len(snapshot.stock_basic),
+            index_daily_rows=len(snapshot.index_daily),
+            stock_daily_rows=len(snapshot.stock_daily),
+            limit_snapshot_rows=len(snapshot.limit_snapshot),
+        )
         session.commit()
         return summary

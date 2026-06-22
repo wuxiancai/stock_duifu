@@ -80,6 +80,7 @@ class IngestSummary:
     trade_date: date
     status: str
     message: str
+    ingest_run_id: Optional[int]
     trading_calendar_rows: int
     stock_basic_rows: int
     index_daily_rows: int

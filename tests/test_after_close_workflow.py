@@ -28,7 +28,7 @@ def test_after_close_workflow_runs_prd_steps_in_order(monkeypatch) -> None:
             index_daily_rows=3,
             stock_daily_rows=2,
             limit_snapshot_rows=1,
-            ingest_run_id=7,
+            ingest_run_id=None,
         )
 
     def fake_market(engine, trade_date):
@@ -72,6 +72,7 @@ def test_after_close_workflow_runs_prd_steps_in_order(monkeypatch) -> None:
     ]
     assert result.trade_date == date(2026, 6, 18)
     assert result.stock_daily_rows == 2
+    assert result.ingest_run_id is None
     assert result.market_status == "中性"
     assert result.sector_count == 1
     assert result.candidate_count == 2

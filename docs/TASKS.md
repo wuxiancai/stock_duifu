@@ -39,6 +39,7 @@
 - [x] 已修复启动脚本端口事实源不一致：`start.sh` 选定 PostgreSQL/API/Web 端口后写回 `.env`
 - [x] 已修复新部署空库首页误报 404：latest 接口无数据时返回 200 空态而不是错误
 - [x] 已修复 `get_data.sh` 子脚本权限问题：统一用 `bash scripts/...` 调用，不依赖执行位
+- [x] 已修复 `get_data.sh` 盘后 workflow 采集摘要字段缺失：返回真实 `data_ingest_run.id`
 
 ## 开发原则
 
@@ -906,3 +907,16 @@ TuShare 全市场初始化验证：
 - `STOCK_GET_DATA_DRY_RUN=1 TRADE_DATE=2026-06-18 TUSHARE_TOKEN=token-for-dry-run bash get_data.sh`：输出 `bash scripts/run-after-close-workflow.sh ...` 和 `bash scripts/audit-market-data.sh ...`。
 - `bash -n get_data.sh scripts/run-after-close-workflow.sh scripts/audit-market-data.sh`：通过。
 - `.venv/bin/pytest tests/test_deployment_scripts.py`：8 passed。
+
+### 32. get_data.sh 盘后 workflow 采集摘要字段修复
+
+- 修复 `TRADE_DATE=2026-06-18 bash get_data.sh` 在盘后 workflow 阶段报错：`AttributeError: 'IngestSummary' object has no attribute 'ingest_run_id'`。
+- `backend.app.data.ingest.ingest_market_snapshot` 写入 `DataIngestRun` 后会 `flush` 获取真实主键，并通过 `IngestSummary.ingest_run_id` 返回给 `run_after_close_workflow`。
+- 回归测试覆盖真实采集摘要返回 run id，避免测试 fake 再次遮住字段漂移。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_market_data_ingest.py tests/test_after_close_workflow.py tests/test_after_close_workflow_cli.py`：5 passed，1 个 LibreSSL/urllib3 warning。
+- `.venv/bin/pytest`：102 passed，1 个 LibreSSL/urllib3 warning。

@@ -313,6 +313,9 @@
 - 任务 30 全量验证：`.venv/bin/pytest`：102 passed，1 个 LibreSSL/urllib3 warning。
 - 任务 31 dry-run：`STOCK_GET_DATA_DRY_RUN=1 TRADE_DATE=2026-06-18 TUSHARE_TOKEN=token-for-dry-run bash get_data.sh` 输出 `bash scripts/run-after-close-workflow.sh ...` 和 `bash scripts/audit-market-data.sh ...`。
 - 任务 31 脚本语法：`bash -n get_data.sh scripts/run-after-close-workflow.sh scripts/audit-market-data.sh`：通过。
+- 任务 32 get_data.sh workflow 字段修复：`TRADE_DATE=2026-06-18 bash get_data.sh` 报 `AttributeError: 'IngestSummary' object has no attribute 'ingest_run_id'` 的根因已修复；`ingest_market_snapshot` 现在返回真实 `data_ingest_run.id`。
+- 任务 32 相关测试：`.venv/bin/pytest tests/test_market_data_ingest.py tests/test_after_close_workflow.py tests/test_after_close_workflow_cli.py`：5 passed，1 个 LibreSSL/urllib3 warning。
+- 任务 32 后端全量测试：`.venv/bin/pytest`：102 passed，1 个 LibreSSL/urllib3 warning。
 - 任务 31 回归验证：`.venv/bin/pytest tests/test_deployment_scripts.py`：8 passed。
 - 任务 25 脚本语法：`bash -n start.sh scripts/dev-api.sh deploy_ubuntu.sh get_data.sh scripts/dev-web.sh`：通过。
 - 任务 25 回归验证：`.venv/bin/pytest tests/test_deployment_scripts.py`：7 passed。

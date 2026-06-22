@@ -108,6 +108,7 @@ def test_ingest_market_snapshot_writes_all_market_data_tables() -> None:
     summary = ingest_market_snapshot(engine, _snapshot())
 
     assert summary.status == "success"
+    assert summary.ingest_run_id is not None
     assert summary.stock_daily_rows == 1
     with Session(engine) as session:
         assert session.scalar(select(TradingCalendar).where(TradingCalendar.trade_date == date(2026, 6, 19)))
@@ -115,7 +116,7 @@ def test_ingest_market_snapshot_writes_all_market_data_tables() -> None:
         assert session.scalar(select(IndexDaily).where(IndexDaily.index_code == "000001.SH")).close == 3020
         assert session.scalar(select(StockDaily).where(StockDaily.stock_code == "000001")).amount == 123600000
         assert session.scalar(select(LimitSnapshot).where(LimitSnapshot.limit_status == "limit_up"))
-        assert session.scalar(select(DataIngestRun).where(DataIngestRun.provider == "unit-test"))
+        assert session.get(DataIngestRun, summary.ingest_run_id)
 
 
 def test_ingest_market_snapshot_is_idempotent_for_same_trade_date() -> None:
