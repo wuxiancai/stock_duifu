@@ -1,7 +1,7 @@
 from datetime import date
 
 import pandas as pd
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -10,6 +10,7 @@ from backend.app.data.providers import (
     AkShareSinaRealtimeQuoteProvider,
     FallbackRealtimeQuoteProvider,
 )
+import backend.app.data.realtime_quotes as realtime_quotes
 from backend.app.data.realtime_quotes import run_realtime_quote_workflow
 from backend.app.data.types import StockDailyRecord
 from backend.app.db.models import SimulationTrade, StockDaily, TradePlan, TradingCalendar, metadata
@@ -261,3 +262,27 @@ def test_run_realtime_quote_workflow_refreshes_when_stock_daily_already_exists()
         daily = session.scalar(select(StockDaily).where(StockDaily.stock_code == "000001"))
         assert float(daily.close) == 10.8
         assert float(daily.pct_chg) == 8.0
+
+
+def test_run_realtime_quote_workflow_fetches_today_quotes_when_calendar_row_is_missing(monkeypatch) -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_plan(session)
+        session.execute(delete(TradingCalendar).where(TradingCalendar.trade_date == date(2026, 6, 19)))
+        session.commit()
+    monkeypatch.setattr(realtime_quotes, "_china_today", lambda: date(2026, 6, 19))
+    provider = FakeRealtimeProvider([_daily()])
+
+    result = run_realtime_quote_workflow(
+        engine,
+        date(2026, 6, 19),
+        provider,
+        allow_date_mismatch=False,
+    )
+
+    assert result.backfill.target_is_open is None
+    assert result.backfill.skipped_reason == ""
+    assert result.backfill.fetched_stock_daily_rows == 1
+    assert provider.calls == [(["000001"], date(2026, 6, 19))]
+    assert result.workflow is not None
+    assert result.workflow.tracking[0].current_price == 10.5

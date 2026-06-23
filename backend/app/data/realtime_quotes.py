@@ -163,13 +163,17 @@ def _skip_reason(
         return "目标交易日没有交易计划，无需拉取实时行情"
     if target_is_open is False:
         return "目标交易日不是开市日，不写入实时行情"
-    if target_is_open is None:
+    if target_is_open is None and not _can_fetch_live_without_calendar(target_trade_date, china_today):
         return "目标交易日缺少交易日历，需先采集或回补交易日历"
     if not requested_codes:
         return "目标交易日计划股已有 stock_daily，无需拉取实时行情"
     if target_trade_date != china_today and not allow_date_mismatch:
         return "实时行情只能默认写入中国当前自然日；如确认数据日期匹配，请显式使用 allow_date_mismatch"
     return ""
+
+
+def _can_fetch_live_without_calendar(target_trade_date: date, china_today: date) -> bool:
+    return target_trade_date == china_today and target_trade_date.weekday() < 5
 
 
 def _china_today() -> date:

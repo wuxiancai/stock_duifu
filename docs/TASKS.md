@@ -1269,3 +1269,19 @@ TuShare 全市场初始化验证：
 - `.venv/bin/pytest tests/test_realtime_quote_workflow.py tests/test_trade_plan_generation.py -q`：28 passed，1 个 LibreSSL/urllib3 warning。
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+
+### 52. 缺目标日交易日历时仍允许当天实时行情回补
+
+- 修复用户截图中的真实问题：`2026-06-23` 盘中跟踪显示 `300308=1382.33 / +1.06%`，而外部实时行情约为 `1312-1320 / -5%`。
+- 真实根因：数据库缺少 `2026-06-23` 的 `trading_calendar` 行，`POST /api/trade-plans/track-realtime` 被 `_skip_reason` 直接拦截为“目标交易日缺少交易日历，需先采集或回补交易日历”，没有拉 AkShare/Sina 实时源；页面只能回退展示 `2026-06-22` 旧收盘价。
+- 新逻辑：当目标交易日等于中国当前日期且是工作日时，即使 `trading_calendar` 暂缺该日记录，也允许实时行情回补继续执行；明确闭市日仍然拦截，不写入实时行情。
+- 已用真实 Sina 实时源执行 `bash scripts/run-realtime-workflow.sh --provider sina --target-trade-date 2026-06-23`，写入 3 条目标日 `stock_daily`，并驱动跟踪纪律：
+  - `300308 current_price=1320.01 pct_chg=-4.508 status=取消`
+  - 随后临时启动 API 进程验证 `POST /api/trade-plans/track-realtime`，返回 `provider=akshare_sina_realtime`、`fetched_stock_daily_rows=3`、`skipped_reason=""`、`300308 current_price=1316.0 pct_chg=-4.798 status=取消`。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_realtime_quote_workflow.py tests/test_trade_plan_generation.py -q`：29 passed，1 个 LibreSSL/urllib3 warning。
+- 真实 API / 数据源验证：临时 API 进程 `GET /api/health` 返回 200；`POST /api/trade-plans/track-realtime` 不再因缺 `2026-06-23` 交易日历跳过，已写入目标日实时快照。
