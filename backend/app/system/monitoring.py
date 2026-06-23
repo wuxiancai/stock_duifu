@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Optional
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -114,7 +114,11 @@ def finish_data_job_run(engine: Engine, run_id: int, status: str, message: str) 
 def load_latest_data_job_runs(engine: Engine, limit: int = 5) -> list[DataJobRunSummary]:
     with Session(engine) as session:
         runs = session.scalars(
-            select(DataJobRun).order_by(desc(DataJobRun.started_at)).limit(limit)
+            select(DataJobRun)
+            .outerjoin(TradingCalendar, TradingCalendar.trade_date == DataJobRun.trade_date)
+            .where(or_(TradingCalendar.id.is_(None), TradingCalendar.is_open.is_(True)))
+            .order_by(desc(DataJobRun.started_at))
+            .limit(limit)
         ).all()
         if not runs:
             return []

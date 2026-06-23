@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -14,7 +14,7 @@ from backend.app.data.types import (
     StockDailyRecord,
     TradingCalendarRecord,
 )
-from backend.app.db.models import MarketDaily, SectorDaily, StockBasic, StockDaily, TradingCalendar, metadata
+from backend.app.db.models import DataJobRun, MarketDaily, SectorDaily, StockBasic, StockDaily, TradingCalendar, metadata
 from backend.app.main import create_app
 from backend.app.workflow.service import run_after_close_workflow
 
@@ -142,6 +142,43 @@ def test_after_close_workflow_records_step_logs_and_api_returns_them(monkeypatch
         "覆盖审计",
     ]
     assert payload["items"][0]["steps"][1]["summary"]["stock_daily_rows"] == 2
+
+
+def test_data_runs_latest_api_ignores_closed_calendar_dates() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        session.add_all(
+            [
+                TradingCalendar(trade_date=date(2026, 6, 20), is_open=False, source="unit-test"),
+                TradingCalendar(trade_date=date(2026, 6, 22), is_open=True, source="unit-test"),
+                DataJobRun(
+                    job_name="after_close_data_pull",
+                    trade_date=date(2026, 6, 20),
+                    status="error",
+                    command="bash get_data.sh 2026-06-20",
+                    message="闭市日历史误跑任务",
+                    started_at=datetime(2026, 6, 23, 8, 57, tzinfo=timezone.utc),
+                    ended_at=datetime(2026, 6, 23, 8, 58, tzinfo=timezone.utc),
+                ),
+                DataJobRun(
+                    job_name="after_close_data_pull",
+                    trade_date=date(2026, 6, 22),
+                    status="success",
+                    command="bash get_data.sh 2026-06-22",
+                    message="开市日任务",
+                    started_at=datetime(2026, 6, 23, 8, 59, tzinfo=timezone.utc),
+                    ended_at=datetime(2026, 6, 23, 9, 1, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        session.commit()
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.get("/api/system/data-runs/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["trade_date"] for item in payload["items"]] == ["2026-06-22"]
 
 
 def test_database_health_api_reports_missing_data_with_fix_command() -> None:
