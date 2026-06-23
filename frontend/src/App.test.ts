@@ -448,6 +448,8 @@ describe('App', () => {
     expect(wrapper.text()).toContain('覆盖审计')
     expect(wrapper.text()).toContain('个股日线')
     expect(wrapper.text()).toContain('TRADE_DATE=2026-06-18 bash get_data.sh')
+    const databaseHealthTable = wrapper.findAllComponents({ name: 'ElTable' }).find((table) => table.text().includes('个股日线'))
+    expect(databaseHealthTable?.props('maxHeight')).toBeUndefined()
 
     expect(wrapper.text()).not.toContain('板块详情：科技风格')
     const sectorButton = wrapper.findAll('button').find((button) => button.text() === '科技风格')

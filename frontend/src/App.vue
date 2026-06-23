@@ -1442,7 +1442,7 @@ onBeforeUnmount(() => {
           <el-table-column prop="error_message" label="报错" min-width="220" show-overflow-tooltip />
         </el-table>
 
-        <el-table :data="databaseHealth?.items ?? []" border stripe max-height="360" empty-text="暂无数据库健康检查">
+        <el-table :data="databaseHealth?.items ?? []" border stripe empty-text="暂无数据库健康检查">
           <el-table-column prop="name" label="检查项" min-width="140" />
           <el-table-column prop="status" label="状态" min-width="100" sortable>
             <template #default="{ row }: { row: DatabaseHealthItem }">

@@ -47,6 +47,7 @@
 - [x] 已优化模拟交易与股票详情阅读体验：模拟持仓现价按实时涨跌着色，买入交易记录用当前持仓浮盈亏兜底展示盈亏；股票详情默认隐藏，点击交易计划卡片股票名称展开，再次点击收起。
 - [x] 已新增数据拉取跟踪日志与数据库健康监测：夜间 workflow 结构化记录每步开始/结束/数量/报错，页面底部展示运行日志、健康检查和补数命令。
 - [x] 已修正数据库健康监测的个股日线完整性口径：ST、退市/退市风险、非 active 以及全市场小比例停牌/当日无交易缺口不再误报 warning。
+- [x] 已优化数据健康区可读性：数据库健康检查表取消内部纵向滚动条，检查项直接全部显示。
 
 ## 开发原则
 
@@ -1182,3 +1183,16 @@ TuShare 全市场初始化验证：
 
 - `.venv/bin/pytest tests/test_system_monitoring.py tests/test_after_close_workflow.py`：4 passed，1 个 LibreSSL/urllib3 warning。
 - 真实 API 快验：`GET /api/system/database-health?date=2026-06-22` 返回 200；`个股日线 status=ok`，`actual=5287 / 5299`，说明 `12` 只未出日线按停牌/当日无交易等合理缺口处理，并已排除 ST、退市/退市风险等系统不需要股票 `230` 只。
+
+### 47. 数据健康表取消内部滚动条
+
+- 修复数据拉取与数据库健康区中“数据库健康检查”表格因 `max-height=360` 产生内部纵向滚动条的问题。
+- 数据库健康检查项数量有限，为方便一次性阅读，表格现在直接撑开全部显示。
+- 前端测试增加断言：包含“个股日线”的数据库健康表不应再带 `maxHeight` 属性，避免后续回归。
+
+状态：已完成。
+
+验证：
+
+- `cd frontend && npm test -- --run`：3 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
