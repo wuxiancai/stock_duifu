@@ -14,7 +14,7 @@ from backend.app.data.types import (
     StockDailyRecord,
     TradingCalendarRecord,
 )
-from backend.app.db.models import MarketDaily, SectorDaily, metadata
+from backend.app.db.models import MarketDaily, SectorDaily, StockBasic, StockDaily, TradingCalendar, metadata
 from backend.app.main import create_app
 from backend.app.workflow.service import run_after_close_workflow
 
@@ -159,3 +159,69 @@ def test_database_health_api_reports_missing_data_with_fix_command() -> None:
     stock_daily = next(item for item in payload["items"] if item["name"] == "个股日线")
     assert stock_daily["status"] == "error"
     assert stock_daily["fix_command"] == "TRADE_DATE=2026-06-18 bash get_data.sh"
+
+
+def test_database_health_treats_excluded_st_and_inactive_stock_daily_gaps_as_ok() -> None:
+    engine = _engine()
+    trade_date = date(2026, 6, 18)
+    with Session(engine) as session:
+        session.add(TradingCalendar(trade_date=trade_date, is_open=True, source="unit-test"))
+        session.add_all(
+            [
+                StockBasic(
+                    stock_code="000001",
+                    stock_name="平安银行",
+                    market="SZ",
+                    list_date=date(2020, 1, 1),
+                    is_st=False,
+                    status="active",
+                    source="unit-test",
+                ),
+                StockBasic(
+                    stock_code="000002",
+                    stock_name="ST测试",
+                    market="SZ",
+                    list_date=date(2020, 1, 1),
+                    is_st=True,
+                    status="active",
+                    source="unit-test",
+                ),
+                StockBasic(
+                    stock_code="000003",
+                    stock_name="退市测试",
+                    market="SZ",
+                    list_date=date(2020, 1, 1),
+                    is_st=False,
+                    status="inactive",
+                    source="unit-test",
+                ),
+            ]
+        )
+        session.add(
+            StockDaily(
+                stock_code="000001",
+                trade_date=trade_date,
+                open=10,
+                high=11,
+                low=9,
+                close=10.5,
+                pre_close=10,
+                change=0.5,
+                pct_chg=5,
+                volume=100,
+                amount=1000,
+                turnover_rate=1,
+                source="unit-test",
+            )
+        )
+        session.commit()
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.get("/api/system/database-health?date=2026-06-18")
+
+    assert response.status_code == 200
+    stock_daily = next(item for item in response.json()["items"] if item["name"] == "个股日线")
+    assert stock_daily["status"] == "ok"
+    assert stock_daily["actual"] == "1 / 1"
+    assert stock_daily["fix_command"] == ""
+    assert "已排除" in stock_daily["expected"]

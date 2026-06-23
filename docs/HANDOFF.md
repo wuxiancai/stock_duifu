@@ -12,6 +12,7 @@
 - 当前已修复盘中跟踪实时展示链路：实时快照写入后，最新交易计划 API 会带出 `current_price` / `pct_chg`，Web 盘中跟踪刷新后不会再把当前价和涨跌幅清空；Web “跟踪并模拟交易” 会先刷新实时行情、再跟踪和模拟撮合。
 - 当前已优化模拟交易与股票详情阅读体验：模拟持仓现价按实时涨跌着色，买入交易记录在后端未返回已实现盈亏时用同股票当前持仓浮盈亏兜底展示；股票详情默认隐藏，点击交易计划卡片股票名称展开，再次点击收起。
 - 当前已新增数据拉取跟踪日志与数据库健康监测：`run-after-close-workflow` 会写入 `data_job_run` / `data_job_step`，页面底部展示夜间拉取步骤、开始/结束时间、数量、错误信息、健康检查和补数据命令。
+- 当前已修正数据库健康监测个股日线口径：ST、退市/退市风险、非 active 股票和全市场小比例停牌/当日无交易缺口不再误报 warning；真正超过合理范围的可交易股票缺行才给补数命令。
 - `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
@@ -687,7 +688,13 @@
   - 数据库健康检查会给每个缺失项返回状态、实际数量、期望数量和补数命令，例如 `TRADE_DATE=2026-06-22 bash get_data.sh`。
   - 前端页面底部新增“数据拉取与数据库健康”区块，展示最近拉取日志、逐步骤明细、健康检查和历史拉取任务。
   - 真实 PostgreSQL 已升级到 `0009_data_job_monitoring (head)`。
-  - 真实 API 快验：`/api/system/data-runs/latest` 返回 200，当前真实库新表暂无任务日志；`/api/system/database-health` 返回 200，`trade_date=2026-06-22`、`status=warning`，明示 `个股日线 5510 / 5529` 和补数命令。
+  - 真实 API 快验：`/api/system/data-runs/latest` 返回 200，当前真实库新表暂无任务日志；任务 46 修复后 `/api/system/database-health?date=2026-06-22` 中 `个股日线 status=ok`，`actual=5287 / 5299`，12 只未出日线按停牌/当日无交易等合理缺口处理，并已排除系统不需要股票 230 只。
+  - 任务 46 数据库健康监测个股日线合理缺口口径修复：
+    - `GET /api/system/database-health` 不再把 `stock_basic` 全量 5529 只股票都作为个股日线必须覆盖分母。
+    - 只把 `status=active`、非 ST、名称不含 ST/退市标记的股票纳入应覆盖集合。
+    - 全市场规模下少量未出日线按停牌/当日无交易合理缺口处理；小样本测试仍严格，避免真实缺行被误判为 ok。
+    - 覆盖审计的任务状态同步使用同一口径。
+    - `.venv/bin/pytest tests/test_system_monitoring.py tests/test_after_close_workflow.py`：4 passed，1 个 LibreSSL/urllib3 warning。
   - `.venv/bin/pytest`：124 passed，1 个 LibreSSL/urllib3 warning；`cd frontend && npm test -- --run`：3 passed；`cd frontend && npm run build`：通过。
 
 ## 验收口径

@@ -120,7 +120,7 @@ def run_after_close_workflow(
                 lambda items: len(items),
             )
             audit = run_coverage_audit_step(engine, run_id, trade_date)
-            status, message = audit_step_status(audit)
+            status, message = audit_step_status(engine, audit)
             finish_data_job_run(engine, run_id, status, message)
         else:
             snapshot = market_provider.fetch_snapshot(

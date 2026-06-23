@@ -46,6 +46,7 @@
 - [x] 已修复盘中跟踪实时展示链路：实时快照写入后，最新交易计划 API 和页面刷新会直接展示当前价/涨跌幅；模拟交易按钮会先刷新实时行情再跟踪和撮合，避免用空目标日日线或收盘后日线决定买卖。
 - [x] 已优化模拟交易与股票详情阅读体验：模拟持仓现价按实时涨跌着色，买入交易记录用当前持仓浮盈亏兜底展示盈亏；股票详情默认隐藏，点击交易计划卡片股票名称展开，再次点击收起。
 - [x] 已新增数据拉取跟踪日志与数据库健康监测：夜间 workflow 结构化记录每步开始/结束/数量/报错，页面底部展示运行日志、健康检查和补数命令。
+- [x] 已修正数据库健康监测的个股日线完整性口径：ST、退市/退市风险、非 active 以及全市场小比例停牌/当日无交易缺口不再误报 warning。
 
 ## 开发原则
 
@@ -1165,4 +1166,19 @@ TuShare 全市场初始化验证：
 - `cd frontend && npm run build`：通过，仍有 VueUse pure annotation 和 chunk size warning。
 - `bash scripts/db-upgrade.sh`：已升级到 `0009_data_job_monitoring (head)`。
 - 真实 API 快验：`GET /api/system/data-runs/latest` 返回 200；当前真实库暂无新结构化任务日志，`items=0`。
-- 真实 API 快验：`GET /api/system/database-health` 返回 200，`trade_date=2026-06-22`、`status=warning`，已明示 `个股日线 5510 / 5529` 并给出 `TRADE_DATE=2026-06-22 bash get_data.sh`。
+- 真实 API 快验：`GET /api/system/database-health?date=2026-06-22` 返回 200；任务 46 修复后 `个股日线 status=ok`，小比例无日线股票按停牌/当日无交易等合理缺口处理。
+
+### 46. 数据库健康监测个股日线合理缺口口径修复
+
+- 修复数据库健康监测把 `stock_basic` 全量股票都当成个股日线必须覆盖分母的问题。
+- 个股日线健康项现在只把系统需要的可交易股票纳入覆盖检查：`status=active`、非 ST、名称不含 ST、名称不含退市/退市风险标记。
+- ST、退市/退市风险、非 active 股票不需要日线覆盖；全市场规模下少量未出日线的股票按停牌/当日无交易等合理缺口处理，并在页面说明里明示排除数量。
+- 小样本测试仍严格：非全市场的小数据集不使用停牌容忍阈值，避免测试或局部数据缺行被误判为 ok。
+- 覆盖审计的任务状态也同步使用同一口径，避免页面健康项显示 ok、夜间任务却因为合理缺口显示 warning。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_system_monitoring.py tests/test_after_close_workflow.py`：4 passed，1 个 LibreSSL/urllib3 warning。
+- 真实 API 快验：`GET /api/system/database-health?date=2026-06-22` 返回 200；`个股日线 status=ok`，`actual=5287 / 5299`，说明 `12` 只未出日线按停牌/当日无交易等合理缺口处理，并已排除 ST、退市/退市风险等系统不需要股票 `230` 只。

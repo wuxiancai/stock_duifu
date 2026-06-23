@@ -175,7 +175,7 @@ def load_database_health(engine: Engine, trade_date: Optional[date] = None) -> D
 
         open_days = _count(session, TradingCalendar, TradingCalendar.trade_date <= target_date, TradingCalendar.is_open.is_(True))
         stock_basic_rows = _count(session, StockBasic)
-        stock_daily_rows = _count(session, StockDaily, StockDaily.trade_date == target_date)
+        stock_daily_coverage = _stock_daily_coverage_counts(session, target_date)
         index_daily_rows = _count(session, IndexDaily, IndexDaily.trade_date == target_date)
         limit_rows = _count(session, LimitSnapshot, LimitSnapshot.trade_date == target_date)
         market_rows = _count(session, MarketDaily, MarketDaily.trade_date == target_date)
@@ -194,7 +194,7 @@ def load_database_health(engine: Engine, trade_date: Optional[date] = None) -> D
             [
                 _health_item("交易日历", open_days > 0, open_days, "至少 1 个开市日", command, error=True),
                 _health_item("股票基础信息", stock_basic_rows >= 5000, stock_basic_rows, "不少于 5000 只 A 股", command, error=True),
-                _stock_daily_health_item(target_date, stock_basic_rows, stock_daily_rows, command),
+                _stock_daily_health_item(stock_daily_coverage, command),
                 _health_item("指数日线", index_daily_rows >= 3, index_daily_rows, "三大指数至少 3 行", command, error=True),
                 _health_item("涨跌停池", limit_rows > 0, limit_rows, "涨停/跌停记录不能为 0", command, error=False),
                 _health_item("市场环境", market_rows > 0, market_rows, "必须生成 market_daily", f"bash scripts/generate-market-environment.sh --trade-date {target_date.isoformat()}", error=True),
@@ -214,10 +214,16 @@ def audit_step_summary(audit: MarketDataCoverageAudit) -> dict[str, Any]:
     return _jsonable(asdict(audit))
 
 
-def audit_step_status(audit: MarketDataCoverageAudit) -> tuple[str, str]:
+def audit_step_status(engine: Engine, audit: MarketDataCoverageAudit) -> tuple[str, str]:
     if audit.index_daily_rows < 3 or audit.stock_basic_rows == 0 or audit.stock_daily_rows == 0:
         return "error", "覆盖审计发现核心行情缺失"
-    if audit.stock_basic_rows < 5000 or audit.missing_stock_daily_rows > 0 or audit.limit_up_rows + audit.limit_down_rows == 0:
+    with Session(engine) as session:
+        coverage = _stock_daily_coverage_counts(session, audit.trade_date)
+    if (
+        audit.stock_basic_rows < 5000
+        or coverage["missing_required_rows"] > coverage["allowed_no_trade_gap"]
+        or audit.limit_up_rows + audit.limit_down_rows == 0
+    ):
         return "warning", "覆盖审计发现部分数据缺失，页面已明示补数命令"
     return "success", "夜间数据拉取完成，覆盖审计通过"
 
@@ -291,25 +297,73 @@ def _health_item(name: str, ok: bool, actual, expected: str, fix_command: str, e
     )
 
 
-def _stock_daily_health_item(target_date: date, stock_basic_rows: int, stock_daily_rows: int, command: str) -> DatabaseHealthItem:
-    missing = max(stock_basic_rows - stock_daily_rows, 0)
-    if stock_basic_rows == 0 or stock_daily_rows == 0:
+def _eligible_stock_basic_criteria():
+    return (
+        StockBasic.status == "active",
+        StockBasic.is_st.is_(False),
+        StockBasic.stock_name.not_ilike("%ST%"),
+        ~StockBasic.stock_name.contains("退"),
+    )
+
+
+def _stock_daily_coverage_counts(session: Session, target_date: date) -> dict[str, int]:
+    criteria = _eligible_stock_basic_criteria()
+    stock_basic_rows = _count(session, StockBasic)
+    required_rows = _count(session, StockBasic, *criteria)
+    covered_required_rows = int(
+        session.scalar(
+            select(func.count(func.distinct(StockDaily.stock_code)))
+            .join(StockBasic, StockBasic.stock_code == StockDaily.stock_code)
+            .where(StockDaily.trade_date == target_date, *criteria)
+        )
+        or 0
+    )
+    return {
+        "stock_basic_rows": stock_basic_rows,
+        "required_rows": required_rows,
+        "covered_required_rows": covered_required_rows,
+        "excluded_rows": max(stock_basic_rows - required_rows, 0),
+        "missing_required_rows": max(required_rows - covered_required_rows, 0),
+        "allowed_no_trade_gap": _allowed_no_trade_gap(required_rows),
+    }
+
+
+def _stock_daily_health_item(coverage: dict[str, int], command: str) -> DatabaseHealthItem:
+    stock_basic_rows = coverage["stock_basic_rows"]
+    required_rows = coverage["required_rows"]
+    covered_required_rows = coverage["covered_required_rows"]
+    excluded_rows = coverage["excluded_rows"]
+    missing_required_rows = coverage["missing_required_rows"]
+    allowed_no_trade_gap = coverage["allowed_no_trade_gap"]
+    if stock_basic_rows == 0 or covered_required_rows == 0:
         status = "error"
         message = "个股日线为空，策略无法可靠运行。"
-    elif missing > 0:
+    elif missing_required_rows > allowed_no_trade_gap:
         status = "warning"
-        message = f"个股日线缺少 {missing} 行，请确认是否为停牌/ST/退市等合理缺口。"
+        message = f"应覆盖股票缺少 {missing_required_rows} 行，超过合理停牌/无交易容忍范围，请补齐可交易股票日线。"
     else:
         status = "ok"
-        message = "正常"
+        if missing_required_rows:
+            message = (
+                f"正常，{missing_required_rows} 只未出日线按停牌/当日无交易等合理缺口处理；"
+                f"已排除 ST、退市/退市风险等系统不需要股票 {excluded_rows} 只。"
+            )
+        else:
+            message = f"正常，已排除 ST、退市/退市风险等系统不需要股票 {excluded_rows} 只。"
     return DatabaseHealthItem(
         name="个股日线",
         status=status,
         message=message,
-        actual=f"{stock_daily_rows} / {stock_basic_rows}",
-        expected="覆盖全部 stock_basic 股票，合理停牌缺口需人工可见",
+        actual=f"{covered_required_rows} / {required_rows}",
+        expected=f"覆盖可交易股票；已排除无需覆盖 {excluded_rows} / 全量 {stock_basic_rows}",
         fix_command="" if status == "ok" else command,
     )
+
+
+def _allowed_no_trade_gap(required_rows: int) -> int:
+    if required_rows < 1000:
+        return 0
+    return max(20, int(required_rows * 0.005))
 
 
 def _sector_health_item(target_date: date, sector_rows: int, max_rank: int, command: str) -> DatabaseHealthItem:
