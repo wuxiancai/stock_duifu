@@ -1233,7 +1233,7 @@ TuShare 全市场初始化验证：
 验证：
 
 - `.venv/bin/pytest tests/test_deployment_scripts.py`：13 passed。
-- `.venv/bin/pytest`：130 passed，1 个 LibreSSL/urllib3 warning。
+- `.venv/bin/pytest`：131 passed，1 个 LibreSSL/urllib3 warning。
 - `bash -n get_data.sh`：通过。
 - dry-run 验证：`STOCK_GET_DATA_NOW=2026-06-23T09:30:00+08:00` 且开市日为 `2026-06-22 2026-06-23` 时，默认输出 `using latest completed open trading date 2026-06-22`，并运行 `--trade-date 2026-06-22`。
 - dry-run 验证：空库历史模拟 `STOCK_GET_DATA_STOCK_DAILY_DAYS=0` 时，会输出 `bootstrapping latest 25 open trading dates through 2026-06-22`，并对最近开市日集合执行 workflow/audit。
@@ -1250,4 +1250,5 @@ TuShare 全市场初始化验证：
 验证：
 
 - `.venv/bin/pytest tests/test_system_monitoring.py tests/test_deployment_scripts.py`：17 passed，1 个 LibreSSL/urllib3 warning。
+- `.venv/bin/pytest`：131 passed，1 个 LibreSSL/urllib3 warning。
 - `GET /api/system/data-runs/latest` 单元测试确认：`2026-06-20 is_open=false` 的 `error` 日志被过滤，`2026-06-22 is_open=true` 的 `success` 日志正常返回。

@@ -718,12 +718,13 @@
     - 次级根因：新库单日行情不足以生成候选/计划，候选逻辑需要 20 日以上个股历史。
     - 修复：默认模式使用最近已收盘开市日；18:00 前不把当天视作盘后日；新库历史少于 20 个交易日时自动 bootstrap 最近 25 个开市日。
     - `.venv/bin/pytest tests/test_deployment_scripts.py`：13 passed。
-    - `.venv/bin/pytest`：130 passed，1 个 LibreSSL/urllib3 warning。
+    - `.venv/bin/pytest`：131 passed，1 个 LibreSSL/urllib3 warning。
     - `bash -n get_data.sh`：通过。
   - 任务 50 数据拉取日志按交易日历过滤非交易日：
     - 根因：历史 `data_job_run` 已经写入了 2026-06-19/20/21 休市日误跑记录，脚本修复后页面仍会把这些旧记录显示为 `error`。
     - 修复：`GET /api/system/data-runs/latest` 外联 `trading_calendar`，过滤 `is_open=false` 的任务；交易日历缺失的任务仍保留，避免隐藏真实异常。
     - `.venv/bin/pytest tests/test_system_monitoring.py tests/test_deployment_scripts.py`：17 passed，1 个 LibreSSL/urllib3 warning。
+    - `.venv/bin/pytest`：131 passed，1 个 LibreSSL/urllib3 warning。
 
 ## 验收口径
 
