@@ -127,6 +127,7 @@ def generate_trade_plans(
 ) -> list[TradePlanResult]:
     with Session(engine) as session:
         target = target_trade_date or _next_open_trade_date(session, plan_date)
+        _expire_stale_untriggered_trade_plans(session, plan_date)
         plans = calculate_trade_plans(session, plan_date, target, limit=limit)
         _replace_trade_plans(session, plan_date, target, plans)
         session.commit()
@@ -899,6 +900,18 @@ def _replace_trade_plans(
                 record.tracking_note = "交易计划重生成后保留，用于关联历史模拟交易记录"
             continue
         session.delete(record)
+
+
+def _expire_stale_untriggered_trade_plans(session: Session, as_of_plan_date: date) -> None:
+    stale_plans = session.scalars(
+        select(TradePlan).where(
+            TradePlan.target_trade_date <= as_of_plan_date,
+            TradePlan.status == "待触发",
+        )
+    ).all()
+    for plan in stale_plans:
+        plan.status = "未触发"
+        plan.tracking_note = "目标交易日结束未触发，已由新一日交易计划覆盖"
 
 
 def _trade_plan_has_simulation_records(session: Session, trade_plan_id: int) -> bool:

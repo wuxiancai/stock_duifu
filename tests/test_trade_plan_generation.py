@@ -168,6 +168,60 @@ def test_generate_trade_plans_is_idempotent_for_same_plan_date() -> None:
         assert session.query(TradePlan).count() == len(first)
 
 
+def test_generate_trade_plans_expires_previous_untriggered_plans_before_creating_next_day_plans() -> None:
+    engine = _engine()
+    first_plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, first_plan_date)
+    next_plan_date = date(2026, 6, 19)
+    next_target_date = date(2026, 6, 22)
+    with Session(engine) as session:
+        triggered_plan = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
+        triggered_plan.status = "已触发"
+        triggered_plan.trigger_price = float(triggered_plan.buy_price_low)
+        triggered_plan.tracking_note = "目标交易日价格触达计划买入区间"
+        session.add(
+            MarketDaily(
+                trade_date=next_plan_date,
+                market_score=80,
+                market_status="强势",
+                up_count=3200,
+                down_count=1600,
+                limit_up_count=90,
+                limit_down_count=2,
+                total_amount=1500000000000,
+                suggestion="市场强势，可以正常交易",
+            )
+        )
+        session.add(TradingCalendar(trade_date=next_target_date, is_open=True, source="unit-test"))
+        _seed_candidates(session, next_plan_date)
+        session.commit()
+
+    generate_trade_plans(engine, next_plan_date)
+
+    with Session(engine) as session:
+        expired = session.scalars(
+            select(TradePlan).where(
+                TradePlan.plan_date == first_plan_date,
+                TradePlan.target_trade_date == next_plan_date,
+            )
+        ).all()
+        latest = session.scalars(
+            select(TradePlan).where(
+                TradePlan.plan_date == next_plan_date,
+                TradePlan.target_trade_date == next_target_date,
+            )
+        ).all()
+
+        assert expired
+        expired_by_code = {plan.stock_code: plan for plan in expired}
+        assert expired_by_code["000001"].status == "已触发"
+        assert expired_by_code["000001"].tracking_note == "目标交易日价格触达计划买入区间"
+        assert expired_by_code["000002"].status == "未触发"
+        assert "目标交易日结束未触发" in expired_by_code["000002"].tracking_note
+        assert latest
+        assert all(plan.status == "待触发" for plan in latest)
+
+
 def test_regenerating_trade_plans_preserves_simulation_history() -> None:
     engine = _engine_with_foreign_keys()
     plan_date = _seed_fixture(engine)

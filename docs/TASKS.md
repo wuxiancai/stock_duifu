@@ -1285,3 +1285,16 @@ TuShare 全市场初始化验证：
 
 - `.venv/bin/pytest tests/test_realtime_quote_workflow.py tests/test_trade_plan_generation.py -q`：29 passed，1 个 LibreSSL/urllib3 warning。
 - 真实 API / 数据源验证：临时 API 进程 `GET /api/health` 返回 200；`POST /api/trade-plans/track-realtime` 不再因缺 `2026-06-23` 交易日历跳过，已写入目标日实时快照。
+
+### 53. 新交易计划生成前自动收口过期待触发计划
+
+- 明确交易计划生命周期：昨天收盘后产生今天交易计划；如果今天盘中没有触发，今天收盘后生成明天计划时，昨天产生的今天计划必须结束，不再参与明天盘中跟踪。
+- 新逻辑：`generate_trade_plans` 在生成新一日计划前，会把 `target_trade_date <= plan_date` 且状态仍为 `待触发` 的旧计划标记为 `未触发`。
+- 旧计划不会物理删除，保留用于复盘和统计；`tracking_note` 写入“目标交易日结束未触发，已由新一日交易计划覆盖”。
+- `已触发`、`取消`、`未触发` 等已经有明确结果的计划不受该收口逻辑影响。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_trade_plan_generation.py tests/test_realtime_quote_workflow.py tests/test_simulation_trading.py -q`：52 passed，1 个 LibreSSL/urllib3 warning。
