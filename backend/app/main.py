@@ -20,6 +20,7 @@ from backend.app.db.session import create_database_engine
 from backend.app.market.service import load_latest_market_environment, load_market_environment_history
 from backend.app.sector.service import load_latest_sector_rankings, load_sector_rankings_by_date
 from backend.app.simulation.service import load_latest_simulation, run_simulation, run_simulation_workflow
+from backend.app.system.monitoring import load_database_health, load_latest_data_job_runs
 from backend.app.trade.service import (
     generate_trade_reviews,
     load_trade_plan_detail,
@@ -234,6 +235,50 @@ def _market_payload(result) -> dict:
     }
 
 
+def _data_job_run_payload(run) -> dict:
+    return {
+        "id": run.id,
+        "job_name": run.job_name,
+        "trade_date": run.trade_date.isoformat(),
+        "status": run.status,
+        "command": run.command,
+        "message": run.message,
+        "started_at": run.started_at.isoformat(),
+        "ended_at": run.ended_at.isoformat() if run.ended_at else None,
+        "steps": [
+            {
+                "step_name": step.step_name,
+                "status": step.status,
+                "started_at": step.started_at.isoformat(),
+                "ended_at": step.ended_at.isoformat() if step.ended_at else None,
+                "rows_count": step.rows_count,
+                "summary": step.summary,
+                "error_message": step.error_message,
+            }
+            for step in run.steps
+        ],
+    }
+
+
+def _database_health_payload(summary) -> dict:
+    return {
+        "trade_date": summary.trade_date.isoformat() if summary.trade_date else "",
+        "status": summary.status,
+        "generated_at": summary.generated_at.isoformat(),
+        "items": [
+            {
+                "name": item.name,
+                "status": item.status,
+                "message": item.message,
+                "actual": item.actual,
+                "expected": item.expected,
+                "fix_command": item.fix_command,
+            }
+            for item in summary.items
+        ],
+    }
+
+
 def _parse_iso_date(value: str, field_name: str) -> date:
     try:
         return date.fromisoformat(value)
@@ -272,6 +317,22 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
                 "configured": settings.database_configured,
             },
         }
+
+    @app.get("/api/system/data-runs/latest", tags=["system"])
+    def latest_data_runs(limit: int = 5) -> dict:
+        if limit < 1 or limit > 20:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 20")
+        return {
+            "items": [
+                _data_job_run_payload(run)
+                for run in load_latest_data_job_runs(database_engine, limit=limit)
+            ]
+        }
+
+    @app.get("/api/system/database-health", tags=["system"])
+    def database_health(date: Optional[str] = None) -> dict:
+        trade_date = _parse_iso_date(date, "date") if date else None
+        return _database_health_payload(load_database_health(database_engine, trade_date))
 
     @app.get("/api/market/latest", tags=["market"])
     def latest_market_environment() -> dict:

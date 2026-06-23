@@ -13,9 +13,11 @@ import {
 import { fetchHealth, type HealthResponse } from './api/health'
 import {
   fetchLatestCandidates,
+  fetchLatestDataRuns,
   fetchLatestSimulation,
   fetchLatestTradePlans,
   fetchLatestTradeReviews,
+  fetchDatabaseHealth,
   fetchMarketHistory,
   fetchTradePlanDetail,
   fetchTopSectors,
@@ -24,6 +26,11 @@ import {
   updateTradePlanStatus,
   type CandidateItem,
   type CandidateLatestResponse,
+  type DataJobRunItem,
+  type DataJobStepItem,
+  type DataRunsLatestResponse,
+  type DatabaseHealthItem,
+  type DatabaseHealthResponse,
   type MarketLatestResponse,
   type SectorTopItem,
   type SectorTopResponse,
@@ -48,6 +55,8 @@ const candidates = ref<CandidateLatestResponse | null>(null)
 const tradePlans = ref<TradePlansLatestResponse | null>(null)
 const tradeReviews = ref<TradeReviewLatestResponse | null>(null)
 const simulation = ref<SimulationLatestResponse | null>(null)
+const dataRuns = ref<DataRunsLatestResponse | null>(null)
+const databaseHealth = ref<DatabaseHealthResponse | null>(null)
 const selectedPlanDetail = ref<TradePlanDetail | null>(null)
 const trackingItems = ref<TradePlanTrackingResponse['items']>([])
 const loading = ref(true)
@@ -171,6 +180,8 @@ const simulationTrades = computed(() => {
   })
 })
 
+const latestDataRun = computed(() => dataRuns.value?.items[0] ?? null)
+
 function planStatusType(status: string) {
   switch (status) {
     case '已触发':
@@ -184,18 +195,37 @@ function planStatusType(status: string) {
   }
 }
 
+function monitorStatusType(status: string | null | undefined) {
+  switch (status) {
+    case 'ok':
+    case 'success':
+      return 'success'
+    case 'warning':
+      return 'warning'
+    case 'error':
+    case 'failed':
+      return 'danger'
+    case 'running':
+      return 'info'
+    default:
+      return 'info'
+  }
+}
+
 async function loadDashboard() {
   loading.value = true
   error.value = ''
 
   try {
-    const [healthResult, marketHistoryResult, sectorsResult, candidatesResult, initialTradePlansResult, tradeReviewsResult] = await Promise.all([
+    const [healthResult, marketHistoryResult, sectorsResult, candidatesResult, initialTradePlansResult, tradeReviewsResult, dataRunsResult, databaseHealthResult] = await Promise.all([
       fetchHealth(),
       fetchMarketHistory(),
       fetchTopSectors(),
       fetchLatestCandidates().catch(() => null),
       fetchLatestTradePlans(),
-      fetchLatestTradeReviews().catch(() => null)
+      fetchLatestTradeReviews().catch(() => null),
+      fetchLatestDataRuns().catch(() => ({ items: [] })),
+      fetchDatabaseHealth().catch(() => null)
     ])
     let tradePlansResult = initialTradePlansResult
     let simulationResult = await fetchLatestSimulation().catch(() => null)
@@ -217,6 +247,8 @@ async function loadDashboard() {
     tradePlans.value = tradePlansResult
     tradeReviews.value = tradeReviewsResult
     simulation.value = simulationResult
+    dataRuns.value = dataRunsResult
+    databaseHealth.value = databaseHealthResult
     trackingItems.value = realtimeTrackingItems
     selectedPlanDetail.value = null
   } catch (err) {
@@ -302,6 +334,23 @@ function formatTime(value: string | null | undefined) {
     minute: '2-digit',
     hour12: false
   }).format(new Date(value))
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return '-'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(new Date(value))
+}
+
+function formatStepSummary(value: Record<string, unknown>) {
+  const entries = Object.entries(value).filter(([, item]) => item !== null && item !== undefined && item !== '')
+  if (!entries.length) return '-'
+  return entries.map(([key, item]) => `${key}: ${String(item)}`).join('，')
 }
 
 function chinaToday() {
@@ -613,6 +662,10 @@ onBeforeUnmount(() => {
         <a class="nav-item" href="#review">
           <el-icon><Calendar /></el-icon>
           <span>交易复盘</span>
+        </a>
+        <a class="nav-item" href="#data-monitor">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>数据健康</span>
         </a>
       </nav>
     </aside>
@@ -1320,6 +1373,112 @@ onBeforeUnmount(() => {
           </el-table>
         </template>
         <el-empty v-else description="暂无复盘统计数据，请先运行复盘生成命令" />
+      </section>
+
+      <section id="data-monitor" class="panel data-monitor-panel">
+        <div class="section-heading table-heading">
+          <div>
+            <h2>数据拉取与数据库健康</h2>
+            <p>交易日：{{ databaseHealth?.trade_date || latestDataRun?.trade_date || '-' }}，展示夜间任务证据和系统数据完整性。</p>
+          </div>
+          <el-tag :type="monitorStatusType(databaseHealth?.status)" size="large">
+            {{ databaseHealth?.status ?? '待检查' }}
+          </el-tag>
+        </div>
+
+        <section class="monitor-summary-grid">
+          <article class="metric">
+            <el-icon><Refresh /></el-icon>
+            <div>
+              <span>最近拉取状态</span>
+              <strong>
+                <el-tag :type="monitorStatusType(latestDataRun?.status)">{{ latestDataRun?.status ?? '无日志' }}</el-tag>
+              </strong>
+            </div>
+          </article>
+          <article class="metric">
+            <el-icon><Calendar /></el-icon>
+            <div>
+              <span>开始 / 结束</span>
+              <strong>{{ formatDateTime(latestDataRun?.started_at) }} / {{ formatDateTime(latestDataRun?.ended_at) }}</strong>
+            </div>
+          </article>
+          <article class="metric">
+            <el-icon><DataAnalysis /></el-icon>
+            <div>
+              <span>数据库健康</span>
+              <strong>
+                <el-tag :type="monitorStatusType(databaseHealth?.status)">{{ databaseHealth?.status ?? '待检查' }}</el-tag>
+              </strong>
+            </div>
+          </article>
+        </section>
+
+        <el-alert
+          v-if="latestDataRun?.message"
+          class="suggestion-alert"
+          :title="latestDataRun.message"
+          :type="monitorStatusType(latestDataRun.status)"
+          :closable="false"
+          show-icon
+        />
+
+        <el-table :data="latestDataRun?.steps ?? []" border stripe max-height="320" empty-text="暂无夜间数据拉取日志">
+          <el-table-column prop="step_name" label="步骤" min-width="150" />
+          <el-table-column prop="status" label="状态" min-width="100" sortable>
+            <template #default="{ row }: { row: DataJobStepItem }">
+              <el-tag :type="monitorStatusType(row.status)">{{ row.status }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="开始 / 结束" min-width="170">
+            <template #default="{ row }: { row: DataJobStepItem }">
+              {{ formatDateTime(row.started_at) }} / {{ formatDateTime(row.ended_at) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="rows_count" label="行数" min-width="90" sortable />
+          <el-table-column label="拉取/生成内容" min-width="360" show-overflow-tooltip>
+            <template #default="{ row }: { row: DataJobStepItem }">{{ formatStepSummary(row.summary) }}</template>
+          </el-table-column>
+          <el-table-column prop="error_message" label="报错" min-width="220" show-overflow-tooltip />
+        </el-table>
+
+        <el-table :data="databaseHealth?.items ?? []" border stripe max-height="360" empty-text="暂无数据库健康检查">
+          <el-table-column prop="name" label="检查项" min-width="140" />
+          <el-table-column prop="status" label="状态" min-width="100" sortable>
+            <template #default="{ row }: { row: DatabaseHealthItem }">
+              <el-tag :type="monitorStatusType(row.status)">{{ row.status }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="actual" label="实际" min-width="140" />
+          <el-table-column prop="expected" label="要求" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="message" label="说明" min-width="240" show-overflow-tooltip />
+          <el-table-column label="补数据命令" min-width="300" show-overflow-tooltip>
+            <template #default="{ row }: { row: DatabaseHealthItem }">
+              <code v-if="row.fix_command" class="command-text">{{ row.fix_command }}</code>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-table :data="dataRuns?.items ?? []" border stripe max-height="260" empty-text="暂无历史拉取任务">
+          <el-table-column prop="trade_date" label="交易日" min-width="110" sortable />
+          <el-table-column prop="status" label="状态" min-width="100" sortable>
+            <template #default="{ row }: { row: DataJobRunItem }">
+              <el-tag :type="monitorStatusType(row.status)">{{ row.status }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="开始 / 结束" min-width="180">
+            <template #default="{ row }: { row: DataJobRunItem }">
+              {{ formatDateTime(row.started_at) }} / {{ formatDateTime(row.ended_at) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="message" label="结论" min-width="260" show-overflow-tooltip />
+          <el-table-column prop="command" label="命令" min-width="300" show-overflow-tooltip>
+            <template #default="{ row }: { row: DataJobRunItem }">
+              <code class="command-text">{{ row.command }}</code>
+            </template>
+          </el-table-column>
+        </el-table>
       </section>
       </template>
     </section>

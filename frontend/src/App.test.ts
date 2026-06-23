@@ -294,6 +294,63 @@ describe('App', () => {
             note: '自动生成复盘'
           }
         ]
+      },
+      '/api/system/data-runs/latest': {
+        items: [
+          {
+            id: 1,
+            job_name: 'after_close_data_pull',
+            trade_date: '2026-06-18',
+            status: 'warning',
+            command: 'TRADE_DATE=2026-06-18 bash get_data.sh',
+            message: '覆盖审计发现部分数据缺失，页面已明示补数命令',
+            started_at: '2026-06-18T22:00:00+08:00',
+            ended_at: '2026-06-18T22:08:00+08:00',
+            steps: [
+              {
+                step_name: '拉取行情快照',
+                status: 'success',
+                started_at: '2026-06-18T22:00:00+08:00',
+                ended_at: '2026-06-18T22:03:00+08:00',
+                rows_count: 5507,
+                summary: { stock_daily_rows: 5507, index_daily_rows: 3 },
+                error_message: ''
+              },
+              {
+                step_name: '覆盖审计',
+                status: 'success',
+                started_at: '2026-06-18T22:07:00+08:00',
+                ended_at: '2026-06-18T22:08:00+08:00',
+                rows_count: 5507,
+                summary: { missing_stock_daily_rows: 22 },
+                error_message: ''
+              }
+            ]
+          }
+        ]
+      },
+      '/api/system/database-health': {
+        trade_date: '2026-06-18',
+        status: 'warning',
+        generated_at: '2026-06-18T22:08:10+08:00',
+        items: [
+          {
+            name: '个股日线',
+            status: 'warning',
+            message: '个股日线缺少 22 行，请确认是否为停牌/ST/退市等合理缺口。',
+            actual: '5507 / 5529',
+            expected: '覆盖全部 stock_basic 股票，合理停牌缺口需人工可见',
+            fix_command: 'TRADE_DATE=2026-06-18 bash get_data.sh'
+          },
+          {
+            name: '强势板块排名',
+            status: 'ok',
+            message: '正常',
+            actual: 'rows=511, max_rank=511',
+            expected: '511 行，max_rank <= 511',
+            fix_command: ''
+          }
+        ]
       }
     }
 
@@ -386,6 +443,11 @@ describe('App', () => {
     expect(wrapper.text()).toContain('复盘日：2026-06-19')
     expect(wrapper.text()).toContain('当日均收益')
     expect(wrapper.text()).toContain('盈利')
+    expect(wrapper.text()).toContain('数据拉取与数据库健康')
+    expect(wrapper.text()).toContain('拉取行情快照')
+    expect(wrapper.text()).toContain('覆盖审计')
+    expect(wrapper.text()).toContain('个股日线')
+    expect(wrapper.text()).toContain('TRADE_DATE=2026-06-18 bash get_data.sh')
 
     expect(wrapper.text()).not.toContain('板块详情：科技风格')
     const sectorButton = wrapper.findAll('button').find((button) => button.text() === '科技风格')
@@ -508,6 +570,15 @@ describe('App', () => {
         avg_t5_return: null,
         strategy_stats: [],
         sector_stats: [],
+        items: []
+      },
+      '/api/system/data-runs/latest': {
+        items: []
+      },
+      '/api/system/database-health': {
+        trade_date: '2026-06-22',
+        status: 'ok',
+        generated_at: '2026-06-22T10:00:00+08:00',
         items: []
       }
     }
@@ -641,6 +712,15 @@ describe('App', () => {
       },
       '/api/trade-reviews/latest': {
         detail: 'trade reviews are not generated'
+      },
+      '/api/system/data-runs/latest': {
+        items: []
+      },
+      '/api/system/database-health': {
+        trade_date: '',
+        status: 'error',
+        generated_at: '2026-06-22T10:00:00+08:00',
+        items: []
       }
     }
 

@@ -285,6 +285,48 @@ export interface SimulationWorkflowResponse {
   simulation: SimulationLatestResponse
 }
 
+export interface DataJobStepItem {
+  step_name: string
+  status: string
+  started_at: string
+  ended_at: string | null
+  rows_count: number
+  summary: Record<string, unknown>
+  error_message: string
+}
+
+export interface DataJobRunItem {
+  id: number
+  job_name: string
+  trade_date: string
+  status: string
+  command: string
+  message: string
+  started_at: string
+  ended_at: string | null
+  steps: DataJobStepItem[]
+}
+
+export interface DataRunsLatestResponse {
+  items: DataJobRunItem[]
+}
+
+export interface DatabaseHealthItem {
+  name: string
+  status: string
+  message: string
+  actual: string
+  expected: string
+  fix_command: string
+}
+
+export interface DatabaseHealthResponse {
+  trade_date: string
+  status: string
+  generated_at: string
+  items: DatabaseHealthItem[]
+}
+
 export function fetchMarketLatest(): Promise<MarketLatestResponse> {
   return fetchJson<MarketLatestResponse>('/api/market/latest')
 }
@@ -315,6 +357,14 @@ export function fetchLatestTradeReviews(): Promise<TradeReviewLatestResponse> {
 
 export function fetchLatestSimulation(): Promise<SimulationLatestResponse> {
   return fetchJson<SimulationLatestResponse>('/api/simulation/latest')
+}
+
+export function fetchLatestDataRuns(): Promise<DataRunsLatestResponse> {
+  return fetchJson<DataRunsLatestResponse>('/api/system/data-runs/latest')
+}
+
+export function fetchDatabaseHealth(): Promise<DatabaseHealthResponse> {
+  return fetchJson<DatabaseHealthResponse>('/api/system/database-health')
 }
 
 export function runSimulation(tradeDate: string): Promise<SimulationLatestResponse> {

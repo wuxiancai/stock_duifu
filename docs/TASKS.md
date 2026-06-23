@@ -45,6 +45,7 @@
 - [x] 已优化 Web 可读性：今日交易计划改为紧凑卡片展示，盘中跟踪按钮会先回补延迟实时行情，涨跌/盈亏/收益类数值统一红涨绿跌。
 - [x] 已修复盘中跟踪实时展示链路：实时快照写入后，最新交易计划 API 和页面刷新会直接展示当前价/涨跌幅；模拟交易按钮会先刷新实时行情再跟踪和撮合，避免用空目标日日线或收盘后日线决定买卖。
 - [x] 已优化模拟交易与股票详情阅读体验：模拟持仓现价按实时涨跌着色，买入交易记录用当前持仓浮盈亏兜底展示盈亏；股票详情默认隐藏，点击交易计划卡片股票名称展开，再次点击收起。
+- [x] 已新增数据拉取跟踪日志与数据库健康监测：夜间 workflow 结构化记录每步开始/结束/数量/报错，页面底部展示运行日志、健康检查和补数命令。
 
 ## 开发原则
 
@@ -1144,3 +1145,24 @@ TuShare 全市场初始化验证：
 - TuShare 真实快验：`dc_index(20260622)` 原始 `1021` 行，过滤后 `511` 行。
 - 真实 PostgreSQL 查询：最近 5 个开市日 `sector_daily count=511, max_rank=511`，且 `rank_no > 511` 的记录为 `[]`。
 - `curl http://127.0.0.1:5173/api/sectors/top`：`rank_history` 不再对已回填交易日返回 `null`，且历史名次不再出现 `800+`。
+
+### 45. 数据拉取日志与数据库健康监测
+
+- 新增 `data_job_run` / `data_job_step`，记录夜间数据拉取的整体任务和逐步骤日志。
+- `run-after-close-workflow` 现在会记录：拉取行情快照、写入行情数据库、生成市场环境、生成强势板块、生成候选股票、生成交易计划、覆盖审计。
+- 每个步骤记录开始时间、结束时间、状态、行数、摘要和错误信息；任一步失败会把任务标记为 `failed` 并保留报错。
+- 新增 `GET /api/system/data-runs/latest`，返回最近任务日志和步骤明细。
+- 新增 `GET /api/system/database-health`，按最新交易日检查交易日历、股票基础信息、个股日线、指数日线、涨跌停池、市场环境、强势板块、候选股票、交易计划和夜间任务日志。
+- 数据库健康检查会明确 `ok` / `warning` / `error`，并在缺失项里给出补数据命令，如 `TRADE_DATE=2026-06-22 bash get_data.sh`。
+- 前端页面底部新增“数据拉取与数据库健康”区块，展示最近一次拉取日志、逐步骤明细、数据库健康检查和历史拉取任务。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest`：124 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：3 passed。
+- `cd frontend && npm run build`：通过，仍有 VueUse pure annotation 和 chunk size warning。
+- `bash scripts/db-upgrade.sh`：已升级到 `0009_data_job_monitoring (head)`。
+- 真实 API 快验：`GET /api/system/data-runs/latest` 返回 200；当前真实库暂无新结构化任务日志，`items=0`。
+- 真实 API 快验：`GET /api/system/database-health` 返回 200，`trade_date=2026-06-22`、`status=warning`，已明示 `个股日线 5510 / 5529` 并给出 `TRADE_DATE=2026-06-22 bash get_data.sh`。

@@ -79,3 +79,34 @@ def test_ingest_run_records_provider_status_and_row_counts() -> None:
         "created_at",
     }.issubset(columns)
     assert ("trade_date",) in _index_columns("data_ingest_run")
+
+
+def test_data_job_monitoring_tables_are_declared() -> None:
+    assert {"data_job_run", "data_job_step"}.issubset(metadata.tables.keys())
+    run_columns = set(metadata.tables["data_job_run"].columns.keys())
+    step_columns = set(metadata.tables["data_job_step"].columns.keys())
+
+    assert {
+        "id",
+        "job_name",
+        "trade_date",
+        "status",
+        "command",
+        "message",
+        "started_at",
+        "ended_at",
+        "created_at",
+    }.issubset(run_columns)
+    assert {
+        "id",
+        "run_id",
+        "step_name",
+        "status",
+        "started_at",
+        "ended_at",
+        "rows_count",
+        "summary_json",
+        "error_message",
+    }.issubset(step_columns)
+    assert ("trade_date",) in _index_columns("data_job_run")
+    assert ("run_id",) in _index_columns("data_job_step")

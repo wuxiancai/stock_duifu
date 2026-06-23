@@ -442,4 +442,44 @@ class DataIngestRun(Base):
     )
 
 
+class DataJobRun(Base):
+    __tablename__ = "data_job_run"
+    __table_args__ = (
+        Index("ix_data_job_run_trade_date", "trade_date"),
+        Index("ix_data_job_run_started_at", "started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    trade_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    command: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class DataJobStep(Base):
+    __tablename__ = "data_job_step"
+    __table_args__ = (
+        Index("ix_data_job_step_run_id", "run_id"),
+        Index("ix_data_job_step_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("data_job_run.id", ondelete="CASCADE"), nullable=False
+    )
+    step_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rows_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    summary_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
 metadata = Base.metadata
