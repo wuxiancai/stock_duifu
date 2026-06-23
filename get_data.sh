@@ -14,6 +14,11 @@ CANDIDATE_LIMIT="${CANDIDATE_LIMIT:-}"
 TRADE_PLAN_LIMIT="${TRADE_PLAN_LIMIT:-}"
 POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-5432}"
 OPEN_DATES_OVERRIDE="${STOCK_GET_DATA_OPEN_DATES:-}"
+NOW_OVERRIDE="${STOCK_GET_DATA_NOW:-}"
+AFTER_CLOSE_HOUR="${STOCK_GET_DATA_AFTER_CLOSE_HOUR:-18}"
+BOOTSTRAP_OPEN_DAYS="${STOCK_GET_DATA_BOOTSTRAP_OPEN_DAYS:-25}"
+MIN_HISTORY_OPEN_DAYS="${STOCK_GET_DATA_MIN_HISTORY_OPEN_DAYS:-20}"
+STOCK_DAILY_DAYS_OVERRIDE="${STOCK_GET_DATA_STOCK_DAILY_DAYS:-}"
 
 info() {
   printf '[stock-data] %s\n' "$*"
@@ -172,8 +177,72 @@ load_env_file() {
   export DATABASE_URL TUSHARE_TOKEN
 }
 
-china_today() {
-  TZ=Asia/Shanghai date +%F
+default_trade_date() {
+  .venv/bin/python - "$OPEN_DATES_OVERRIDE" "$NOW_OVERRIDE" "$AFTER_CLOSE_HOUR" <<'PY'
+from datetime import date, datetime, timedelta
+import os
+import sys
+
+override = sys.argv[1].strip()
+now_override = sys.argv[2].strip()
+after_close_hour = int(sys.argv[3])
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None
+
+def parse_date(raw: str) -> date:
+    for fmt in ("%Y-%m-%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(raw.strip(), fmt).date()
+        except ValueError:
+            pass
+    print(f"Invalid open date override: {raw}", file=sys.stderr)
+    raise SystemExit(2)
+
+if now_override:
+    now = datetime.fromisoformat(now_override)
+    if now.tzinfo is not None:
+        now = now.astimezone(ZoneInfo("Asia/Shanghai")).replace(tzinfo=None) if ZoneInfo else now.replace(tzinfo=None)
+else:
+    now = datetime.now(ZoneInfo("Asia/Shanghai")) if ZoneInfo else datetime.now()
+
+today = now.date()
+include_today = now.hour >= after_close_hour
+
+if override:
+    open_days = sorted(parse_date(item) for item in override.replace(",", " ").split())
+else:
+    token = os.environ.get("TUSHARE_TOKEN", "")
+    if not token:
+        print("TUSHARE_TOKEN is required to resolve the default trade date", file=sys.stderr)
+        raise SystemExit(1)
+    try:
+        import tushare as ts
+    except ImportError:
+        print("tushare is required to resolve the default trade date. Run: bash deploy_ubuntu.sh", file=sys.stderr)
+        raise SystemExit(1)
+    start = today - timedelta(days=90)
+    frame = ts.pro_api(token).trade_cal(
+        exchange="",
+        start_date=start.strftime("%Y%m%d"),
+        end_date=today.strftime("%Y%m%d"),
+    )
+    open_days = [
+        datetime.strptime(str(raw), "%Y%m%d").date()
+        for raw in frame[frame["is_open"] == 1]["cal_date"].tolist()
+    ]
+
+eligible = [
+    item for item in open_days
+    if item < today or (include_today and item == today)
+]
+if not eligible:
+    print("No completed open trading date found", file=sys.stderr)
+    raise SystemExit(1)
+print(max(eligible).isoformat())
+PY
 }
 
 require_runtime() {
@@ -274,6 +343,78 @@ for raw in open_days["cal_date"].tolist():
 PY
 }
 
+print_recent_open_dates() {
+  .venv/bin/python - "$1" "$2" "$OPEN_DATES_OVERRIDE" <<'PY'
+from datetime import date, datetime, timedelta
+import os
+import sys
+
+end = date.fromisoformat(sys.argv[1])
+limit = int(sys.argv[2])
+override = sys.argv[3].strip()
+
+def parse_date(raw: str) -> date:
+    for fmt in ("%Y-%m-%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(raw.strip(), fmt).date()
+        except ValueError:
+            pass
+    print(f"Invalid open date override: {raw}", file=sys.stderr)
+    raise SystemExit(2)
+
+if override:
+    open_days = sorted(parse_date(item) for item in override.replace(",", " ").split())
+else:
+    token = os.environ.get("TUSHARE_TOKEN", "")
+    if not token:
+        print("TUSHARE_TOKEN is required to resolve trading dates", file=sys.stderr)
+        raise SystemExit(1)
+    try:
+        import tushare as ts
+    except ImportError:
+        print("tushare is required to resolve trading dates. Run: bash deploy_ubuntu.sh", file=sys.stderr)
+        raise SystemExit(1)
+    start = end - timedelta(days=max(120, limit * 3))
+    frame = ts.pro_api(token).trade_cal(
+        exchange="",
+        start_date=start.strftime("%Y%m%d"),
+        end_date=end.strftime("%Y%m%d"),
+    )
+    open_days = [
+        datetime.strptime(str(raw), "%Y%m%d").date()
+        for raw in frame[frame["is_open"] == 1]["cal_date"].tolist()
+    ]
+
+selected = [item for item in open_days if item <= end][-limit:]
+for item in selected:
+    print(item.isoformat())
+PY
+}
+
+stock_daily_history_days() {
+  if [ -n "$STOCK_DAILY_DAYS_OVERRIDE" ]; then
+    printf '%s\n' "$STOCK_DAILY_DAYS_OVERRIDE"
+    return 0
+  fi
+  .venv/bin/python - "$DATABASE_URL" "$1" <<'PY'
+import sys
+from sqlalchemy import create_engine, text
+
+database_url = sys.argv[1]
+trade_date = sys.argv[2]
+try:
+    engine = create_engine(database_url)
+    with engine.connect() as connection:
+        value = connection.execute(
+            text("select count(distinct trade_date) from stock_daily where trade_date <= :trade_date"),
+            {"trade_date": trade_date},
+        ).scalar()
+    print(int(value or 0))
+except Exception:
+    print(0)
+PY
+}
+
 run_after_close_workflow() {
   local trade_date="$1"
   local command
@@ -312,14 +453,16 @@ main() {
   parse_args "$@"
   load_env_file
   validate_mode
-
-  if [ -z "$TRADE_DATE" ] && [ -z "$START_DATE" ]; then
-    TRADE_DATE="$(china_today)"
-    info "TRADE_DATE not provided; using China date $TRADE_DATE"
-  fi
+  local default_mode="0"
 
   require_runtime
   require_market_token
+
+  if [ -z "$TRADE_DATE" ] && [ -z "$START_DATE" ]; then
+    default_mode="1"
+    TRADE_DATE="$(default_trade_date)"
+    info "TRADE_DATE not provided; using latest completed open trading date $TRADE_DATE"
+  fi
 
   if [ -n "$TRADE_DATE" ]; then
     TRADE_DATE="$(normalize_date "$TRADE_DATE")"
@@ -333,6 +476,15 @@ main() {
 
   run_shell "DATABASE_URL='$DATABASE_URL' scripts/db-upgrade.sh"
 
+  if [ "$default_mode" = "1" ]; then
+    local history_days
+    history_days="$(stock_daily_history_days "$TRADE_DATE")"
+    if [ "$history_days" -lt "$MIN_HISTORY_OPEN_DAYS" ]; then
+      info "stock_daily history has $history_days trading dates; bootstrapping latest $BOOTSTRAP_OPEN_DAYS open trading dates through $TRADE_DATE"
+      date_range="$(print_recent_open_dates "$TRADE_DATE" "$BOOTSTRAP_OPEN_DAYS")"
+    fi
+  fi
+
   if [ -n "$START_DATE" ]; then
     info "running data workflow from $START_DATE to $END_DATE"
     if [ -z "$date_range" ]; then
@@ -345,6 +497,14 @@ main() {
         run_one_date "$trade_date"
       done <<< "$date_range"
     fi
+  elif [ "$default_mode" = "1" ] && [ -n "$date_range" ]; then
+    info "running data workflow for default date set through $TRADE_DATE"
+    while IFS= read -r trade_date; do
+      if [ -z "$trade_date" ]; then
+        continue
+      fi
+      run_one_date "$trade_date"
+    done <<< "$date_range"
   else
     date_range="$(print_open_date_range "$TRADE_DATE" "$TRADE_DATE")"
     if [ -z "$date_range" ]; then

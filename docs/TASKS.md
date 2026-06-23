@@ -49,6 +49,8 @@
 - [x] 已修正数据库健康监测的个股日线完整性口径：ST、退市/退市风险、非 active 以及全市场小比例停牌/当日无交易缺口不再误报 warning。
 - [x] 已优化数据健康区可读性：数据库健康检查表取消内部纵向滚动条，检查项直接全部显示。
 - [x] 已修复 `get_data.sh` 区间模式交易日过滤：批量拉取不再按自然日跑 workflow，只对 TuShare 交易日历开市日执行。
+- [x] 已修复新部署默认拉数口径：盘中直接运行 `get_data.sh` 会处理最近已收盘开市日，空库历史不足时自动 bootstrap 最近开市日历史。
+- [x] 已修复数据拉取历史日志展示口径：已知休市日的误跑任务不再作为 error 展示，所有股票业务页面默认按交易日历过滤非交易日。
 
 ## 开发原则
 
@@ -1216,3 +1218,36 @@ TuShare 全市场初始化验证：
 - dry-run 验证：`STOCK_GET_DATA_DRY_RUN=1 TUSHARE_TOKEN=token-for-dry-run STOCK_GET_DATA_OPEN_DATES='2026-06-18 2026-06-22' START_DATE=20260618 END_DATE=20260622 bash get_data.sh` 只输出 `2026-06-18` 和 `2026-06-22` 的 workflow/audit 命令，没有 `2026-06-19`、`2026-06-20`、`2026-06-21`。
 - 单日闭市 dry-run 验证：`TRADE_DATE=2026-06-21` 只输出 `2026-06-21 is not an open trading date; skipping workflow`，不执行 workflow/audit。
 - 真实 PostgreSQL 交易日历查询确认：`2026-06-18=True`、`2026-06-19=False`、`2026-06-20=False`、`2026-06-21=False`、`2026-06-22=True`。
+
+### 49. get_data.sh 默认使用最近已收盘交易日并自动补历史
+
+- 修复新 Ubuntu 部署后直接运行 `bash get_data.sh` 容易生成空交易计划的问题。
+- 根因 1：脚本未传 `TRADE_DATE` 时原本直接使用中国自然日当天；如果用户在 2026-06-23 盘中运行，会错误处理 2026-06-23，而不是 2026-06-22 盘后数据。
+- 根因 2：新库只有单日行情时，候选和交易计划缺少 20 日以上个股历史，可能无法生成今日交易计划和盘中跟踪数据。
+- 新逻辑：未显式传日期时，脚本用 TuShare 交易日历和收盘时间阈值决定最近已收盘开市日；默认 18:00 前不把当天视作盘后日。
+- 新逻辑：未显式传日期且 `stock_daily` 历史交易日少于 20 个时，自动 bootstrap 截至目标日的最近 25 个开市日，再运行 workflow/audit。
+- 明确传 `TRADE_DATE` 或 `--start/--end` 时不触发默认 bootstrap，仍按用户指定口径执行。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_deployment_scripts.py`：13 passed。
+- `.venv/bin/pytest`：130 passed，1 个 LibreSSL/urllib3 warning。
+- `bash -n get_data.sh`：通过。
+- dry-run 验证：`STOCK_GET_DATA_NOW=2026-06-23T09:30:00+08:00` 且开市日为 `2026-06-22 2026-06-23` 时，默认输出 `using latest completed open trading date 2026-06-22`，并运行 `--trade-date 2026-06-22`。
+- dry-run 验证：空库历史模拟 `STOCK_GET_DATA_STOCK_DAILY_DAYS=0` 时，会输出 `bootstrapping latest 25 open trading dates through 2026-06-22`，并对最近开市日集合执行 workflow/audit。
+
+### 50. 数据拉取日志按交易日历过滤非交易日
+
+- 修复数据拉取历史任务里 `2026-06-19`、`2026-06-20`、`2026-06-21` 这类休市日误跑记录继续显示为 `error` 的问题。
+- 页面历史任务使用 `/api/system/data-runs/latest`，后端现在按 `trading_calendar` 过滤：如果某条 `data_job_run.trade_date` 已在交易日历中标记为 `is_open=false`，则不返回给页面。
+- 如果某个任务日期没有交易日历记录，接口仍保留该日志，避免真实日历缺失时把异常静默隐藏。
+- 该口径和项目规则保持一致：股票开发、数据拉取、健康检查、页面历史和交易计划默认必须按交易日历排除非交易日。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_system_monitoring.py tests/test_deployment_scripts.py`：17 passed，1 个 LibreSSL/urllib3 warning。
+- `GET /api/system/data-runs/latest` 单元测试确认：`2026-06-20 is_open=false` 的 `error` 日志被过滤，`2026-06-22 is_open=true` 的 `success` 日志正常返回。
