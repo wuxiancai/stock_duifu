@@ -175,6 +175,7 @@ def test_get_data_script_runs_after_close_workflow_in_dry_run() -> None:
         {
             "STOCK_GET_DATA_DRY_RUN": "1",
             "TRADE_DATE": "2026-06-18",
+            "STOCK_GET_DATA_OPEN_DATES": "2026-06-18",
             "TUSHARE_TOKEN": "token-for-dry-run",
         },
     )
@@ -183,6 +184,47 @@ def test_get_data_script_runs_after_close_workflow_in_dry_run() -> None:
     assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-18" in result.stdout
     assert "--provider auto" in result.stdout
     assert "bash scripts/audit-market-data.sh --trade-date 2026-06-18" in result.stdout
+
+
+def test_get_data_script_skips_closed_dates_in_batch_dry_run() -> None:
+    script = ROOT / "get_data.sh"
+
+    result = run_script(
+        str(script),
+        {
+            "STOCK_GET_DATA_DRY_RUN": "1",
+            "TUSHARE_TOKEN": "token-for-dry-run",
+            "STOCK_GET_DATA_OPEN_DATES": "2026-06-18 2026-06-22",
+            "START_DATE": "20260618",
+            "END_DATE": "20260622",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-18" in result.stdout
+    assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-22" in result.stdout
+    assert "--trade-date 2026-06-19" not in result.stdout
+    assert "--trade-date 2026-06-20" not in result.stdout
+    assert "--trade-date 2026-06-21" not in result.stdout
+
+
+def test_get_data_script_skips_closed_single_date_in_dry_run() -> None:
+    script = ROOT / "get_data.sh"
+
+    result = run_script(
+        str(script),
+        {
+            "STOCK_GET_DATA_DRY_RUN": "1",
+            "TRADE_DATE": "2026-06-21",
+            "TUSHARE_TOKEN": "token-for-dry-run",
+            "STOCK_GET_DATA_OPEN_DATES": "2026-06-18 2026-06-22",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "2026-06-21 is not an open trading date; skipping workflow" in result.stdout
+    assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-21" not in result.stdout
+    assert "bash scripts/audit-market-data.sh --trade-date 2026-06-21" not in result.stdout
 
 
 def test_start_script_defaults_to_lan_listen_host() -> None:

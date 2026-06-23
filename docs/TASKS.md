@@ -48,6 +48,7 @@
 - [x] 已新增数据拉取跟踪日志与数据库健康监测：夜间 workflow 结构化记录每步开始/结束/数量/报错，页面底部展示运行日志、健康检查和补数命令。
 - [x] 已修正数据库健康监测的个股日线完整性口径：ST、退市/退市风险、非 active 以及全市场小比例停牌/当日无交易缺口不再误报 warning。
 - [x] 已优化数据健康区可读性：数据库健康检查表取消内部纵向滚动条，检查项直接全部显示。
+- [x] 已修复 `get_data.sh` 区间模式交易日过滤：批量拉取不再按自然日跑 workflow，只对 TuShare 交易日历开市日执行。
 
 ## 开发原则
 
@@ -1196,3 +1197,22 @@ TuShare 全市场初始化验证：
 
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+
+### 48. get_data.sh 区间模式过滤非交易日
+
+- 修复 `get_data.sh --start/--end` 原本按自然日逐天运行 workflow 的问题。
+- 根因：脚本旧的 `print_date_range` 使用 `timedelta(days=1)` 输出自然日列表，导致 `2026-06-19`、`2026-06-20`、`2026-06-21` 这类休市日也会执行 after-close workflow 和覆盖审计。
+- 新逻辑：区间模式先用 TuShare `trade_cal` 把 `--start/--end` 转换为开市日列表，只对 `is_open=1` 的日期执行 workflow。
+- 单日模式也走同一交易日历判断；如果指定日期不是开市日，会输出跳过提示，不再生成风险市场环境、空板块和空交易计划。
+- dry-run/测试可通过 `STOCK_GET_DATA_OPEN_DATES` 模拟交易日历；真实运行仍使用 TuShare 交易日历。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_deployment_scripts.py`：10 passed。
+- `.venv/bin/pytest`：127 passed，1 个 LibreSSL/urllib3 warning。
+- `bash -n get_data.sh deploy_ubuntu.sh start.sh scripts/run-after-close-workflow.sh scripts/audit-market-data.sh`：通过。
+- dry-run 验证：`STOCK_GET_DATA_DRY_RUN=1 TUSHARE_TOKEN=token-for-dry-run STOCK_GET_DATA_OPEN_DATES='2026-06-18 2026-06-22' START_DATE=20260618 END_DATE=20260622 bash get_data.sh` 只输出 `2026-06-18` 和 `2026-06-22` 的 workflow/audit 命令，没有 `2026-06-19`、`2026-06-20`、`2026-06-21`。
+- 单日闭市 dry-run 验证：`TRADE_DATE=2026-06-21` 只输出 `2026-06-21 is not an open trading date; skipping workflow`，不执行 workflow/audit。
+- 真实 PostgreSQL 交易日历查询确认：`2026-06-18=True`、`2026-06-19=False`、`2026-06-20=False`、`2026-06-21=False`、`2026-06-22=True`。

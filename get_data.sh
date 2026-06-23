@@ -13,6 +13,7 @@ MEMBER_FETCH_LIMIT="${MEMBER_FETCH_LIMIT:-}"
 CANDIDATE_LIMIT="${CANDIDATE_LIMIT:-}"
 TRADE_PLAN_LIMIT="${TRADE_PLAN_LIMIT:-}"
 POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-5432}"
+OPEN_DATES_OVERRIDE="${STOCK_GET_DATA_OPEN_DATES:-}"
 
 info() {
   printf '[stock-data] %s\n' "$*"
@@ -219,20 +220,57 @@ raise SystemExit(2)
 PY
 }
 
-print_date_range() {
-  .venv/bin/python - "$1" "$2" <<'PY'
-from datetime import date, timedelta
+print_open_date_range() {
+  .venv/bin/python - "$1" "$2" "$OPEN_DATES_OVERRIDE" <<'PY'
+from datetime import date, datetime
+import os
 import sys
 
 start = date.fromisoformat(sys.argv[1])
 end = date.fromisoformat(sys.argv[2])
+override = sys.argv[3].strip()
 if start > end:
     print(f"--start must be earlier than or equal to --end: {start} > {end}", file=sys.stderr)
     raise SystemExit(2)
-current = start
-while current <= end:
-    print(current.isoformat())
-    current += timedelta(days=1)
+
+def parse_date(raw: str) -> date:
+    for fmt in ("%Y-%m-%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(raw.strip(), fmt).date()
+        except ValueError:
+            pass
+    print(f"Invalid open date override: {raw}", file=sys.stderr)
+    raise SystemExit(2)
+
+if override:
+    for item in override.replace(",", " ").split():
+        current = parse_date(item)
+        if start <= current <= end:
+            print(current.isoformat())
+    raise SystemExit(0)
+
+token = os.environ.get("TUSHARE_TOKEN", "")
+if not token:
+    print("TUSHARE_TOKEN is required to resolve trading dates", file=sys.stderr)
+    raise SystemExit(1)
+
+try:
+    import tushare as ts
+except ImportError:
+    print("tushare is required to resolve trading dates. Run: bash deploy_ubuntu.sh", file=sys.stderr)
+    raise SystemExit(1)
+
+pro = ts.pro_api(token)
+frame = pro.trade_cal(
+    exchange="",
+    start_date=start.strftime("%Y%m%d"),
+    end_date=end.strftime("%Y%m%d"),
+)
+if frame.empty:
+    raise SystemExit(0)
+open_days = frame[frame["is_open"] == 1].sort_values("cal_date")
+for raw in open_days["cal_date"].tolist():
+    print(datetime.strptime(str(raw), "%Y%m%d").date().isoformat())
 PY
 }
 
@@ -290,21 +328,30 @@ main() {
   if [ -n "$START_DATE" ]; then
     START_DATE="$(normalize_date "$START_DATE")"
     END_DATE="$(normalize_date "$END_DATE")"
-    date_range="$(print_date_range "$START_DATE" "$END_DATE")"
+    date_range="$(print_open_date_range "$START_DATE" "$END_DATE")"
   fi
 
   run_shell "DATABASE_URL='$DATABASE_URL' scripts/db-upgrade.sh"
 
   if [ -n "$START_DATE" ]; then
     info "running data workflow from $START_DATE to $END_DATE"
-    while IFS= read -r trade_date; do
-      if [ -z "$trade_date" ]; then
-        continue
-      fi
-      run_one_date "$trade_date"
-    done <<< "$date_range"
+    if [ -z "$date_range" ]; then
+      info "no open trading dates found from $START_DATE to $END_DATE; skipping workflow"
+    else
+      while IFS= read -r trade_date; do
+        if [ -z "$trade_date" ]; then
+          continue
+        fi
+        run_one_date "$trade_date"
+      done <<< "$date_range"
+    fi
   else
-    run_one_date "$TRADE_DATE"
+    date_range="$(print_open_date_range "$TRADE_DATE" "$TRADE_DATE")"
+    if [ -z "$date_range" ]; then
+      info "$TRADE_DATE is not an open trading date; skipping workflow"
+    else
+      run_one_date "$TRADE_DATE"
+    fi
   fi
 
   if [ "$DRY_RUN" = "1" ]; then
