@@ -223,14 +223,24 @@ def test_run_realtime_quote_workflow_backfills_quotes_tracks_plan_and_buys() -> 
         assert session.scalar(select(SimulationTrade).where(SimulationTrade.stock_code == "000001"))
 
 
-def test_run_realtime_quote_workflow_runs_when_stock_daily_already_exists() -> None:
+def test_run_realtime_quote_workflow_refreshes_when_stock_daily_already_exists() -> None:
     engine = _engine()
     with Session(engine) as session:
         _seed_plan(session)
         session.add(StockDaily(**_daily().__dict__))
         session.commit()
 
-    provider = FakeRealtimeProvider([])
+    refreshed = StockDailyRecord(
+        **{
+            **_daily().__dict__,
+            "close": 10.8,
+            "high": 11.0,
+            "change": 0.8,
+            "pct_chg": 8.0,
+            "source": "unit-test-realtime-refresh",
+        }
+    )
+    provider = FakeRealtimeProvider([refreshed])
 
     result = run_realtime_quote_workflow(
         engine,
@@ -239,9 +249,15 @@ def test_run_realtime_quote_workflow_runs_when_stock_daily_already_exists() -> N
         allow_date_mismatch=True,
     )
 
-    assert result.backfill.requested_stock_count == 0
-    assert result.backfill.skipped_reason == "目标交易日计划股已有 stock_daily，无需拉取实时行情"
-    assert provider.calls == []
+    assert result.backfill.existing_stock_count == 1
+    assert result.backfill.requested_stock_count == 1
+    assert result.backfill.fetched_stock_daily_rows == 1
+    assert result.backfill.skipped_reason == ""
+    assert provider.calls == [(["000001"], date(2026, 6, 19))]
     assert result.workflow is not None
     assert result.workflow.tracking[0].status == "已触发"
     assert result.workflow.simulation.trades[0].trade_type == "买入"
+    with Session(engine) as session:
+        daily = session.scalar(select(StockDaily).where(StockDaily.stock_code == "000001"))
+        assert float(daily.close) == 10.8
+        assert float(daily.pct_chg) == 8.0

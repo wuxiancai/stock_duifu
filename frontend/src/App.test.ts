@@ -652,9 +652,16 @@ describe('App', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString()
       const path = new URL(url, 'http://localhost').pathname
+      const realtimeTrackingResponse = responses['/api/trade-plans/track-realtime'] as { items: unknown[] }
       const response = path === '/api/simulation/latest'
         ? (++simulationFetchCount === 1 ? simulationBeforeRealtime : simulationAfterRealtime)
-        : responses[path]
+        : path === '/api/simulation/run-workflow'
+          ? {
+              target_trade_date: '2026-06-22',
+              tracking: realtimeTrackingResponse.items,
+              simulation: simulationAfterRealtime
+            }
+          : responses[path]
 
       return {
         ok: true,
@@ -675,9 +682,18 @@ describe('App', () => {
     await wrapper.vm.$nextTick()
 
     expect(fetchMock.mock.calls.map((call) => new URL(String(call[0]), 'http://localhost').pathname)).toContain('/api/trade-plans/track-realtime')
-    expect(simulationFetchCount).toBe(2)
+    expect(fetchMock.mock.calls.map((call) => new URL(String(call[0]), 'http://localhost').pathname)).toContain('/api/simulation/run-workflow')
+    expect(simulationFetchCount).toBe(1)
     expect(wrapper.text()).toContain('1382.33')
     expect(wrapper.text()).not.toContain('1358.24')
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    const paths = fetchMock.mock.calls.map((call) => new URL(String(call[0]), 'http://localhost').pathname)
+    expect(paths.filter((path) => path === '/api/trade-plans/track-realtime')).toHaveLength(2)
+    expect(paths.filter((path) => path === '/api/simulation/run-workflow')).toHaveLength(2)
   })
 
   it('renders empty dashboard state without showing data errors', async () => {

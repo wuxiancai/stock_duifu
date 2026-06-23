@@ -49,7 +49,7 @@ def backfill_trade_plan_realtime_quotes(
     engine: Engine,
     target_trade_date: date,
     provider: RealtimeQuoteProvider,
-    include_existing: bool = False,
+    include_existing: bool = True,
     allow_date_mismatch: bool = False,
 ) -> RealtimeQuoteBackfillResult:
     china_today = _china_today()
@@ -130,7 +130,7 @@ def run_realtime_quote_workflow(
     engine: Engine,
     target_trade_date: date,
     provider: RealtimeQuoteProvider,
-    include_existing: bool = False,
+    include_existing: bool = True,
     mark_untriggered_at_close: bool = False,
     allow_date_mismatch: bool = False,
 ) -> RealtimeQuoteWorkflowResult:

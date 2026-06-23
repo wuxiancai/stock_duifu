@@ -66,6 +66,9 @@ const planKeyword = ref('')
 const planTrackingLoading = ref(false)
 const simulationLoading = ref(false)
 const routePath = ref(window.location.pathname)
+const intradayRefreshTimer = ref<number | null>(null)
+const intradayRefreshRunning = ref(false)
+const INTRADAY_REFRESH_INTERVAL_MS = 60_000
 
 const statusType = computed(() => {
   if (error.value) return 'danger'
@@ -235,8 +238,12 @@ async function loadDashboard() {
       const realtimeResult = await trackRealtimeTradePlans(tradePlansResult.target_trade_date).catch(() => null)
       if (realtimeResult) {
         realtimeTrackingItems = realtimeResult.items
+        const workflowResult = await runSimulationWorkflow(tradePlansResult.target_trade_date).catch(() => null)
+        if (workflowResult) {
+          realtimeTrackingItems = workflowResult.tracking
+          simulationResult = workflowResult.simulation
+        }
         tradePlansResult = await fetchLatestTradePlans()
-        simulationResult = await fetchLatestSimulation().catch(() => simulationResult)
       }
     }
 
@@ -251,11 +258,46 @@ async function loadDashboard() {
     databaseHealth.value = databaseHealthResult
     trackingItems.value = realtimeTrackingItems
     selectedPlanDetail.value = null
+    configureIntradayRefresh()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '业务数据加载失败'
   } finally {
     loading.value = false
   }
+}
+
+async function refreshIntradayWorkflow() {
+  const targetTradeDate = tradePlans.value?.target_trade_date
+  if (!targetTradeDate || !isTodayInChina(targetTradeDate) || intradayRefreshRunning.value) return
+
+  intradayRefreshRunning.value = true
+
+  try {
+    const realtimeResult = await trackRealtimeTradePlans(targetTradeDate)
+    trackingItems.value = realtimeResult.items
+    const workflowResult = await runSimulationWorkflow(targetTradeDate)
+    trackingItems.value = workflowResult.tracking
+    simulation.value = workflowResult.simulation
+    tradePlans.value = await fetchLatestTradePlans()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '盘中实时刷新失败'
+  } finally {
+    intradayRefreshRunning.value = false
+  }
+}
+
+function configureIntradayRefresh() {
+  stopIntradayRefresh()
+  if (!isTodayInChina(tradePlans.value?.target_trade_date)) return
+  intradayRefreshTimer.value = window.setInterval(() => {
+    void refreshIntradayWorkflow()
+  }, INTRADAY_REFRESH_INTERVAL_MS)
+}
+
+function stopIntradayRefresh() {
+  if (intradayRefreshTimer.value === null) return
+  window.clearInterval(intradayRefreshTimer.value)
+  intradayRefreshTimer.value = null
 }
 
 function navigateToSector(sectorName: string) {
@@ -621,6 +663,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('popstate', syncRoutePath)
+  stopIntradayRefresh()
 })
 </script>
 

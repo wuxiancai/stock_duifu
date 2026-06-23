@@ -61,8 +61,16 @@ def build_parser() -> argparse.ArgumentParser:
     realtime.add_argument("--target-trade-date", required=True, help="Target trade date in YYYY-MM-DD format")
     realtime.add_argument(
         "--include-existing",
+        dest="include_existing",
         action="store_true",
+        default=True,
         help="Refetch plan stocks even when stock_daily already exists",
+    )
+    realtime.add_argument(
+        "--skip-existing",
+        dest="include_existing",
+        action="store_false",
+        help="Skip realtime quote fetch when target-day stock_daily already exists",
     )
     realtime.add_argument(
         "--mark-untriggered-at-close",

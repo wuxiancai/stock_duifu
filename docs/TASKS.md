@@ -1252,3 +1252,20 @@ TuShare 全市场初始化验证：
 - `.venv/bin/pytest tests/test_system_monitoring.py tests/test_deployment_scripts.py`：17 passed，1 个 LibreSSL/urllib3 warning。
 - `.venv/bin/pytest`：131 passed，1 个 LibreSSL/urllib3 warning。
 - `GET /api/system/data-runs/latest` 单元测试确认：`2026-06-20 is_open=false` 的 `error` 日志被过滤，`2026-06-22 is_open=true` 的 `success` 日志正常返回。
+
+### 51. 盘中跟踪实时价格持续刷新与模拟触发修复
+
+- 修复盘中跟踪表“当前价 / 涨跌幅”有值但不持续更新，进而影响模拟实盘触发的问题。
+- 根因 1：实时回补 workflow 默认在目标日已有 `stock_daily` 时跳过拉取，盘中第一次写入的快照会被当成永久最新行情。
+- 根因 2：Web 首页只在打开或手动刷新时调用一次实时跟踪，没有在目标交易日当天持续轮询，因此页面停留期间价格和模拟交易都不会继续推进。
+- 新逻辑：`backfill_trade_plan_realtime_quotes` / `run_realtime_quote_workflow` 默认 `include_existing=True`，会重新拉取计划股实时快照并覆盖同一目标日旧快照；CLI 如需跳过旧快照可显式传 `--skip-existing`。
+- 新逻辑：Web 在交易计划目标日等于中国当前日期时，启动 60 秒盘中自动刷新：实时行情回补 -> 跟踪计划触发 -> 运行模拟交易 workflow -> 重新读取最新交易计划。
+- 首次加载目标交易日当天页面时也会先跑实时回补和模拟 workflow，避免模拟持仓继续使用打开页面前的旧价。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_realtime_quote_workflow.py tests/test_trade_plan_generation.py -q`：28 passed，1 个 LibreSSL/urllib3 warning。
+- `cd frontend && npm test -- --run`：3 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
