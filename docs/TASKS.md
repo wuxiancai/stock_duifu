@@ -1350,3 +1350,30 @@ TuShare 全市场初始化验证：
 
 - `cd frontend && npm test -- --run`：3 passed。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+
+### 57. 云服务器一键部署、systemd 启停与数据自检补齐
+
+- `deploy_ubuntu.sh` 升级为云服务器一键部署入口：
+  - 检查 Ubuntu 依赖，缺少 `python3`、`docker.io`、`docker-compose-plugin`、`systemd`、Node.js 20+ 等依赖时安装，已存在则跳过。
+  - 检查 Docker daemon 和当前用户 Docker 权限；当前会话无权限但 `sudo docker compose` 可用时，会把部署用户加入 `docker` 组，并提示重新登录后生效，本轮部署继续用 sudo 兜底。
+  - PostgreSQL、API、Web 端口都使用顺延机制，并打印最终端口；运行端口写回 `.env`。
+  - 部署只创建空数据库 schema，不拉行情数据；真实数据由首次 `start.sh` 自检或 23 点 cron 负责。
+  - 安装并启用 `stock-api.service`、`stock-web.service` 两个 systemd 服务。
+  - 幂等安装 `CRON_TZ=Asia/Shanghai` + 工作日 `23:00` 的 `get_data.sh` 定时任务，日志写到 `.logs/get_data_cron.log`。
+  - 部署完成说明明确提示用户执行 `bash start.sh`。
+- `start.sh` 升级为统一启动入口：
+  - 启动前停止旧 systemd 服务、项目 API/Web 进程、端口监听进程和 Docker Compose 服务。
+  - 启动 PostgreSQL、执行迁移、写回端口后，检查 `trading_calendar`、`stock_basic`、`stock_daily`、`market_daily`、`sector_daily`、`candidate_stock`、`trade_plan`、`data_job_run` 的真实计数。
+  - 若数据库不满足 A 股短线决策系统要求，自动执行 `bash get_data.sh` 补齐数据，并打印补前/补后详情；可用 `STOCK_START_SKIP_DATA_CHECK=1` 跳过。
+  - 优先通过 systemd 重启 API/Web；若 systemd unit 未安装，则降级为 `nohup` 后台进程并写 `.run/*.pid`。
+- 新增 `stop.sh`：
+  - 一键停止 `stock-web.service`、`stock-api.service`、fallback PID、项目目录下 API/Web 进程、相关端口监听进程和 Docker Compose 服务。
+  - 默认使用 `docker compose down --remove-orphans`，保留 PostgreSQL 数据卷，不删除数据。
+
+状态：已完成。
+
+验证：
+
+- `bash -n deploy_ubuntu.sh start.sh stop.sh`：通过。
+- `STOCK_DEPLOY_DRY_RUN=1 FORCE_INSTALL=1 TUSHARE_TOKEN=token-for-dry-run bash deploy_ubuntu.sh`：通过，输出依赖安装、Docker 权限检查、端口顺延、systemd unit、23 点 cron 和 `bash start.sh` 提示。
+- `.venv/bin/pytest tests/test_deployment_scripts.py -q`：15 passed。

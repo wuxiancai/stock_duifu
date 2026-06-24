@@ -11,6 +11,7 @@ if [ -f ".env" ]; then
   set +a
 fi
 
+SERVICE_PREFIX="${STOCK_SERVICE_PREFIX:-stock}"
 CONFIGURED_POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-}"
 POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-${POSTGRES_HOST_PORT:-15432}}"
 API_BASE_PORT="${API_BASE_PORT:-${API_PORT:-8000}}"
@@ -20,8 +21,7 @@ WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-${WEB_HOST:-0.0.0.0}}"
 HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"
 DB_HOST="${DB_HOST:-127.0.0.1}"
 LOG_DIR="$ROOT_DIR/.logs"
-API_PID=""
-WEB_PID=""
+RUN_DIR="$ROOT_DIR/.run"
 
 info() {
   printf '[stock-start] %s\n' "$*"
@@ -33,6 +33,26 @@ warn() {
 
 unique_lines() {
   awk 'NF && !seen[$0]++'
+}
+
+sudo_cmd() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+docker_compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+    return
+  fi
+  if command -v sudo >/dev/null 2>&1 && sudo docker compose version >/dev/null 2>&1; then
+    sudo docker compose "$@"
+    return
+  fi
+  docker compose "$@"
 }
 
 upsert_env_key() {
@@ -81,6 +101,7 @@ sync_runtime_env() {
   upsert_env_key "API_PORT" "$API_PORT"
   upsert_env_key "WEB_HOST" "$WEB_LISTEN_HOST"
   upsert_env_key "WEB_PORT" "$WEB_PORT"
+  upsert_env_key "VITE_DEV_API_PROXY_TARGET" "$VITE_DEV_API_PROXY_TARGET"
   remove_env_key "VITE_API_BASE_URL"
   info "synced selected ports to .env: api=$API_PORT, web=$WEB_PORT, postgres=$POSTGRES_HOST_PORT"
 }
@@ -115,34 +136,22 @@ next_available_port() {
 wait_for_url() {
   local url="$1"
   local name="$2"
-  local pid="${3:-}"
-  local log_file="${4:-}"
   local i
   for i in $(seq 1 60); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       info "$name is ready: $url"
       return 0
     fi
-    if [ -n "$pid" ] && ! kill -0 "$pid" >/dev/null 2>&1; then
-      echo "$name process exited before becoming ready. Check log: $log_file" >&2
-      if [ -n "$log_file" ] && [ -f "$log_file" ]; then
-        tail -n 80 "$log_file" >&2
-      fi
-      return 1
-    fi
     sleep 1
   done
   echo "$name did not become ready in time. Check logs in $LOG_DIR" >&2
-  if [ -n "$log_file" ] && [ -f "$log_file" ]; then
-    tail -n 80 "$log_file" >&2
-  fi
   return 1
 }
 
 wait_for_postgres() {
   local i
   for i in $(seq 1 60); do
-    if docker compose exec -T postgres pg_isready -U stock -d stock >/dev/null 2>&1; then
+    if docker_compose exec -T postgres pg_isready -U stock -d stock >/dev/null 2>&1; then
       info "PostgreSQL is ready in Docker: postgres:5432"
       return 0
     fi
@@ -176,15 +185,21 @@ detect_public_host() {
   printf '%s' "$HEALTHCHECK_HOST"
 }
 
-cleanup() {
-  if [ -n "$API_PID" ] && kill -0 "$API_PID" >/dev/null 2>&1; then
-    kill "$API_PID" >/dev/null 2>&1 || true
+systemd_unit_exists() {
+  local unit="$1"
+  command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files "$unit" --no-legend 2>/dev/null | grep -q "$unit"
+}
+
+stop_systemd_services() {
+  if systemd_unit_exists "${SERVICE_PREFIX}-web.service"; then
+    info "stopping existing systemd web service"
+    sudo_cmd systemctl stop "${SERVICE_PREFIX}-web.service" || true
   fi
-  if [ -n "$WEB_PID" ] && kill -0 "$WEB_PID" >/dev/null 2>&1; then
-    kill "$WEB_PID" >/dev/null 2>&1 || true
+  if systemd_unit_exists "${SERVICE_PREFIX}-api.service"; then
+    info "stopping existing systemd API service"
+    sudo_cmd systemctl stop "${SERVICE_PREFIX}-api.service" || true
   fi
 }
-trap cleanup EXIT INT TERM
 
 kill_pid_tree() {
   local pid="$1"
@@ -306,90 +321,182 @@ stop_existing_docker_services() {
     info "docker command not found; skipping existing Docker services stop"
     return 0
   fi
-  if ! docker compose version >/dev/null 2>&1; then
+  if ! docker compose version >/dev/null 2>&1 && ! sudo docker compose version >/dev/null 2>&1; then
     info "Docker Compose v2 not found; skipping existing Docker services stop"
     return 0
   fi
 
   info "stopping existing Docker Compose services"
-  docker compose down
+  docker_compose down
 }
 
 stop_existing_project() {
   info "stopping existing project before restart"
+  stop_systemd_services
   stop_existing_app_processes
   stop_existing_docker_services
 }
 
-stop_existing_project
+select_runtime_ports() {
+  POSTGRES_HOST_PORT="$(next_available_port "$DB_HOST" "${CONFIGURED_POSTGRES_HOST_PORT:-$POSTGRES_BASE_PORT}")"
+  API_PORT="$(next_available_port "$API_LISTEN_HOST" "$API_BASE_PORT")"
+  WEB_PORT="$(next_available_port "$WEB_LISTEN_HOST" "$WEB_BASE_PORT")"
+  DATABASE_URL="postgresql+psycopg://stock:stock@$DB_HOST:$POSTGRES_HOST_PORT/stock"
+  VITE_DEV_API_PROXY_TARGET="http://$HEALTHCHECK_HOST:$API_PORT"
+  export POSTGRES_HOST_PORT API_PORT WEB_PORT DATABASE_URL VITE_DEV_API_PROXY_TARGET
+}
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "Missing docker command. Please start/install Docker first." >&2
-  exit 1
-fi
+ensure_dependencies() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "Missing docker command. Please run bash deploy_ubuntu.sh first." >&2
+    exit 1
+  fi
 
-if ! docker compose version >/dev/null 2>&1; then
-  echo "Missing Docker Compose v2. Please update Docker Desktop." >&2
-  exit 1
-fi
+  if ! docker compose version >/dev/null 2>&1 && ! sudo docker compose version >/dev/null 2>&1; then
+    echo "Missing Docker Compose v2 or Docker permission. Please run bash deploy_ubuntu.sh first." >&2
+    exit 1
+  fi
 
-if [ ! -x ".venv/bin/uvicorn" ] || [ ! -d "frontend/node_modules" ]; then
-  info "dependencies are missing; running make install"
-  make install
-fi
+  if [ ! -x ".venv/bin/uvicorn" ] || [ ! -d "frontend/node_modules" ]; then
+    info "dependencies are missing; installing local Python/frontend dependencies"
+    make install
+  fi
+}
 
-if [ -n "$CONFIGURED_POSTGRES_HOST_PORT" ]; then
-  POSTGRES_HOST_PORT="$CONFIGURED_POSTGRES_HOST_PORT"
-else
-  POSTGRES_HOST_PORT="$(next_available_port "$DB_HOST" "$POSTGRES_BASE_PORT")"
-fi
-API_PORT="$(next_available_port "$API_LISTEN_HOST" "$API_BASE_PORT")"
-WEB_PORT="$(next_available_port "$WEB_LISTEN_HOST" "$WEB_BASE_PORT")"
-PUBLIC_HOST="$(detect_public_host)"
-DATABASE_URL="postgresql+psycopg://stock:stock@$DB_HOST:$POSTGRES_HOST_PORT/stock"
-VITE_DEV_API_PROXY_TARGET="http://$HEALTHCHECK_HOST:$API_PORT"
+run_migrations() {
+  info "running database migrations"
+  DATABASE_URL="$DATABASE_URL" scripts/db-upgrade.sh
+}
 
-mkdir -p "$LOG_DIR"
-: >"$LOG_DIR/api.log"
-: >"$LOG_DIR/web.log"
+start_postgres() {
+  info "starting PostgreSQL container: host $DB_HOST:$POSTGRES_HOST_PORT -> container postgres:5432"
+  POSTGRES_HOST_PORT="$POSTGRES_HOST_PORT" docker_compose up -d postgres
+  wait_for_postgres
+}
 
-info "starting PostgreSQL container: host $DB_HOST:$POSTGRES_HOST_PORT -> container postgres:5432"
-POSTGRES_HOST_PORT="$POSTGRES_HOST_PORT" docker compose up -d postgres
-wait_for_postgres
+database_decision_counts() {
+  docker_compose exec -T postgres psql -U stock -d stock -At -F '|' -c "
+select
+  (select count(*) from trading_calendar where is_open = true) as open_trading_days,
+  (select count(*) from stock_basic) as stock_basic_rows,
+  (select count(distinct trade_date) from stock_daily) as stock_daily_trade_dates,
+  (select count(*) from market_daily) as market_daily_rows,
+  (select count(*) from sector_daily) as sector_daily_rows,
+  (select count(*) from candidate_stock) as candidate_rows,
+  (select count(*) from trade_plan) as trade_plan_rows,
+  (select count(*) from data_job_run where status in ('success','warning')) as successful_data_jobs;
+" 2>/dev/null || true
+}
 
-info "running database migrations"
-DATABASE_URL="$DATABASE_URL" scripts/db-upgrade.sh
+check_and_fill_decision_data() {
+  if [ "${STOCK_START_SKIP_DATA_CHECK:-0}" = "1" ]; then
+    info "skipping data health check because STOCK_START_SKIP_DATA_CHECK=1"
+    return 0
+  fi
 
-info "starting API on $API_LISTEN_HOST:$API_PORT, log: $LOG_DIR/api.log"
-API_HOST="$API_LISTEN_HOST" API_PORT="$API_PORT" API_RELOAD=0 DATABASE_URL="$DATABASE_URL" scripts/dev-api.sh >"$LOG_DIR/api.log" 2>&1 &
-API_PID="$!"
-wait_for_url "http://$HEALTHCHECK_HOST:$API_PORT/api/health" "API" "$API_PID" "$LOG_DIR/api.log"
+  local counts
+  counts="$(database_decision_counts)"
+  if [ -z "$counts" ]; then
+    warn "could not read database decision data counts; running get_data.sh to initialize data"
+    bash get_data.sh
+    return 0
+  fi
 
-info "starting frontend on $WEB_LISTEN_HOST:$WEB_PORT, log: $LOG_DIR/web.log"
-(cd frontend && VITE_API_BASE_URL="" VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" npm run dev -- --host "$WEB_LISTEN_HOST" --port "$WEB_PORT") >"$LOG_DIR/web.log" 2>&1 &
-WEB_PID="$!"
-wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend" "$WEB_PID" "$LOG_DIR/web.log"
-sync_runtime_env
+  IFS='|' read -r open_days stock_basic_rows stock_daily_dates market_rows sector_rows candidate_rows plan_rows data_jobs <<<"$counts"
+  cat <<EOF
+[stock-start] database decision data check:
+  open_trading_days=$open_days
+  stock_basic_rows=$stock_basic_rows
+  stock_daily_trade_dates=$stock_daily_dates
+  market_daily_rows=$market_rows
+  sector_daily_rows=$sector_rows
+  candidate_rows=$candidate_rows
+  trade_plan_rows=$plan_rows
+  successful_data_jobs=$data_jobs
+EOF
 
-cat <<EOF
+  if [ "$open_days" -lt 20 ] || [ "$stock_daily_dates" -lt 20 ] || [ "$market_rows" -lt 1 ] || [ "$sector_rows" -lt 1 ] || [ "$candidate_rows" -lt 1 ] || [ "$plan_rows" -lt 1 ] || [ "$data_jobs" -lt 1 ]; then
+    warn "database does not yet satisfy A-share decision requirements; running bash get_data.sh"
+    if ! bash get_data.sh; then
+      warn "get_data.sh failed. Check TUSHARE_TOKEN, network access, and $LOG_DIR/get_data_cron.log if cron is involved."
+      return 1
+    fi
+    info "data initialization completed; rechecking counts"
+    counts="$(database_decision_counts)"
+    IFS='|' read -r open_days stock_basic_rows stock_daily_dates market_rows sector_rows candidate_rows plan_rows data_jobs <<<"$counts"
+    cat <<EOF
+[stock-start] database decision data check after fill:
+  open_trading_days=$open_days
+  stock_basic_rows=$stock_basic_rows
+  stock_daily_trade_dates=$stock_daily_dates
+  market_daily_rows=$market_rows
+  sector_daily_rows=$sector_rows
+  candidate_rows=$candidate_rows
+  trade_plan_rows=$plan_rows
+  successful_data_jobs=$data_jobs
+EOF
+  else
+    info "database already has enough data for the decision dashboard"
+  fi
+}
+
+start_systemd_or_fallback() {
+  mkdir -p "$LOG_DIR" "$RUN_DIR"
+
+  if systemd_unit_exists "${SERVICE_PREFIX}-api.service" && systemd_unit_exists "${SERVICE_PREFIX}-web.service"; then
+    info "starting API/Web through systemd"
+    sudo_cmd systemctl restart "${SERVICE_PREFIX}-api.service"
+    sudo_cmd systemctl restart "${SERVICE_PREFIX}-web.service"
+  else
+    warn "systemd units not installed; falling back to nohup background processes"
+    : >"$LOG_DIR/api.log"
+    : >"$LOG_DIR/web.log"
+    API_HOST="$API_LISTEN_HOST" API_PORT="$API_PORT" API_RELOAD=0 DATABASE_URL="$DATABASE_URL" nohup scripts/dev-api.sh >"$LOG_DIR/api.log" 2>&1 &
+    printf '%s\n' "$!" >"$RUN_DIR/api.pid"
+    (cd frontend && VITE_API_BASE_URL="" VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" nohup npm run dev -- --host "$WEB_LISTEN_HOST" --port "$WEB_PORT" >"$LOG_DIR/web.log" 2>&1 & printf '%s\n' "$!" >"$RUN_DIR/web.pid")
+  fi
+
+  wait_for_url "http://$HEALTHCHECK_HOST:$API_PORT/api/health" "API"
+  wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend"
+}
+
+main() {
+  stop_existing_project
+  ensure_dependencies
+  select_runtime_ports
+  sync_runtime_env
+  start_postgres
+  run_migrations
+  check_and_fill_decision_data
+  start_systemd_or_fallback
+
+  local public_host
+  public_host="$(detect_public_host)"
+
+  cat <<EOF
 
 Project is running.
 
 Frontend local: http://$HEALTHCHECK_HOST:$WEB_PORT
-Frontend LAN:   http://$PUBLIC_HOST:$WEB_PORT
+Frontend LAN:   http://$public_host:$WEB_PORT
 API local:      http://$HEALTHCHECK_HOST:$API_PORT/api/health
 API proxy:      /api -> $VITE_DEV_API_PROXY_TARGET
 Database:       $DB_HOST:$POSTGRES_HOST_PORT -> postgres:5432
-Logs:     $LOG_DIR
+Logs:           $LOG_DIR
+
+Selected ports:
+  Web:        $WEB_PORT
+  API:        $API_PORT
+  PostgreSQL: $POSTGRES_HOST_PORT
 
 If another LAN computer cannot open Frontend LAN, allow the web port on Ubuntu:
   sudo ufw allow $WEB_PORT/tcp
 
-Run bash start.sh again to stop the existing project and restart it.
-Press Ctrl+C to stop this foreground API/frontend session.
-PostgreSQL keeps running in Docker after Ctrl+C. Stop it with:
-  docker compose down
+Run bash start.sh again to stop existing services and restart cleanly.
+Stop everything with:
+  bash stop.sh
 
 EOF
+}
 
-wait "$API_PID" "$WEB_PID"
+main "$@"

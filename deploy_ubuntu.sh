@@ -6,13 +6,28 @@ cd "$ROOT_DIR"
 
 DRY_RUN="${STOCK_DEPLOY_DRY_RUN:-0}"
 POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-15432}"
+API_BASE_PORT="${API_BASE_PORT:-${API_PORT:-8000}}"
+WEB_BASE_PORT="${WEB_BASE_PORT:-${WEB_PORT:-5173}}"
+API_LISTEN_HOST="${API_LISTEN_HOST:-${API_HOST:-0.0.0.0}}"
+WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-${WEB_HOST:-0.0.0.0}}"
+HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"
+DB_HOST="${DB_HOST:-127.0.0.1}"
 POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-}"
-EXPLICIT_DATABASE_URL=""
-EXPLICIT_POSTGRES_HOST_PORT=""
-EXPLICIT_TUSHARE_TOKEN=""
+API_PORT="${API_PORT:-}"
+WEB_PORT="${WEB_PORT:-}"
+EXPLICIT_DATABASE_URL="${DATABASE_URL:-}"
+EXPLICIT_POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-}"
+EXPLICIT_TUSHARE_TOKEN="${TUSHARE_TOKEN:-}"
+DEPLOY_USER="${SUDO_USER:-${USER:-$(id -un)}}"
+SERVICE_PREFIX="${STOCK_SERVICE_PREFIX:-stock}"
+LOG_DIR="$ROOT_DIR/.logs"
 
 info() {
   printf '[stock-deploy] %s\n' "$*"
+}
+
+warn() {
+  printf '[stock-deploy] %s\n' "$*" >&2
 }
 
 run() {
@@ -33,6 +48,20 @@ run_shell() {
   bash -lc "$*"
 }
 
+run_sudo() {
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '+ sudo'
+    printf ' %s' "$@"
+    printf '\n'
+    return 0
+  fi
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
 run_root_shell() {
   if [ "$DRY_RUN" = "1" ]; then
     printf '+ sudo bash -lc %q\n' "$*"
@@ -45,36 +74,40 @@ run_root_shell() {
   fi
 }
 
-sudo_cmd() {
-  if [ "$(id -u)" -eq 0 ]; then
-    "$@"
+docker_compose() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
     return
   fi
-  sudo "$@"
+  if command -v sudo >/dev/null 2>&1 && sudo docker compose version >/dev/null 2>&1; then
+    sudo docker compose "$@"
+    return
+  fi
+  docker compose "$@"
 }
 
 is_port_available() {
-  local port="$1"
-  if command -v lsof >/dev/null 2>&1; then
-    ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
-  elif command -v python3 >/dev/null 2>&1; then
-    python3 - "$port" <<'PY'
+  local host="$1"
+  local port="$2"
+  python3 - "$host" "$port" <<'PY'
 import socket
 import sys
 
-port = int(sys.argv[1])
+host = sys.argv[1]
+port = int(sys.argv[2])
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-    sock.settimeout(0.2)
-    sys.exit(1 if sock.connect_ex(("127.0.0.1", port)) == 0 else 0)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, port))
+    except OSError:
+        sys.exit(1)
 PY
-  else
-    ! nc -z 127.0.0.1 "$port" >/dev/null 2>&1
-  fi
 }
 
 next_available_port() {
-  local port="$1"
-  while ! is_port_available "$port"; do
+  local host="$1"
+  local port="$2"
+  while ! is_port_available "$host" "$port"; do
     port=$((port + 1))
   done
   printf '%s' "$port"
@@ -118,14 +151,20 @@ upsert_env_key() {
   mv "$tmp_file" "$file"
 }
 
-run_sudo() {
+remove_env_key() {
+  local key="$1"
+  local file=".env"
+  local tmp_file
+
   if [ "$DRY_RUN" = "1" ]; then
-    printf '+ sudo'
-    printf ' %s' "$@"
-    printf '\n'
+    printf '+ remove %s from %s if present\n' "$key" "$file"
     return 0
   fi
-  sudo_cmd "$@"
+
+  [ -f "$file" ] || return 0
+  tmp_file="$(mktemp)"
+  awk -v key="$key" '$0 !~ "^" key "=" { print }' "$file" >"$tmp_file"
+  mv "$tmp_file" "$file"
 }
 
 ensure_system_packages() {
@@ -142,8 +181,27 @@ ensure_system_packages() {
     missing=1
   fi
 
+  if ! command -v systemctl >/dev/null 2>&1; then
+    missing=1
+  fi
+
   if [ "$missing" -eq 0 ]; then
     info "system packages already available; skipping apt install"
+    return
+  fi
+
+  if [ "$DRY_RUN" = "1" ]; then
+    info "installing missing Ubuntu system packages"
+    run_sudo apt-get update
+    run_sudo apt-get install -y \
+      ca-certificates \
+      curl \
+      docker.io \
+      docker-compose-plugin \
+      python3 \
+      python3-pip \
+      python3-venv \
+      systemd
     return
   fi
 
@@ -161,7 +219,8 @@ ensure_system_packages() {
     docker-compose-plugin \
     python3 \
     python3-pip \
-    python3-venv
+    python3-venv \
+    systemd
 }
 
 node_major_version() {
@@ -190,6 +249,32 @@ ensure_node_runtime() {
   run_sudo apt-get install -y nodejs
 }
 
+ensure_docker_permission() {
+  info "checking Docker daemon and permissions"
+  run_sudo systemctl enable --now docker
+
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '+ docker compose version || sudo docker compose version\n'
+    printf '+ sudo usermod -aG docker %s\n' "$DEPLOY_USER"
+    return 0
+  fi
+
+  if docker compose version >/dev/null 2>&1; then
+    info "current user can run Docker Compose"
+    return
+  fi
+
+  if sudo docker compose version >/dev/null 2>&1; then
+    warn "current session cannot access Docker directly; adding $DEPLOY_USER to docker group"
+    sudo usermod -aG docker "$DEPLOY_USER"
+    warn "docker group membership takes effect after re-login; this deployment will use sudo for Docker where needed"
+    return
+  fi
+
+  echo "Docker Compose is installed but not usable by current user or sudo." >&2
+  exit 1
+}
+
 ensure_env_file() {
   if [ -f ".env" ]; then
     info ".env already exists; keeping current deployment config"
@@ -204,9 +289,6 @@ ensure_env_file() {
 }
 
 load_env_file() {
-  EXPLICIT_DATABASE_URL="${DATABASE_URL:-}"
-  EXPLICIT_POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-}"
-  EXPLICIT_TUSHARE_TOKEN="${TUSHARE_TOKEN:-}"
   if [ -f ".env" ]; then
     set -a
     # shellcheck disable=SC1091
@@ -216,14 +298,18 @@ load_env_file() {
   if [ -n "$EXPLICIT_TUSHARE_TOKEN" ]; then
     TUSHARE_TOKEN="$EXPLICIT_TUSHARE_TOKEN"
   fi
-  export TUSHARE_TOKEN
+  export TUSHARE_TOKEN="${TUSHARE_TOKEN:-}"
 }
 
-select_postgres_port() {
-  local base_port="${EXPLICIT_POSTGRES_HOST_PORT:-$POSTGRES_BASE_PORT}"
-  POSTGRES_HOST_PORT="$(next_available_port "$base_port")"
+select_runtime_ports() {
+  local pg_base="${EXPLICIT_POSTGRES_HOST_PORT:-$POSTGRES_BASE_PORT}"
+  POSTGRES_HOST_PORT="$(next_available_port "$DB_HOST" "$pg_base")"
+  API_PORT="$(next_available_port "$API_LISTEN_HOST" "$API_BASE_PORT")"
+  WEB_PORT="$(next_available_port "$WEB_LISTEN_HOST" "$WEB_BASE_PORT")"
   info "selected PostgreSQL host port: $POSTGRES_HOST_PORT"
-  export POSTGRES_HOST_PORT
+  info "selected API port: $API_PORT"
+  info "selected Web port: $WEB_PORT"
+  export POSTGRES_HOST_PORT API_PORT WEB_PORT
 }
 
 configure_database_url() {
@@ -231,12 +317,22 @@ configure_database_url() {
 
   if [ -n "$EXPLICIT_DATABASE_URL" ] && ! is_local_stock_database_url "$EXPLICIT_DATABASE_URL"; then
     DATABASE_URL="$EXPLICIT_DATABASE_URL"
-  elif [ -z "${DATABASE_URL:-}" ] || is_local_stock_database_url "$DATABASE_URL"; then
+  else
     DATABASE_URL="$selected_database_url"
-    upsert_env_key "POSTGRES_HOST_PORT" "$POSTGRES_HOST_PORT"
-    upsert_env_key "DATABASE_URL" "$DATABASE_URL"
   fi
   export DATABASE_URL
+}
+
+sync_runtime_env() {
+  upsert_env_key "POSTGRES_HOST_PORT" "$POSTGRES_HOST_PORT"
+  upsert_env_key "DATABASE_URL" "$DATABASE_URL"
+  upsert_env_key "API_HOST" "$API_LISTEN_HOST"
+  upsert_env_key "API_PORT" "$API_PORT"
+  upsert_env_key "WEB_HOST" "$WEB_LISTEN_HOST"
+  upsert_env_key "WEB_PORT" "$WEB_PORT"
+  upsert_env_key "VITE_DEV_API_PROXY_TARGET" "http://$HEALTHCHECK_HOST:$API_PORT"
+  remove_env_key "VITE_API_BASE_URL"
+  info "synced selected ports to .env: api=$API_PORT, web=$WEB_PORT, postgres=$POSTGRES_HOST_PORT"
 }
 
 ensure_python_dependencies() {
@@ -275,7 +371,7 @@ ensure_frontend_dependencies() {
 wait_for_postgres() {
   local i
   for i in $(seq 1 60); do
-    if docker compose exec -T postgres pg_isready -U stock -d stock >/dev/null 2>&1; then
+    if docker_compose exec -T postgres pg_isready -U stock -d stock >/dev/null 2>&1; then
       info "PostgreSQL is ready in Docker: postgres:5432"
       return 0
     fi
@@ -286,7 +382,7 @@ wait_for_postgres() {
 }
 
 detect_postgres_published_port() {
-  docker compose port postgres 5432 2>/dev/null | sed -E 's/.*:([0-9]+)$/\1/' | tail -n 1
+  docker_compose port postgres 5432 2>/dev/null | sed -E 's/.*:([0-9]+)$/\1/' | tail -n 1
 }
 
 sync_database_url_from_running_container() {
@@ -302,12 +398,13 @@ sync_database_url_from_running_container() {
     export POSTGRES_HOST_PORT
   fi
   configure_database_url
+  sync_runtime_env
 }
 
 start_database() {
   if [ "${RESET_DB:-0}" = "1" ]; then
     info "RESET_DB=1; removing existing PostgreSQL volume before deployment"
-    run docker compose down -v
+    run_shell "POSTGRES_HOST_PORT=$POSTGRES_HOST_PORT docker compose down -v"
   fi
 
   info "starting PostgreSQL; new deployments start with an empty data volume"
@@ -321,6 +418,61 @@ start_database() {
 run_migrations() {
   info "running database migrations only; deploy_ubuntu.sh does not fetch market data"
   run_shell "DATABASE_URL='$DATABASE_URL' scripts/db-upgrade.sh"
+}
+
+write_systemd_units() {
+  local api_unit="/etc/systemd/system/${SERVICE_PREFIX}-api.service"
+  local web_unit="/etc/systemd/system/${SERVICE_PREFIX}-web.service"
+
+  info "installing systemd services: ${SERVICE_PREFIX}-api.service, ${SERVICE_PREFIX}-web.service"
+  run mkdir -p "$LOG_DIR"
+
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '+ sudo tee %s >/dev/null <<UNIT\n' "$api_unit"
+    printf '+ sudo tee %s >/dev/null <<UNIT\n' "$web_unit"
+  else
+    run_root_shell "cat > '$api_unit' <<'UNIT'
+[Unit]
+Description=Stock decision FastAPI service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$DEPLOY_USER
+WorkingDirectory=$ROOT_DIR
+EnvironmentFile=$ROOT_DIR/.env
+Environment=API_RELOAD=0
+ExecStart=$ROOT_DIR/scripts/dev-api.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+UNIT"
+    run_root_shell "cat > '$web_unit' <<'UNIT'
+[Unit]
+Description=Stock decision Vite web service
+After=${SERVICE_PREFIX}-api.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$DEPLOY_USER
+WorkingDirectory=$ROOT_DIR
+EnvironmentFile=$ROOT_DIR/.env
+Environment=VITE_API_BASE_URL=
+ExecStart=$ROOT_DIR/scripts/dev-web.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+UNIT"
+  fi
+
+  run_sudo systemctl daemon-reload
+  run_sudo systemctl enable "${SERVICE_PREFIX}-api.service" "${SERVICE_PREFIX}-web.service"
 }
 
 install_nightly_cron() {
@@ -338,27 +490,33 @@ main() {
   info "deploying from $ROOT_DIR"
   ensure_system_packages
   ensure_node_runtime
+  ensure_docker_permission
   ensure_env_file
   load_env_file
-  select_postgres_port
+  select_runtime_ports
   configure_database_url
+  sync_runtime_env
   ensure_python_dependencies
   ensure_frontend_dependencies
   start_database
   run_migrations
+  write_systemd_units
   install_nightly_cron
 
   if [ "$DRY_RUN" = "1" ]; then
     cat <<EOF
 
-Dry run complete. No files, packages, containers, or database rows were changed.
+Dry run complete. No files, packages, containers, services, or database rows were changed.
 
-Real deployment would leave the database schema-only. Fetch data later with:
-  TRADE_DATE=YYYY-MM-DD bash get_data.sh
+Real deployment leaves the database schema-only. The first start will check data health
+and run get_data.sh if A-share decision data is missing.
 
-Real deployment would also install a weekday 23:00 cron:
-  CRON_TZ=Asia/Shanghai
-  0 23 * * 1-5 cd $ROOT_DIR && bash get_data.sh
+Real deployment would install:
+  systemd: ${SERVICE_PREFIX}-api.service, ${SERVICE_PREFIX}-web.service
+  cron:    0 23 * * 1-5 cd $ROOT_DIR && bash get_data.sh
+
+After deployment, start the system with:
+  bash start.sh
 
 EOF
     return
@@ -368,16 +526,31 @@ EOF
 
 Deployment is ready.
 
+Selected ports:
+  Web:        $WEB_PORT
+  API:        $API_PORT
+  PostgreSQL: $POSTGRES_HOST_PORT
+
 Database has schema only. It intentionally does not contain market data yet.
-Fetch real market data with:
-  TRADE_DATE=YYYY-MM-DD bash get_data.sh
+On first startup, start.sh checks whether A-share decision data is sufficient and
+runs get_data.sh when required.
 
 Nightly data pull is installed in crontab at 23:00 on weekdays.
 Logs are written to:
   $ROOT_DIR/.logs/get_data_cron.log
 
-Start the app with LAN access:
+Systemd services are installed and enabled:
+  ${SERVICE_PREFIX}-api.service
+  ${SERVICE_PREFIX}-web.service
+
+Start the app now with:
   bash start.sh
+
+Stop everything with:
+  bash stop.sh
+
+If Docker group membership was just changed, re-login later so Docker works
+without sudo in interactive shells.
 
 EOF
 }

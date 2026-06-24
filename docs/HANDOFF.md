@@ -22,13 +22,13 @@
 - 当前已明确交易计划只活一个目标交易日：生成新一日交易计划前，系统会把 `target_trade_date <= plan_date` 且仍为 `待触发` 的旧计划自动标记为 `未触发`，备注为“目标交易日结束未触发，已由新一日交易计划覆盖”；旧计划保留用于复盘统计，但不再参与后续盘中跟踪。
 - 当前已修复模拟交易阅读与时间口径：`/simulation` 页面持仓表和交易记录表新增“模拟持仓”“模拟交易记录”标题；模拟成交时间和交易计划触发时间被限制到 A 股交易时段 `09:30-11:30`、`13:00-15:00`，午休手动执行会记录为 `11:30`，盘后执行会记录为 `15:00`，不再显示 `12:33` 这类非交易时间。
 - 当前已补齐 `/simulation` 页面资金曲线表标题：模拟交易区三张表现在依次显示“模拟持仓”“模拟交易记录”“资金曲线”，阅读层级一致。
-- 当前已补齐 Ubuntu 23 点自动拉数安装：`deploy_ubuntu.sh` 会幂等安装带 `CRON_TZ=Asia/Shanghai` 的工作日 `23:00` crontab，执行 `bash get_data.sh` 并写日志到 `.logs/get_data_cron.log`；该 cron 只负责盘后数据/计划生成，不触发模拟交易。
+- 当前已补齐云服务器一键部署、systemd 启停、23 点自动拉数和启动数据自检：`deploy_ubuntu.sh` 会检查/安装缺失依赖、处理 Docker 权限、顺延 PostgreSQL/API/Web 端口、写入 `.env`、创建空库 schema、安装 `stock-api.service` / `stock-web.service`、安装带 `CRON_TZ=Asia/Shanghai` 的工作日 `23:00` crontab；`start.sh` 会先停旧服务和进程，再启动 PostgreSQL、迁移数据库、检查核心数据表计数，缺数据时自动执行 `bash get_data.sh`；`stop.sh` 一键停止 systemd/fallback 进程和 Docker Compose 服务但保留 PostgreSQL 数据卷。
 - `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
 - 已在本机目录补齐 Ubuntu 部署与数据初始化入口：`deploy_ubuntu.sh` / `get_data.sh` / `make deploy-ubuntu` / `make get-data`。
 - 个人 2c2g 云服务器部署约束：PostgreSQL 必须限制内存和连接数；首次历史数据只初始化一次，之后每天盘后 23 点只拉取当天数据并生成交易计划，避免在服务器上运行开发测试、批量补数或重计算任务。
-- `deploy_ubuntu.sh` 会安装工作日 23:00 中国时区 cron：`CRON_TZ=Asia/Shanghai` + `0 23 * * 1-5 cd <repo> && bash get_data.sh >> <repo>/.logs/get_data_cron.log 2>&1 # codex-stock-nightly-get-data`；重复部署会按 marker 替换，不重复堆叠。
+- `deploy_ubuntu.sh` 会安装工作日 23:00 中国时区 cron：`CRON_TZ=Asia/Shanghai` + `0 23 * * 1-5 cd <repo> && bash get_data.sh >> <repo>/.logs/get_data_cron.log 2>&1 # codex-stock-nightly-get-data`；重复部署会按 marker 替换，不重复堆叠。部署脚本还会安装并启用 `stock-api.service` / `stock-web.service`，但部署后不直接启动 Web/API，终端会提示用户执行 `bash start.sh`。
 - Web 已改为板块独立详情页：主页点击强势板块进入 `/sectors/<板块名>`，独立查看该板块候选股票和交易计划。
 - `deploy_ubuntu.sh` 会在宿主机 PostgreSQL 端口占用时自动顺延，并把 `POSTGRES_HOST_PORT` / `DATABASE_URL` 写回 `.env`。
 - `deploy_ubuntu.sh` 会覆盖旧的本地 stock `DATABASE_URL`，并在容器启动后按 Docker 实际 published port 再同步一次迁移 URL。
@@ -38,7 +38,7 @@
 - `start.sh` 启动前端时不再把局域网 API 绝对地址注入浏览器；浏览器固定请求同源 `/api`，Vite 在 Ubuntu 本机代理到实际 API 端口。
 - `start.sh` 启动前端时会显式清空 `VITE_API_BASE_URL`，避免 `.env` 里残留的 `http://127.0.0.1:8000` 污染浏览器端代码。
 - `start.sh` 在 PostgreSQL/API/Web 都 ready 后写回 `.env`，并删除 `VITE_API_BASE_URL`，让 `.env` 跟运行事实保持一致。
-- `start.sh` 现在内置重启语义：脚本启动最开始会先停止本项目已有 API/Web 进程、占用 API/Web 端口的旧监听进程和 Docker Compose 服务，再重新启动；根目录 `stop.sh` 已删除，用户以后只需反复执行 `bash start.sh`。
+- `start.sh` 现在内置重启语义：脚本启动最开始会先停止本项目已有 systemd 服务、API/Web 进程、占用 API/Web 端口的旧监听进程和 Docker Compose 服务，再重新启动；启动时会检查数据库是否满足 A 股短线决策系统要求，缺少市场/板块/候选/交易计划/夜间任务日志等核心数据时自动执行 `bash get_data.sh` 并打印补数前后详情。根目录 `stop.sh` 已恢复为一键停服入口，默认停止服务和容器但保留数据卷。
 - 新部署空库时，首页依赖的 latest 接口会返回 200 空态，不再把“尚未生成数据”显示成红色 404。
 - `get_data.sh` 未显式传日期时，会用 TuShare `trade_cal` 和默认 18:00 收盘后阈值选择最近已收盘开市日；若新库历史不足，会自动 bootstrap 最近 25 个开市日。也可显式传 `TRADE_DATE=YYYY-MM-DD`、位置参数或 `--start YYYYMMDD --end YYYYMMDD`；区间会先过滤为开市日；内部子脚本通过 `bash scripts/...` 调用，不依赖执行位。
 - 模拟交易和交易复盘现在以 `trading_calendar` 为准：请求日期若明确闭市，会顺延到下一开市日；latest 接口和资金曲线会过滤闭市日记录，避免页面显示非交易日。
@@ -750,8 +750,8 @@
 下一次优先在 Ubuntu 目标机器按顺序执行：
 
 1. `bash deploy_ubuntu.sh`，确认依赖、空库迁移和前端构建完成。
-2. `PUBLIC_HOST=服务器局域网IP bash start.sh`，确认局域网浏览器可访问页面；若其他电脑访问 `http://服务器局域网IP:<WEB_PORT>` 超时，在 Ubuntu 上执行 `sudo ufw allow <WEB_PORT>/tcp` 后重试。
-3. `TRADE_DATE=YYYY-MM-DD bash get_data.sh` 或 `bash get_data.sh --start YYYYMMDD --end YYYYMMDD`，拉真实行情并生成市场环境、强势板块、候选股票和交易计划。
+2. `PUBLIC_HOST=服务器局域网IP bash start.sh`，确认脚本先停止旧服务、启动 PostgreSQL、执行迁移、检查数据表；若核心数据缺失，脚本会自动执行 `bash get_data.sh` 补齐。若其他电脑访问 `http://服务器局域网IP:<WEB_PORT>` 超时，在 Ubuntu 上执行 `sudo ufw allow <WEB_PORT>/tcp` 后重试。
+3. 如需手动补指定日期，再执行 `TRADE_DATE=YYYY-MM-DD bash get_data.sh` 或 `bash get_data.sh --start YYYYMMDD --end YYYYMMDD`，拉真实行情并生成市场环境、强势板块、候选股票和交易计划。
 4. 目标交易日当天再执行 `bash scripts/run-realtime-workflow.sh --provider auto --target-trade-date YYYY-MM-DD`，确认真实实时快照会覆盖计划股旧快照并驱动跟踪/模拟；只有明确不想覆盖旧快照时才加 `--skip-existing`。
 5. 每轮完成前继续更新 `docs/HANDOFF.md` 并提交 git commit。
 
