@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, desc, func, select
 from sqlalchemy.engine import Engine
@@ -17,6 +18,12 @@ from backend.app.db.models import (
     TradeReview,
     TradingCalendar,
 )
+
+TRADING_TZ = ZoneInfo("Asia/Shanghai")
+TRADING_START = time(9, 30)
+TRADING_MORNING_END = time(11, 30)
+TRADING_AFTERNOON_START = time(13, 0)
+TRADING_END = time(15, 0)
 
 
 @dataclass(frozen=True)
@@ -325,7 +332,7 @@ def track_trade_plans(
             .order_by(desc(TradePlan.stock_score), TradePlan.stock_code)
         ).all()
         results: list[TradePlanTrackingResult] = []
-        now = datetime.now(timezone.utc)
+        now = _trade_event_time(target_trade_date)
         target_is_open = _target_is_open(session, target_trade_date)
 
         for plan in plans:
@@ -464,7 +471,7 @@ def update_trade_plan_status(
         plan.tracking_note = note
         if trigger_price is not None:
             plan.trigger_price = round(float(trigger_price), 4)
-            plan.trigger_time = datetime.now(timezone.utc)
+            plan.trigger_time = _trade_event_time(plan.target_trade_date)
         elif status != "已触发":
             plan.trigger_price = None
             plan.trigger_time = None
@@ -990,3 +997,30 @@ def _number(value) -> float:
     if isinstance(value, Decimal):
         return float(value)
     return float(value or 0)
+
+
+def _trade_event_time(trade_date: date) -> datetime:
+    local_now = datetime.now(TRADING_TZ)
+    if local_now.date() != trade_date:
+        return _local_trade_datetime(trade_date, TRADING_START)
+
+    current_time = local_now.time()
+    if _is_trading_time(local_now):
+        return local_now
+    if current_time < TRADING_START:
+        return _local_trade_datetime(trade_date, TRADING_START)
+    if current_time < TRADING_AFTERNOON_START:
+        return _local_trade_datetime(trade_date, TRADING_MORNING_END)
+    return _local_trade_datetime(trade_date, TRADING_END)
+
+
+def _is_trading_time(value: datetime) -> bool:
+    local_value = value.astimezone(TRADING_TZ)
+    current_time = local_value.time()
+    return (TRADING_START <= current_time <= TRADING_MORNING_END) or (
+        TRADING_AFTERNOON_START <= current_time <= TRADING_END
+    )
+
+
+def _local_trade_datetime(trade_date: date, trade_time: time) -> datetime:
+    return datetime.combine(trade_date, trade_time).replace(tzinfo=TRADING_TZ)

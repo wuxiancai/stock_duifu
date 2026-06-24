@@ -1298,3 +1298,25 @@ TuShare 全市场初始化验证：
 验证：
 
 - `.venv/bin/pytest tests/test_trade_plan_generation.py tests/test_realtime_quote_workflow.py tests/test_simulation_trading.py -q`：52 passed，1 个 LibreSSL/urllib3 warning。
+
+### 54. 模拟交易表标题、成交时间与 23 点自动拉数修复
+
+- 修复 `/simulation` 页面截图中的可读性问题：模拟交易区的两张表现在分别有“模拟持仓”和“模拟交易记录”小标题，避免持仓表和交易记录表贴在一起难以阅读。
+- 修复模拟交易记录显示 `12:33` 这类非交易时间的问题。根因是模拟买卖原本直接使用命令/API 执行时刻 `datetime.now()`；午休或盘后手动执行 workflow 时，会把执行命令时间误写成成交时间。
+- 新逻辑：模拟成交时间限制在 A 股交易时段 `09:30-11:30`、`13:00-15:00`；午休执行按最近已完成交易时段记录为 `11:30`，盘后执行记录为 `15:00`，盘前执行记录为 `09:30`，历史日期回放默认记录为 `09:30`。
+- 交易计划触发时间使用同一交易时段口径，避免盘中跟踪表后续出现午休/夜间触发时间。
+- 修复 Ubuntu 23 点自动拉数没有项目内安装入口的问题。`deploy_ubuntu.sh` 现在会幂等安装 crontab：
+  - `CRON_TZ=Asia/Shanghai`
+  - `0 23 * * 1-5 cd <repo> && bash get_data.sh >> <repo>/.logs/get_data_cron.log 2>&1 # codex-stock-nightly-get-data`
+- 该 cron 只运行 `get_data.sh` 盘后数据/计划生成，不触发模拟交易；休市日仍由 `get_data.sh` 交易日历过滤跳过。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_simulation_trading.py -q`：24 passed，1 个 LibreSSL/urllib3 warning。
+- `.venv/bin/pytest tests/test_deployment_scripts.py::test_deploy_script_has_dry_run_and_keeps_database_empty -q`：1 passed。
+- `cd frontend && npm test -- --run`：3 passed。
+- `.venv/bin/pytest tests/test_trade_plan_generation.py tests/test_realtime_quote_workflow.py tests/test_simulation_trading.py tests/test_deployment_scripts.py -q`：67 passed，1 个 LibreSSL/urllib3 warning。
+- `bash -n deploy_ubuntu.sh get_data.sh scripts/run-simulation.sh scripts/run-after-close-workflow.sh`：通过。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。

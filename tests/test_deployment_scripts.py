@@ -41,6 +41,10 @@ def test_deploy_script_has_dry_run_and_keeps_database_empty() -> None:
     assert "scripts/db-upgrade.sh" in result.stdout
     assert "does not fetch market data" in result.stdout
     assert "get_data.sh" in result.stdout
+    assert "installing daily 23:00 get_data.sh cron" in result.stdout
+    assert "CRON_TZ=Asia/Shanghai" in result.stdout
+    assert "0 23 * * 1-5" in result.stdout
+    assert "codex-stock-nightly-get-data" in result.stdout
 
 
 def test_deploy_script_uses_high_default_postgres_port_instead_of_5432() -> None:

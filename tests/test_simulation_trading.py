@@ -20,7 +20,14 @@ from backend.app.db.models import (
     metadata,
 )
 from backend.app.main import create_app
-from backend.app.simulation.service import _fees, load_latest_simulation, run_simulation, run_simulation_workflow
+from backend.app.simulation.service import (
+    TRADING_TZ,
+    _fees,
+    _is_trading_time,
+    load_latest_simulation,
+    run_simulation,
+    run_simulation_workflow,
+)
 
 
 def _engine():
@@ -162,6 +169,37 @@ def test_run_simulation_creates_default_account_and_buys_plan_stock_with_fees() 
         assert session.query(SimulationPosition).count() == 1
         assert session.query(SimulationTrade).count() == 1
         assert session.query(SimulationEquity).count() == 1
+
+
+def test_run_simulation_records_buy_time_inside_a_share_session_when_run_at_lunch_break(monkeypatch) -> None:
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 6, 19, 12, 33, tzinfo=TRADING_TZ)
+            return value if tz is None else value.astimezone(tz)
+
+    monkeypatch.setattr("backend.app.simulation.service.datetime", FrozenDateTime)
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_trade_plan(session)
+        _add_daily(session, "000001", date(2026, 6, 19), 10.2, 10.8, 10.0, 10.5)
+        session.commit()
+
+    summary = run_simulation(engine, date(2026, 6, 19))
+
+    trade_time = summary.trades[0].trade_time.astimezone(TRADING_TZ)
+    assert trade_time.hour == 11
+    assert trade_time.minute == 30
+    assert _is_trading_time(summary.trades[0].trade_time)
+
+
+def test_trading_time_excludes_lunch_break() -> None:
+    assert _is_trading_time(datetime(2026, 6, 19, 9, 30, tzinfo=TRADING_TZ))
+    assert _is_trading_time(datetime(2026, 6, 19, 11, 30, tzinfo=TRADING_TZ))
+    assert not _is_trading_time(datetime(2026, 6, 19, 12, 33, tzinfo=TRADING_TZ))
+    assert _is_trading_time(datetime(2026, 6, 19, 13, 0, tzinfo=TRADING_TZ))
+    assert _is_trading_time(datetime(2026, 6, 19, 15, 0, tzinfo=TRADING_TZ))
+    assert not _is_trading_time(datetime(2026, 6, 19, 23, 0, tzinfo=TRADING_TZ))
 
 
 def test_run_simulation_only_executes_planned_stocks_and_blocks_limit_up_buy() -> None:

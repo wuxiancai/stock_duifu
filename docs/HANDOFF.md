@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-- 日期：2026-06-23
+- 日期：2026-06-24
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 当前系统是全新的 A 股短线量化辅助决策系统。
 - 旧 `stock` 项目已被废弃，不继承旧代码、旧部署方式、旧验收结论或旧业务假设。
@@ -20,11 +20,14 @@
 - 当前已修复盘中跟踪实时价格持续刷新链路：实时 workflow 默认覆盖目标日旧快照，Web 在目标交易日等于中国当前日期时每 60 秒自动执行实时行情回补、计划跟踪、模拟交易 workflow 和交易计划刷新，避免当前价/涨跌幅停留在旧快照导致模拟实盘无法触发。
 - 当前已修复缺目标日交易日历时的盘中实时回补阻断：如果目标日就是中国当前日期且是工作日，即使 `trading_calendar` 暂缺该日记录，也允许实时行情写入目标日快照；真实验证 `300308` 已从旧 `1382.33/+1.06%` 更新为实时约 `1316.0/-4.798%` 并按止损纪律取消计划。
 - 当前已明确交易计划只活一个目标交易日：生成新一日交易计划前，系统会把 `target_trade_date <= plan_date` 且仍为 `待触发` 的旧计划自动标记为 `未触发`，备注为“目标交易日结束未触发，已由新一日交易计划覆盖”；旧计划保留用于复盘统计，但不再参与后续盘中跟踪。
+- 当前已修复模拟交易阅读与时间口径：`/simulation` 页面持仓表和交易记录表新增“模拟持仓”“模拟交易记录”标题；模拟成交时间和交易计划触发时间被限制到 A 股交易时段 `09:30-11:30`、`13:00-15:00`，午休手动执行会记录为 `11:30`，盘后执行会记录为 `15:00`，不再显示 `12:33` 这类非交易时间。
+- 当前已补齐 Ubuntu 23 点自动拉数安装：`deploy_ubuntu.sh` 会幂等安装带 `CRON_TZ=Asia/Shanghai` 的工作日 `23:00` crontab，执行 `bash get_data.sh` 并写日志到 `.logs/get_data_cron.log`；该 cron 只负责盘后数据/计划生成，不触发模拟交易。
 - `docs/TASKS.md` 第 17 章已从任务映射升级为开发完成记录：费率配置化、两档止盈、MA5/市场/板块/超期/跳水卖出、交易时间与交易后仓位展示、胜率/盈亏比统计、`/simulation` 页面入口和模拟交易 loop 入口均已补齐。
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
 - 已在本机目录补齐 Ubuntu 部署与数据初始化入口：`deploy_ubuntu.sh` / `get_data.sh` / `make deploy-ubuntu` / `make get-data`。
 - 个人 2c2g 云服务器部署约束：PostgreSQL 必须限制内存和连接数；首次历史数据只初始化一次，之后每天盘后 23 点只拉取当天数据并生成交易计划，避免在服务器上运行开发测试、批量补数或重计算任务。
+- `deploy_ubuntu.sh` 会安装工作日 23:00 中国时区 cron：`CRON_TZ=Asia/Shanghai` + `0 23 * * 1-5 cd <repo> && bash get_data.sh >> <repo>/.logs/get_data_cron.log 2>&1 # codex-stock-nightly-get-data`；重复部署会按 marker 替换，不重复堆叠。
 - Web 已改为板块独立详情页：主页点击强势板块进入 `/sectors/<板块名>`，独立查看该板块候选股票和交易计划。
 - `deploy_ubuntu.sh` 会在宿主机 PostgreSQL 端口占用时自动顺延，并把 `POSTGRES_HOST_PORT` / `DATABASE_URL` 写回 `.env`。
 - `deploy_ubuntu.sh` 会覆盖旧的本地 stock `DATABASE_URL`，并在容器启动后按 Docker 实际 published port 再同步一次迁移 URL。

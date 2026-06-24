@@ -402,6 +402,8 @@ describe('App', () => {
     expect(wrapper.text()).toContain('模拟交易')
     expect(wrapper.text()).toContain('当前总资产')
     expect(wrapper.text()).toContain('当日盈亏')
+    expect(wrapper.text()).toContain('模拟持仓')
+    expect(wrapper.text()).toContain('模拟交易记录')
     expect(wrapper.text()).toContain('10:01')
     expect(wrapper.text()).toContain('14:30')
     expect(wrapper.text()).toContain('39%')

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time
 from decimal import Decimal
 from time import sleep
 from typing import Optional
@@ -27,6 +27,8 @@ DEFAULT_ACCOUNT_NAME = "默认模拟账户"
 DEFAULT_INITIAL_CASH = 1_000_000.0
 TRADING_TZ = ZoneInfo("Asia/Shanghai")
 TRADING_START = time(9, 30)
+TRADING_MORNING_END = time(11, 30)
+TRADING_AFTERNOON_START = time(13, 0)
 TRADING_END = time(15, 0)
 DEFAULT_LOOP_INTERVAL_SECONDS = 300
 MAX_HOLDING_DAYS = 5
@@ -261,7 +263,7 @@ def _sell_positions(session: Session, account: SimulationAccount, trade_date: da
         .where(SimulationPosition.account_id == account.id, SimulationPosition.position_status.in_(ACTIVE_POSITION_STATUSES))
         .order_by(SimulationPosition.stock_code)
     ).all()
-    now = datetime.now(timezone.utc)
+    trade_time = _simulation_trade_time(trade_date)
     for position in positions:
         daily = session.scalar(
             select(StockDaily).where(StockDaily.stock_code == position.stock_code, StockDaily.trade_date == trade_date)
@@ -282,7 +284,7 @@ def _sell_positions(session: Session, account: SimulationAccount, trade_date: da
             account=account,
             position=position,
             trade_date=trade_date,
-            trade_time=now,
+            trade_time=trade_time,
             price=price,
             quantity=quantity,
             reason=reason,
@@ -296,7 +298,7 @@ def _buy_triggered_plans(session: Session, account: SimulationAccount, trade_dat
         .where(TradePlan.target_trade_date == trade_date, TradePlan.status == "已触发", TradePlan.trigger_price.is_not(None))
         .order_by(desc(TradePlan.stock_score), TradePlan.stock_code)
     ).all()
-    now = datetime.now(timezone.utc)
+    trade_time = _simulation_trade_time(trade_date)
     for plan in plans:
         if _number(plan.stop_loss_price) <= 0:
             messages.append(f"{plan.stock_code} 计划缺少有效止损价，按纪律不买入")
@@ -382,7 +384,7 @@ def _buy_triggered_plans(session: Session, account: SimulationAccount, trade_dat
                 stock_code=plan.stock_code,
                 stock_name=plan.stock_name,
                 trade_date=trade_date,
-                trade_time=now,
+                trade_time=trade_time,
                 trade_type="买入",
                 price=price,
                 quantity=quantity,
@@ -835,4 +837,26 @@ def _holding_days(session: Session, position: SimulationPosition, trade_date: da
 
 def _is_trading_time(now: datetime) -> bool:
     local_now = now.astimezone(TRADING_TZ)
-    return TRADING_START <= local_now.time() <= TRADING_END
+    current_time = local_now.time()
+    return (TRADING_START <= current_time <= TRADING_MORNING_END) or (
+        TRADING_AFTERNOON_START <= current_time <= TRADING_END
+    )
+
+
+def _simulation_trade_time(trade_date: date) -> datetime:
+    local_now = datetime.now(TRADING_TZ)
+    if local_now.date() != trade_date:
+        return _local_trade_datetime(trade_date, TRADING_START)
+
+    current_time = local_now.time()
+    if _is_trading_time(local_now):
+        return local_now
+    if current_time < TRADING_START:
+        return _local_trade_datetime(trade_date, TRADING_START)
+    if current_time < TRADING_AFTERNOON_START:
+        return _local_trade_datetime(trade_date, TRADING_MORNING_END)
+    return _local_trade_datetime(trade_date, TRADING_END)
+
+
+def _local_trade_datetime(trade_date: date, trade_time: time) -> datetime:
+    return datetime.combine(trade_date, trade_time).replace(tzinfo=TRADING_TZ)

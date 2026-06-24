@@ -274,6 +274,20 @@ textarea {
   align-items: center;
 }
 
+.table-subheading {
+  margin: 18px 0 8px;
+  padding-left: 10px;
+  border-left: 3px solid #2f7d5a;
+}
+
+.table-subheading h3 {
+  margin: 0;
+  color: #273348;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .muted-code {
   margin-top: 4px;
   color: #7c8aa0;

@@ -323,6 +323,17 @@ run_migrations() {
   run_shell "DATABASE_URL='$DATABASE_URL' scripts/db-upgrade.sh"
 }
 
+install_nightly_cron() {
+  local marker="codex-stock-nightly-get-data"
+  local log_path="$ROOT_DIR/.logs/get_data_cron.log"
+  local timezone_line="CRON_TZ=Asia/Shanghai # $marker"
+  local cron_line="0 23 * * 1-5 cd $ROOT_DIR && bash get_data.sh >> $log_path 2>&1 # $marker"
+
+  info "installing daily 23:00 get_data.sh cron"
+  run mkdir -p "$ROOT_DIR/.logs"
+  run_shell "(crontab -l 2>/dev/null | grep -v '$marker'; printf '%s\n' '$timezone_line'; printf '%s\n' '$cron_line') | crontab -"
+}
+
 main() {
   info "deploying from $ROOT_DIR"
   ensure_system_packages
@@ -335,6 +346,7 @@ main() {
   ensure_frontend_dependencies
   start_database
   run_migrations
+  install_nightly_cron
 
   if [ "$DRY_RUN" = "1" ]; then
     cat <<EOF
@@ -343,6 +355,10 @@ Dry run complete. No files, packages, containers, or database rows were changed.
 
 Real deployment would leave the database schema-only. Fetch data later with:
   TRADE_DATE=YYYY-MM-DD bash get_data.sh
+
+Real deployment would also install a weekday 23:00 cron:
+  CRON_TZ=Asia/Shanghai
+  0 23 * * 1-5 cd $ROOT_DIR && bash get_data.sh
 
 EOF
     return
@@ -355,6 +371,10 @@ Deployment is ready.
 Database has schema only. It intentionally does not contain market data yet.
 Fetch real market data with:
   TRADE_DATE=YYYY-MM-DD bash get_data.sh
+
+Nightly data pull is installed in crontab at 23:00 on weekdays.
+Logs are written to:
+  $ROOT_DIR/.logs/get_data_cron.log
 
 Start the app with LAN access:
   bash start.sh
