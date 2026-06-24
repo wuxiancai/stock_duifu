@@ -319,6 +319,18 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
     assert 'WEB_PORT="$(next_available_port "$WEB_LISTEN_HOST" "$WEB_BASE_PORT")"' in script
 
 
+def test_start_script_stops_existing_project_before_restart_and_replaces_stop_script() -> None:
+    script = (ROOT / "start.sh").read_text()
+
+    assert not (ROOT / "stop.sh").exists()
+    assert "stop_existing_project" in script
+    assert script.index("\nstop_existing_project\n\nif ! command -v docker") > 0
+    assert "project_process_pids" in script
+    assert "port_listener_pids" in script
+    assert "docker compose down" in script
+    assert "stopping existing project before restart" in script
+
+
 def test_vite_dev_server_proxies_same_origin_api_requests() -> None:
     vite_config = (ROOT / "frontend" / "vite.config.ts").read_text()
     dashboard_api = (ROOT / "frontend" / "src" / "api" / "dashboard.ts").read_text()

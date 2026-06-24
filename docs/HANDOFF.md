@@ -37,6 +37,7 @@
 - `start.sh` 启动前端时不再把局域网 API 绝对地址注入浏览器；浏览器固定请求同源 `/api`，Vite 在 Ubuntu 本机代理到实际 API 端口。
 - `start.sh` 启动前端时会显式清空 `VITE_API_BASE_URL`，避免 `.env` 里残留的 `http://127.0.0.1:8000` 污染浏览器端代码。
 - `start.sh` 在 PostgreSQL/API/Web 都 ready 后写回 `.env`，并删除 `VITE_API_BASE_URL`，让 `.env` 跟运行事实保持一致。
+- `start.sh` 现在内置重启语义：脚本启动最开始会先停止本项目已有 API/Web 进程、占用 API/Web 端口的旧监听进程和 Docker Compose 服务，再重新启动；根目录 `stop.sh` 已删除，用户以后只需反复执行 `bash start.sh`。
 - 新部署空库时，首页依赖的 latest 接口会返回 200 空态，不再把“尚未生成数据”显示成红色 404。
 - `get_data.sh` 未显式传日期时，会用 TuShare `trade_cal` 和默认 18:00 收盘后阈值选择最近已收盘开市日；若新库历史不足，会自动 bootstrap 最近 25 个开市日。也可显式传 `TRADE_DATE=YYYY-MM-DD`、位置参数或 `--start YYYYMMDD --end YYYYMMDD`；区间会先过滤为开市日；内部子脚本通过 `bash scripts/...` 调用，不依赖执行位。
 - 模拟交易和交易复盘现在以 `trading_calendar` 为准：请求日期若明确闭市，会顺延到下一开市日；latest 接口和资金曲线会过滤闭市日记录，避免页面显示非交易日。

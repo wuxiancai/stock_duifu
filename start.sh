@@ -27,6 +27,14 @@ info() {
   printf '[stock-start] %s\n' "$*"
 }
 
+warn() {
+  printf '[stock-start] %s\n' "$*" >&2
+}
+
+unique_lines() {
+  awk 'NF && !seen[$0]++'
+}
+
 upsert_env_key() {
   local key="$1"
   local value="$2"
@@ -178,6 +186,143 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+kill_pid_tree() {
+  local pid="$1"
+  local child
+
+  if ! kill -0 "$pid" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if command -v pgrep >/dev/null 2>&1; then
+    for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+      kill_pid_tree "$child"
+    done
+  fi
+
+  kill "$pid" >/dev/null 2>&1 || true
+}
+
+kill_pids() {
+  local label="$1"
+  shift
+  local pids=("$@")
+  local pid
+  local still_running=()
+
+  if [ "${#pids[@]}" -eq 0 ]; then
+    info "no existing $label processes found"
+    return 0
+  fi
+
+  info "stopping existing $label processes: ${pids[*]}"
+  for pid in "${pids[@]}"; do
+    if [ "$pid" != "$$" ]; then
+      kill_pid_tree "$pid"
+    fi
+  done
+
+  sleep 2
+  for pid in "${pids[@]}"; do
+    if [ "$pid" != "$$" ] && kill -0 "$pid" >/dev/null 2>&1; then
+      still_running+=("$pid")
+    fi
+  done
+
+  if [ "${#still_running[@]}" -gt 0 ]; then
+    warn "force stopping existing $label processes: ${still_running[*]}"
+    for pid in "${still_running[@]}"; do
+      kill -KILL "$pid" >/dev/null 2>&1 || true
+    done
+  fi
+}
+
+project_process_pids() {
+  python3 - "$ROOT_DIR" <<'PY'
+import os
+import sys
+
+root = os.path.realpath(sys.argv[1])
+frontend = os.path.join(root, "frontend")
+keywords = (
+    "scripts/dev-api.sh",
+    "backend.app.main",
+    "uvicorn",
+    "vite",
+    "npm run dev",
+)
+
+if not os.path.isdir("/proc"):
+    raise SystemExit(0)
+
+for name in os.listdir("/proc"):
+    if not name.isdigit():
+        continue
+    pid = int(name)
+    if pid == os.getpid() or pid == os.getppid():
+        continue
+    proc_dir = os.path.join("/proc", name)
+    try:
+        cwd = os.path.realpath(os.readlink(os.path.join(proc_dir, "cwd")))
+        with open(os.path.join(proc_dir, "cmdline"), "rb") as fh:
+            cmdline = fh.read().replace(b"\0", b" ").decode("utf-8", "ignore")
+    except OSError:
+        continue
+    in_project = cwd == root or cwd == frontend or cwd.startswith(root + os.sep)
+    if in_project and any(keyword in cmdline for keyword in keywords):
+        print(pid)
+PY
+}
+
+port_listener_pids() {
+  local port="$1"
+  if [ -z "$port" ]; then
+    return 0
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+    return 0
+  fi
+  if command -v fuser >/dev/null 2>&1; then
+    fuser "${port}/tcp" 2>/dev/null | tr ' ' '\n' || true
+    return 0
+  fi
+}
+
+stop_existing_app_processes() {
+  local pids
+  pids="$({ project_process_pids; port_listener_pids "$API_BASE_PORT"; port_listener_pids "$WEB_BASE_PORT"; } | unique_lines)"
+  if [ -z "$pids" ]; then
+    kill_pids "API/frontend" || true
+    return 0
+  fi
+  # shellcheck disable=SC2206
+  local pid_array=($pids)
+  kill_pids "API/frontend" "${pid_array[@]}"
+}
+
+stop_existing_docker_services() {
+  if ! command -v docker >/dev/null 2>&1; then
+    info "docker command not found; skipping existing Docker services stop"
+    return 0
+  fi
+  if ! docker compose version >/dev/null 2>&1; then
+    info "Docker Compose v2 not found; skipping existing Docker services stop"
+    return 0
+  fi
+
+  info "stopping existing Docker Compose services"
+  docker compose down
+}
+
+stop_existing_project() {
+  info "stopping existing project before restart"
+  stop_existing_app_processes
+  stop_existing_docker_services
+}
+
+stop_existing_project
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "Missing docker command. Please start/install Docker first." >&2
   exit 1
@@ -240,8 +385,9 @@ Logs:     $LOG_DIR
 If another LAN computer cannot open Frontend LAN, allow the web port on Ubuntu:
   sudo ufw allow $WEB_PORT/tcp
 
-Press Ctrl+C to stop API and frontend.
-PostgreSQL keeps running in Docker. Stop it with:
+Run bash start.sh again to stop the existing project and restart it.
+Press Ctrl+C to stop this foreground API/frontend session.
+PostgreSQL keeps running in Docker after Ctrl+C. Stop it with:
   docker compose down
 
 EOF

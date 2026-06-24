@@ -1320,3 +1320,20 @@ TuShare 全市场初始化验证：
 - `.venv/bin/pytest tests/test_trade_plan_generation.py tests/test_realtime_quote_workflow.py tests/test_simulation_trading.py tests/test_deployment_scripts.py -q`：67 passed，1 个 LibreSSL/urllib3 warning。
 - `bash -n deploy_ubuntu.sh get_data.sh scripts/run-simulation.sh scripts/run-after-close-workflow.sh`：通过。
 - `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。
+
+### 55. start.sh 内置重启并删除 stop.sh
+
+- 优化 `start.sh`：脚本启动最开始先停止本项目已有运行态，再重新启动，用户不需要先执行 `stop.sh`。
+- 启动前清理范围：
+  - 当前项目目录下的 API / Vite / npm dev 相关进程。
+  - 当前 `.env` / 默认端口对应的 API 和 Web 监听进程。
+  - `docker compose down` 停止 PostgreSQL 容器和项目网络，但不删除数据卷。
+- 保留原有启动能力：依赖检查、PostgreSQL 端口顺延、API/Web 端口探测、同源 API 代理、`.env` 运行端口写回和失败日志尾部输出。
+- 删除根目录 `stop.sh`；后续重启系统只需执行 `bash start.sh`。
+
+状态：已完成。
+
+验证：
+
+- `.venv/bin/pytest tests/test_deployment_scripts.py -q`：14 passed。
+- `bash -n start.sh deploy_ubuntu.sh get_data.sh scripts/dev-api.sh scripts/dev-web.sh`：通过。
