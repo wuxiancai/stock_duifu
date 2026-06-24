@@ -1337,3 +1337,16 @@ TuShare 全市场初始化验证：
 
 - `.venv/bin/pytest tests/test_deployment_scripts.py -q`：14 passed。
 - `bash -n start.sh deploy_ubuntu.sh get_data.sh scripts/dev-api.sh scripts/dev-web.sh`：通过。
+
+### 56. 模拟交易资金曲线表标题补齐
+
+- 修复 `/simulation` 页面资金曲线表缺少独立标题的问题。
+- 模拟交易区三张表现在统一使用同款小标题：`模拟持仓`、`模拟交易记录`、`资金曲线`。
+- 前端测试增加 `资金曲线` 文案断言，避免后续回归。
+
+状态：已完成。
+
+验证：
+
+- `cd frontend && npm test -- --run`：3 passed。
+- `cd frontend && npm run build`：通过；仍有 VueUse pure annotation 和 chunk size warning。

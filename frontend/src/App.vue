@@ -1294,6 +1294,9 @@ onBeforeUnmount(() => {
             <el-table-column prop="reason" label="原因" min-width="260" show-overflow-tooltip />
           </el-table>
 
+          <div class="table-subheading">
+            <h3>资金曲线</h3>
+          </div>
           <el-table :data="simulation.equity_curve" border stripe empty-text="暂无资金曲线">
             <el-table-column prop="trade_date" label="日期" min-width="120" sortable />
             <el-table-column label="总资产" min-width="130" sortable prop="total_assets">
