@@ -24,6 +24,7 @@
 - TuShare token 已脱敏保存在本机 `.env` 并通过 `TUSHARE_TOKEN` 读取；`.env` 不提交到 git。
 - 已在本机目录补齐一键启动入口：`start.sh` / `make start`。
 - 已在本机目录补齐 Ubuntu 部署与数据初始化入口：`deploy_ubuntu.sh` / `get_data.sh` / `make deploy-ubuntu` / `make get-data`。
+- 个人 2c2g 云服务器部署约束：PostgreSQL 必须限制内存和连接数；首次历史数据只初始化一次，之后每天盘后 23 点只拉取当天数据并生成交易计划，避免在服务器上运行开发测试、批量补数或重计算任务。
 - Web 已改为板块独立详情页：主页点击强势板块进入 `/sectors/<板块名>`，独立查看该板块候选股票和交易计划。
 - `deploy_ubuntu.sh` 会在宿主机 PostgreSQL 端口占用时自动顺延，并把 `POSTGRES_HOST_PORT` / `DATABASE_URL` 写回 `.env`。
 - `deploy_ubuntu.sh` 会覆盖旧的本地 stock `DATABASE_URL`，并在容器启动后按 Docker 实际 published port 再同步一次迁移 URL。
