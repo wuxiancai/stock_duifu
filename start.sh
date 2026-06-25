@@ -43,16 +43,31 @@ sudo_cmd() {
   fi
 }
 
-docker_compose() {
-  if docker compose version >/dev/null 2>&1; then
-    docker compose "$@"
-    return
+docker_compose_prefix() {
+  if docker ps >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    printf 'docker compose'
+    return 0
   fi
-  if command -v sudo >/dev/null 2>&1 && sudo docker compose version >/dev/null 2>&1; then
+  if command -v sudo >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1 && sudo docker compose version >/dev/null 2>&1; then
+    printf 'sudo docker compose'
+    return 0
+  fi
+  printf 'docker compose'
+}
+
+docker_compose() {
+  local prefix
+  prefix="$(docker_compose_prefix)"
+  if [ "$prefix" = "sudo docker compose" ]; then
     sudo docker compose "$@"
     return
   fi
   docker compose "$@"
+}
+
+docker_compose_available() {
+  docker ps >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && return 0
+  command -v sudo >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1 && sudo docker compose version >/dev/null 2>&1
 }
 
 upsert_env_key() {
@@ -321,8 +336,8 @@ stop_existing_docker_services() {
     info "docker command not found; skipping existing Docker services stop"
     return 0
   fi
-  if ! docker compose version >/dev/null 2>&1 && ! sudo docker compose version >/dev/null 2>&1; then
-    info "Docker Compose v2 not found; skipping existing Docker services stop"
+  if ! docker_compose_available; then
+    info "Docker Compose v2 or Docker daemon permission not available; skipping existing Docker services stop"
     return 0
   fi
 
@@ -352,8 +367,8 @@ ensure_dependencies() {
     exit 1
   fi
 
-  if ! docker compose version >/dev/null 2>&1 && ! sudo docker compose version >/dev/null 2>&1; then
-    echo "Missing Docker Compose v2 or Docker permission. Please run bash deploy.sh first." >&2
+  if ! docker_compose_available; then
+    echo "Missing Docker Compose v2 or Docker daemon permission. Please run bash deploy.sh first." >&2
     exit 1
   fi
 
