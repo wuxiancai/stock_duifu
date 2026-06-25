@@ -388,66 +388,135 @@ select
 " 2>/dev/null || true
 }
 
+database_date_summary() {
+  docker_compose exec -T postgres psql -U stock -d stock -At -F '|' -c "
+select
+  coalesce((select min(trade_date)::text from stock_daily), '') as stock_daily_start,
+  coalesce((select max(trade_date)::text from stock_daily), '') as stock_daily_end,
+  coalesce((select max(trade_date)::text from market_daily), '') as market_latest,
+  coalesce((select max(trade_date)::text from sector_daily), '') as sector_latest,
+  coalesce((select max(trade_date)::text from candidate_stock), '') as candidate_latest,
+  coalesce((select max(plan_date)::text from trade_plan), '') as plan_latest;
+" 2>/dev/null || true
+}
+
+print_database_date_summary() {
+  local summary
+  local stock_start stock_end market_latest sector_latest candidate_latest plan_latest
+  summary="$(database_date_summary)"
+  if [ -z "$summary" ]; then
+    warn "暂时无法读取数据库日期覆盖范围。"
+    return 0
+  fi
+  IFS='|' read -r stock_start stock_end market_latest sector_latest candidate_latest plan_latest <<<"$summary"
+  cat <<EOF
+[stock-start] 数据日期覆盖范围：
+  个股日线：${stock_start:-无} 至 ${stock_end:-无}
+  市场环境最新日期：${market_latest:-无}
+  强势行业最新日期：${sector_latest:-无}
+  候选股票最新日期：${candidate_latest:-无}
+  交易计划最新计划日：${plan_latest:-无}
+EOF
+}
+
+print_manual_data_commands() {
+  cat <<EOF
+[stock-start] 如需手动补数据，可使用：
+  拉取指定交易日：TRADE_DATE=YYYY-MM-DD bash get_data.sh
+  拉取指定区间：bash get_data.sh --start YYYYMMDD --end YYYYMMDD
+  跳过启动自检：STOCK_START_SKIP_DATA_CHECK=1 bash start.sh
+EOF
+}
+
 check_and_fill_decision_data() {
   if [ "${STOCK_START_SKIP_DATA_CHECK:-0}" = "1" ]; then
-    info "skipping data health check because STOCK_START_SKIP_DATA_CHECK=1"
+    info "跳过数据健康检查，因为 STOCK_START_SKIP_DATA_CHECK=1。"
+    print_database_date_summary
+    print_manual_data_commands
     return 0
   fi
 
   local counts
+  local ran_get_data="0"
   counts="$(database_decision_counts)"
   if [ -z "$counts" ]; then
     if [ -z "${TUSHARE_TOKEN:-}" ]; then
-      warn "could not read database decision data counts, and TUSHARE_TOKEN is empty; skipping get_data.sh and starting empty dashboard"
-      warn "set TUSHARE_TOKEN in .env, then run: bash start.sh or TRADE_DATE=YYYY-MM-DD bash get_data.sh"
+      warn "无法读取数据库自检计数，且 TUSHARE_TOKEN 为空；跳过 get_data.sh，先启动空页面。"
+      warn "请在 .env 设置 TUSHARE_TOKEN 后执行：bash start.sh 或 TRADE_DATE=YYYY-MM-DD bash get_data.sh"
+      print_database_date_summary
+      print_manual_data_commands
       return 0
     fi
-    warn "could not read database decision data counts; running get_data.sh to initialize data"
+    warn "无法读取数据库自检计数；将执行 bash get_data.sh 初始化/补齐数据。"
     bash get_data.sh
-    return 0
+    ran_get_data="1"
+    counts="$(database_decision_counts)"
   fi
 
   IFS='|' read -r open_days stock_basic_rows stock_daily_dates market_rows sector_rows candidate_rows plan_rows data_jobs <<<"$counts"
   cat <<EOF
-[stock-start] database decision data check:
-  open_trading_days=$open_days
-  stock_basic_rows=$stock_basic_rows
-  stock_daily_trade_dates=$stock_daily_dates
-  market_daily_rows=$market_rows
-  sector_daily_rows=$sector_rows
-  candidate_rows=$candidate_rows
-  trade_plan_rows=$plan_rows
-  successful_data_jobs=$data_jobs
+[stock-start] 数据库运行数据自检：
+  开市交易日数量=$open_days
+  股票基础信息行数=$stock_basic_rows
+  个股日线交易日数量=$stock_daily_dates
+  市场环境行数=$market_rows
+  强势行业行数=$sector_rows
+  候选股票行数=$candidate_rows
+  交易计划行数=$plan_rows
+  成功/警告拉数任务数=$data_jobs
 EOF
 
   if [ "$open_days" -lt 20 ] || [ "$stock_daily_dates" -lt 20 ] || [ "$market_rows" -lt 1 ] || [ "$sector_rows" -lt 1 ] || [ "$candidate_rows" -lt 1 ] || [ "$plan_rows" -lt 1 ] || [ "$data_jobs" -lt 1 ]; then
     if [ -z "${TUSHARE_TOKEN:-}" ]; then
-      warn "database does not yet satisfy A-share decision requirements, but TUSHARE_TOKEN is empty; skipping get_data.sh and starting empty dashboard"
-      warn "set TUSHARE_TOKEN in .env, then run: bash start.sh or TRADE_DATE=YYYY-MM-DD bash get_data.sh"
+      warn "数据库数据不足以完整运行 A 股决策系统，但 TUSHARE_TOKEN 为空；跳过自动拉数，先启动空页面。"
+      warn "请在 .env 设置 TUSHARE_TOKEN 后执行：bash start.sh 或 TRADE_DATE=YYYY-MM-DD bash get_data.sh"
+      print_database_date_summary
+      print_manual_data_commands
       return 0
     fi
-    warn "database does not yet satisfy A-share decision requirements; running bash get_data.sh"
+    warn "数据库数据不足以完整运行 A 股决策系统；将自动执行 bash get_data.sh 补齐所需数据。"
+    warn "get_data.sh 会选择最近已完成开市日；若历史不足 20 个交易日，会自动补最近 25 个开市日。具体日期会在 get_data.sh 日志中逐日打印。"
     if ! bash get_data.sh; then
-      warn "get_data.sh failed. Check TUSHARE_TOKEN, network access, and $LOG_DIR/get_data_cron.log if cron is involved."
+      warn "get_data.sh 执行失败。请检查 TUSHARE_TOKEN、网络和日志：$LOG_DIR/get_data_cron.log"
       return 1
     fi
-    info "data initialization completed; rechecking counts"
+    ran_get_data="1"
+    info "数据补齐完成；重新检查数据库计数。"
     counts="$(database_decision_counts)"
     IFS='|' read -r open_days stock_basic_rows stock_daily_dates market_rows sector_rows candidate_rows plan_rows data_jobs <<<"$counts"
     cat <<EOF
-[stock-start] database decision data check after fill:
-  open_trading_days=$open_days
-  stock_basic_rows=$stock_basic_rows
-  stock_daily_trade_dates=$stock_daily_dates
-  market_daily_rows=$market_rows
-  sector_daily_rows=$sector_rows
-  candidate_rows=$candidate_rows
-  trade_plan_rows=$plan_rows
-  successful_data_jobs=$data_jobs
+[stock-start] 数据补齐后的数据库自检：
+  开市交易日数量=$open_days
+  股票基础信息行数=$stock_basic_rows
+  个股日线交易日数量=$stock_daily_dates
+  市场环境行数=$market_rows
+  强势行业行数=$sector_rows
+  候选股票行数=$candidate_rows
+  交易计划行数=$plan_rows
+  成功/警告拉数任务数=$data_jobs
 EOF
   else
-    info "database already has enough data for the decision dashboard"
+    info "数据库已有完整运行基础数据；继续执行一次最新交易日增量检查。"
+    if [ -n "${TUSHARE_TOKEN:-}" ] && [ "${STOCK_START_SKIP_INCREMENTAL_DATA_CHECK:-0}" != "1" ]; then
+      info "开始执行 bash get_data.sh：检查最近已完成开市日是否已有数据，缺失则自动增量补齐。"
+      if ! bash get_data.sh; then
+        warn "增量数据检查失败。系统会继续启动，但建议查看日志并手动补数据。"
+        print_manual_data_commands
+      else
+        ran_get_data="1"
+      fi
+    else
+      warn "未配置 TUSHARE_TOKEN 或设置了 STOCK_START_SKIP_INCREMENTAL_DATA_CHECK=1，本次不执行最新交易日增量补齐。"
+    fi
   fi
+
+  if [ "$ran_get_data" = "1" ]; then
+    info "本次启动已执行过 get_data.sh；下方是补齐后的数据库日期范围。"
+  else
+    info "本次启动未执行 get_data.sh；下方是当前数据库日期范围。"
+  fi
+  print_database_date_summary
+  print_manual_data_commands
 }
 
 start_systemd_or_fallback() {
@@ -470,6 +539,23 @@ start_systemd_or_fallback() {
   wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend"
 }
 
+check_web_page_access() {
+  local web_url="http://$HEALTHCHECK_HOST:$WEB_PORT"
+  local lan_host
+  lan_host="$(detect_public_host)"
+  local lan_url="http://$lan_host:$WEB_PORT"
+
+  info "启动后页面访问检测：$web_url"
+  if curl -fsS "$web_url" >/dev/null 2>&1; then
+    info "Web 页面本机访问正常：$web_url"
+  else
+    warn "Web 页面本机访问失败：$web_url。请查看 $LOG_DIR/web.log 或 systemctl status ${SERVICE_PREFIX}-web.service --no-pager"
+  fi
+
+  info "局域网访问地址：$lan_url"
+  info "如果局域网无法访问，请执行：sudo ufw allow $WEB_PORT/tcp"
+}
+
 main() {
   stop_existing_project
   ensure_dependencies
@@ -479,6 +565,7 @@ main() {
   run_migrations
   check_and_fill_decision_data
   start_systemd_or_fallback
+  check_web_page_access
 
   local public_host
   public_host="$(detect_public_host)"

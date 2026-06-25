@@ -54,6 +54,9 @@ def test_deploy_script_has_dry_run_and_keeps_database_empty() -> None:
     assert "+ set TUSHARE_TOKEN=token-for-dry-run in .env" in result.stdout
     assert "自动执行 bash start.sh 启动系统" in result.stdout
     assert "+ bash start.sh" in result.stdout
+    assert "检查 PostgreSQL 数据卷" in result.stdout
+    assert "部署后健康检查" in result.stdout
+    assert "api/system/database-health" in result.stdout
     assert "部署演练完成" in result.stdout
 
 
@@ -355,10 +358,14 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
     assert "systemd units not installed; falling back to nohup background processes" in script
     assert 'systemctl restart "${SERVICE_PREFIX}-api.service"' in script
     assert 'systemctl restart "${SERVICE_PREFIX}-web.service"' in script
-    assert "database decision data check" in script
+    assert "数据库运行数据自检" in script
     assert "bash get_data.sh" in script
-    assert "TUSHARE_TOKEN is empty; skipping get_data.sh and starting empty dashboard" in script
+    assert "TUSHARE_TOKEN 为空；跳过自动拉数" in script
+    assert "最新交易日增量检查" in script
+    assert "数据日期覆盖范围" in script
     assert "手动补数据：TRADE_DATE=YYYY-MM-DD bash get_data.sh" in script
+    assert "check_web_page_access" in script
+    assert "Web 页面本机访问正常" in script
 
 
 def test_start_script_stops_existing_project_before_restart_and_stop_script_exists() -> None:

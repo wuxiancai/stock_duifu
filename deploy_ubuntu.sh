@@ -331,6 +331,66 @@ configure_tushare_token() {
   fi
 }
 
+compose_project_name() {
+  if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+    printf '%s' "$COMPOSE_PROJECT_NAME"
+    return
+  fi
+  basename "$ROOT_DIR" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+//g'
+}
+
+postgres_volume_name() {
+  printf '%s_postgres_data' "$(compose_project_name)"
+}
+
+postgres_volume_exists() {
+  local volume_name
+  volume_name="$(postgres_volume_name)"
+  docker volume inspect "$volume_name" >/dev/null 2>&1
+}
+
+confirm_existing_database_policy() {
+  local answer=""
+  local volume_name
+  volume_name="$(postgres_volume_name)"
+
+  if [ "$DRY_RUN" = "1" ]; then
+    info "演练模式：真实部署会检查 PostgreSQL 数据卷 ${volume_name}；如果已存在，会询问保留或删除重建。"
+    return 0
+  fi
+
+  if [ "${RESET_DB:-0}" = "1" ]; then
+    warn "已设置 RESET_DB=1：部署时会删除旧数据库卷并重新部署。"
+    return 0
+  fi
+
+  if ! postgres_volume_exists; then
+    info "未发现已有 PostgreSQL 数据卷 ${volume_name}，本次按新部署处理。"
+    return 0
+  fi
+
+  if [ -t 0 ]; then
+    cat <<EOF
+
+检测到已有 PostgreSQL 数据库卷：${volume_name}
+请选择部署方式：
+  1. 保留数据库：只更新代码、依赖、迁移和服务配置，原有行情/交易计划数据保留。
+  2. 删除重建：删除旧数据库卷，重新创建空库。此操作会清空行情、候选股、交易计划、模拟交易等数据库数据。
+EOF
+    printf '请输入 1 保留，或输入 2 删除重建；默认保留： '
+    read -r answer
+    if [ "$answer" = "2" ]; then
+      RESET_DB=1
+      export RESET_DB
+      warn "用户选择删除旧数据库卷，本次部署会执行 docker compose down -v。"
+    else
+      info "用户选择保留已有数据库卷，本次部署不会删除数据库数据。"
+    fi
+  else
+    warn "检测到已有数据库卷 ${volume_name}，但当前不是交互终端；默认保留数据库。若要删除重建，请显式执行：RESET_DB=1 bash deploy_ubuntu.sh"
+  fi
+}
+
 select_runtime_ports() {
   local pg_base="${EXPLICIT_POSTGRES_HOST_PORT:-$POSTGRES_BASE_PORT}"
   POSTGRES_HOST_PORT="$(next_available_port "$DB_HOST" "$pg_base")"
@@ -433,11 +493,13 @@ sync_database_url_from_running_container() {
 
 start_database() {
   if [ "${RESET_DB:-0}" = "1" ]; then
-    info "RESET_DB=1; removing existing PostgreSQL volume before deployment"
+    warn "RESET_DB=1：正在删除旧 PostgreSQL 数据卷并重新部署空库。"
     run_shell "POSTGRES_HOST_PORT=$POSTGRES_HOST_PORT docker compose down -v"
+  else
+    info "保留 PostgreSQL 数据卷；如果已有数据库，本次部署只做迁移和增量检查。"
   fi
 
-  info "starting PostgreSQL; new deployments start with an empty data volume"
+  info "启动 PostgreSQL 容器：宿主机 $DB_HOST:$POSTGRES_HOST_PORT -> 容器 postgres:5432"
   run_shell "POSTGRES_HOST_PORT=$POSTGRES_HOST_PORT docker compose up -d postgres"
   if [ "$DRY_RUN" != "1" ]; then
     wait_for_postgres
@@ -530,6 +592,38 @@ auto_start_app() {
   bash start.sh
 }
 
+print_deployment_health_report() {
+  local web_url="http://$HEALTHCHECK_HOST:$WEB_PORT"
+  local api_url="http://$HEALTHCHECK_HOST:$API_PORT/api/health"
+  local db_health_url="http://$HEALTHCHECK_HOST:$API_PORT/api/system/database-health"
+
+  info "部署后健康检查：开始检查 Web、API 和数据库健康状态。"
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '+ curl -fsS %s\n' "$web_url"
+    printf '+ curl -fsS %s\n' "$api_url"
+    printf '+ curl -fsS %s\n' "$db_health_url"
+    return 0
+  fi
+
+  if curl -fsS "$web_url" >/dev/null 2>&1; then
+    info "Web 页面访问正常：$web_url"
+  else
+    warn "Web 页面访问失败：$web_url。请查看：systemctl status ${SERVICE_PREFIX}-web.service --no-pager；tail -n 100 $LOG_DIR/web.log"
+  fi
+
+  if curl -fsS "$api_url" >/dev/null 2>&1; then
+    info "API 健康检查正常：$api_url"
+  else
+    warn "API 健康检查失败：$api_url。请查看：systemctl status ${SERVICE_PREFIX}-api.service --no-pager；tail -n 100 $LOG_DIR/api.log"
+  fi
+
+  info "数据库健康检查结果："
+  if ! curl -fsS "$db_health_url"; then
+    warn "数据库健康检查接口访问失败：$db_health_url"
+  fi
+  printf '\n'
+}
+
 main() {
   info "deploying from $ROOT_DIR"
   ensure_system_packages
@@ -538,6 +632,7 @@ main() {
   ensure_env_file
   load_env_file
   configure_tushare_token
+  confirm_existing_database_policy
   select_runtime_ports
   configure_database_url
   sync_runtime_env
@@ -548,6 +643,7 @@ main() {
   write_systemd_units
   install_nightly_cron
   auto_start_app
+  print_deployment_health_report
 
   if [ "$DRY_RUN" = "1" ]; then
     cat <<EOF
@@ -557,10 +653,12 @@ main() {
 真实部署会执行以下动作：
   1. 检查并安装 Ubuntu 依赖、Docker、Node.js 和 Python 环境。
   2. 创建或复用 .env，并在需要时询问 TuShare Token；回车可跳过。
-  3. 启动 PostgreSQL 容器并执行数据库迁移。
-  4. 安装 systemd 服务：${SERVICE_PREFIX}-api.service、${SERVICE_PREFIX}-web.service。
-  5. 安装工作日 23:00 自动拉数任务：bash get_data.sh。
-  6. 自动执行 bash start.sh 启动系统。
+  3. 检查是否已有 PostgreSQL 数据库卷；如已存在，会询问保留或删除重建。
+  4. 启动 PostgreSQL 容器并执行数据库迁移。
+  5. 安装 systemd 服务：${SERVICE_PREFIX}-api.service、${SERVICE_PREFIX}-web.service。
+  6. 安装工作日 23:00 自动拉数任务：bash get_data.sh。
+  7. 自动执行 bash start.sh 启动系统。
+  8. 自动检查 Web、API 和数据库健康状态。
 
 常用命令：
   查看服务状态：systemctl status ${SERVICE_PREFIX}-api.service ${SERVICE_PREFIX}-web.service --no-pager
