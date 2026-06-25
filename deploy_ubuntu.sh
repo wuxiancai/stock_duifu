@@ -23,11 +23,11 @@ SERVICE_PREFIX="${STOCK_SERVICE_PREFIX:-stock}"
 LOG_DIR="$ROOT_DIR/.logs"
 
 info() {
-  printf '[stock-deploy] %s\n' "$*"
+  printf '[股票部署] %s\n' "$*"
 }
 
 warn() {
-  printf '[stock-deploy] %s\n' "$*" >&2
+  printf '[股票部署] %s\n' "$*" >&2
 }
 
 run() {
@@ -301,6 +301,36 @@ load_env_file() {
   export TUSHARE_TOKEN="${TUSHARE_TOKEN:-}"
 }
 
+configure_tushare_token() {
+  local input_token=""
+
+  if [ -n "${TUSHARE_TOKEN:-}" ]; then
+    info "已检测到 TuShare Token，将写入 .env 供后续自动拉数使用。"
+    upsert_env_key "TUSHARE_TOKEN" "$TUSHARE_TOKEN"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" = "1" ]; then
+    info "演练模式：真实部署时会询问 TuShare Token；直接回车可跳过。"
+    return 0
+  fi
+
+  if [ -t 0 ]; then
+    printf '\n请输入 TuShare Token；没有则直接回车跳过： '
+    read -r input_token
+    if [ -n "$input_token" ]; then
+      TUSHARE_TOKEN="$input_token"
+      export TUSHARE_TOKEN
+      upsert_env_key "TUSHARE_TOKEN" "$TUSHARE_TOKEN"
+      info "TuShare Token 已写入 .env。"
+    else
+      warn "未填写 TuShare Token：系统仍会启动，但不会自动拉取真实行情数据。"
+    fi
+  else
+    warn "当前不是交互终端，无法询问 TuShare Token；如需自动拉数，请手动在 .env 中配置 TUSHARE_TOKEN。"
+  fi
+}
+
 select_runtime_ports() {
   local pg_base="${EXPLICIT_POSTGRES_HOST_PORT:-$POSTGRES_BASE_PORT}"
   POSTGRES_HOST_PORT="$(next_available_port "$DB_HOST" "$pg_base")"
@@ -481,9 +511,23 @@ install_nightly_cron() {
   local timezone_line="CRON_TZ=Asia/Shanghai # $marker"
   local cron_line="0 23 * * 1-5 cd $ROOT_DIR && bash get_data.sh >> $log_path 2>&1 # $marker"
 
-  info "installing daily 23:00 get_data.sh cron"
+  info "安装工作日 23:00 自动拉数任务：bash get_data.sh"
   run mkdir -p "$ROOT_DIR/.logs"
   run_shell "(crontab -l 2>/dev/null | grep -v '$marker'; printf '%s\n' '$timezone_line'; printf '%s\n' '$cron_line') | crontab -"
+}
+
+auto_start_app() {
+  if [ "${STOCK_DEPLOY_SKIP_START:-0}" = "1" ]; then
+    warn "已设置 STOCK_DEPLOY_SKIP_START=1，跳过部署后的自动启动。"
+    return 0
+  fi
+
+  info "部署步骤完成，开始自动执行 bash start.sh 启动系统。"
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '+ bash start.sh\n'
+    return 0
+  fi
+  bash start.sh
 }
 
 main() {
@@ -493,6 +537,7 @@ main() {
   ensure_docker_permission
   ensure_env_file
   load_env_file
+  configure_tushare_token
   select_runtime_ports
   configure_database_url
   sync_runtime_env
@@ -502,21 +547,27 @@ main() {
   run_migrations
   write_systemd_units
   install_nightly_cron
+  auto_start_app
 
   if [ "$DRY_RUN" = "1" ]; then
     cat <<EOF
 
-Dry run complete. No files, packages, containers, services, or database rows were changed.
+部署演练完成：没有真正修改文件、安装软件、启动容器、写入服务或拉取行情数据。
 
-Real deployment leaves the database schema-only. The first start will check data health
-and run get_data.sh if A-share decision data is missing.
+真实部署会执行以下动作：
+  1. 检查并安装 Ubuntu 依赖、Docker、Node.js 和 Python 环境。
+  2. 创建或复用 .env，并在需要时询问 TuShare Token；回车可跳过。
+  3. 启动 PostgreSQL 容器并执行数据库迁移。
+  4. 安装 systemd 服务：${SERVICE_PREFIX}-api.service、${SERVICE_PREFIX}-web.service。
+  5. 安装工作日 23:00 自动拉数任务：bash get_data.sh。
+  6. 自动执行 bash start.sh 启动系统。
 
-Real deployment would install:
-  systemd: ${SERVICE_PREFIX}-api.service, ${SERVICE_PREFIX}-web.service
-  cron:    0 23 * * 1-5 cd $ROOT_DIR && bash get_data.sh
-
-After deployment, start the system with:
-  bash start.sh
+常用命令：
+  查看服务状态：systemctl status ${SERVICE_PREFIX}-api.service ${SERVICE_PREFIX}-web.service --no-pager
+  查看夜间拉数日志：tail -n 100 $ROOT_DIR/.logs/get_data_cron.log
+  手动拉取数据：TRADE_DATE=YYYY-MM-DD bash get_data.sh
+  重启系统：bash start.sh
+  停止系统：bash stop.sh
 
 EOF
     return
@@ -524,33 +575,41 @@ EOF
 
   cat <<EOF
 
-Deployment is ready.
+部署完成，系统已尝试自动启动。
 
-Selected ports:
-  Web:        $WEB_PORT
-  API:        $API_PORT
-  PostgreSQL: $POSTGRES_HOST_PORT
+端口信息：
+  Web 页面端口：      $WEB_PORT
+  API 服务端口：      $API_PORT
+  PostgreSQL 宿主端口：$POSTGRES_HOST_PORT
 
-Database has schema only. It intentionally does not contain market data yet.
-On first startup, start.sh checks whether A-share decision data is sufficient and
-runs get_data.sh when required.
+访问地址：
+  本机 Web： http://$HEALTHCHECK_HOST:$WEB_PORT
+  API 健康： http://$HEALTHCHECK_HOST:$API_PORT/api/health
 
-Nightly data pull is installed in crontab at 23:00 on weekdays.
-Logs are written to:
-  $ROOT_DIR/.logs/get_data_cron.log
+数据说明：
+  - deploy_ubuntu.sh 只负责部署、迁移和启动。
+  - start.sh 会检查数据库是否已有 A 股决策数据。
+  - 如果 .env 中有 TUSHARE_TOKEN，首次启动会自动执行 get_data.sh 拉取真实行情并生成强势行业、候选股和交易计划。
+  - 如果没有 TUSHARE_TOKEN，系统会启动为空页面；后续补 token 后执行 bash start.sh 或 TRADE_DATE=YYYY-MM-DD bash get_data.sh 即可补数据。
 
-Systemd services are installed and enabled:
+已安装自动任务：
+  工作日 23:00 中国时区自动执行：bash get_data.sh
+  日志文件：$ROOT_DIR/.logs/get_data_cron.log
+
+已安装 systemd 服务：
   ${SERVICE_PREFIX}-api.service
   ${SERVICE_PREFIX}-web.service
 
-Start the app now with:
-  bash start.sh
+常用命令：
+  查看 API 服务：systemctl status ${SERVICE_PREFIX}-api.service --no-pager
+  查看 Web 服务：systemctl status ${SERVICE_PREFIX}-web.service --no-pager
+  查看部署/启动日志：tail -n 100 $ROOT_DIR/.logs/api.log && tail -n 100 $ROOT_DIR/.logs/web.log
+  查看夜间拉数日志：tail -n 100 $ROOT_DIR/.logs/get_data_cron.log
+  手动补数据：TRADE_DATE=YYYY-MM-DD bash get_data.sh
+  重新启动：bash start.sh
+  停止全部：bash stop.sh
 
-Stop everything with:
-  bash stop.sh
-
-If Docker group membership was just changed, re-login later so Docker works
-without sudo in interactive shells.
+如果刚才把用户加入了 docker 组，请重新登录服务器，让 Docker 权限在交互终端中生效。
 
 EOF
 }

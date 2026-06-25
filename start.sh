@@ -397,6 +397,11 @@ check_and_fill_decision_data() {
   local counts
   counts="$(database_decision_counts)"
   if [ -z "$counts" ]; then
+    if [ -z "${TUSHARE_TOKEN:-}" ]; then
+      warn "could not read database decision data counts, and TUSHARE_TOKEN is empty; skipping get_data.sh and starting empty dashboard"
+      warn "set TUSHARE_TOKEN in .env, then run: bash start.sh or TRADE_DATE=YYYY-MM-DD bash get_data.sh"
+      return 0
+    fi
     warn "could not read database decision data counts; running get_data.sh to initialize data"
     bash get_data.sh
     return 0
@@ -416,6 +421,11 @@ check_and_fill_decision_data() {
 EOF
 
   if [ "$open_days" -lt 20 ] || [ "$stock_daily_dates" -lt 20 ] || [ "$market_rows" -lt 1 ] || [ "$sector_rows" -lt 1 ] || [ "$candidate_rows" -lt 1 ] || [ "$plan_rows" -lt 1 ] || [ "$data_jobs" -lt 1 ]; then
+    if [ -z "${TUSHARE_TOKEN:-}" ]; then
+      warn "database does not yet satisfy A-share decision requirements, but TUSHARE_TOKEN is empty; skipping get_data.sh and starting empty dashboard"
+      warn "set TUSHARE_TOKEN in .env, then run: bash start.sh or TRADE_DATE=YYYY-MM-DD bash get_data.sh"
+      return 0
+    fi
     warn "database does not yet satisfy A-share decision requirements; running bash get_data.sh"
     if ! bash get_data.sh; then
       warn "get_data.sh failed. Check TUSHARE_TOKEN, network access, and $LOG_DIR/get_data_cron.log if cron is involved."
@@ -475,26 +485,31 @@ main() {
 
   cat <<EOF
 
-Project is running.
+系统已启动。
 
-Frontend local: http://$HEALTHCHECK_HOST:$WEB_PORT
-Frontend LAN:   http://$public_host:$WEB_PORT
-API local:      http://$HEALTHCHECK_HOST:$API_PORT/api/health
-API proxy:      /api -> $VITE_DEV_API_PROXY_TARGET
-Database:       $DB_HOST:$POSTGRES_HOST_PORT -> postgres:5432
-Logs:           $LOG_DIR
+访问地址：
+  本机 Web： http://$HEALTHCHECK_HOST:$WEB_PORT
+  局域网 Web：http://$public_host:$WEB_PORT
+  API 健康： http://$HEALTHCHECK_HOST:$API_PORT/api/health
+  API 代理： /api -> $VITE_DEV_API_PROXY_TARGET
+  数据库：   $DB_HOST:$POSTGRES_HOST_PORT -> postgres:5432
+  日志目录： $LOG_DIR
 
-Selected ports:
-  Web:        $WEB_PORT
-  API:        $API_PORT
-  PostgreSQL: $POSTGRES_HOST_PORT
+端口信息：
+  Web：        $WEB_PORT
+  API：        $API_PORT
+  PostgreSQL： $POSTGRES_HOST_PORT
 
-If another LAN computer cannot open Frontend LAN, allow the web port on Ubuntu:
+如果局域网其他电脑打不开页面，请在 Ubuntu 放通 Web 端口：
   sudo ufw allow $WEB_PORT/tcp
 
-Run bash start.sh again to stop existing services and restart cleanly.
-Stop everything with:
-  bash stop.sh
+常用命令：
+  重新启动系统：bash start.sh
+  停止全部服务：bash stop.sh
+  查看 API 服务：systemctl status ${SERVICE_PREFIX}-api.service --no-pager
+  查看 Web 服务：systemctl status ${SERVICE_PREFIX}-web.service --no-pager
+  手动补数据：TRADE_DATE=YYYY-MM-DD bash get_data.sh
+  查看夜间拉数日志：tail -n 100 $LOG_DIR/get_data_cron.log
 
 EOF
 }

@@ -46,12 +46,15 @@ def test_deploy_script_has_dry_run_and_keeps_database_empty() -> None:
     assert "installing systemd services: stock-api.service, stock-web.service" in result.stdout
     assert "systemctl enable stock-api.service stock-web.service" in result.stdout
     assert "get_data.sh" in result.stdout
-    assert "installing daily 23:00 get_data.sh cron" in result.stdout
+    assert "安装工作日 23:00 自动拉数任务" in result.stdout
     assert "CRON_TZ=Asia/Shanghai" in result.stdout
     assert "0 23 * * 1-5" in result.stdout
     assert "codex-stock-nightly-get-data" in result.stdout
-    assert "After deployment, start the system with:" in result.stdout
-    assert "bash start.sh" in result.stdout
+    assert "真实部署时会询问 TuShare Token" in result.stdout or "已检测到 TuShare Token" in result.stdout
+    assert "+ set TUSHARE_TOKEN=token-for-dry-run in .env" in result.stdout
+    assert "自动执行 bash start.sh 启动系统" in result.stdout
+    assert "+ bash start.sh" in result.stdout
+    assert "部署演练完成" in result.stdout
 
 
 def test_deploy_script_uses_high_default_postgres_port_instead_of_5432() -> None:
@@ -342,7 +345,7 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
     assert 'synced selected ports to .env' in script
     assert script.index("sync_runtime_env") < script.index("start_postgres")
     assert script.index("check_and_fill_decision_data") < script.index("start_systemd_or_fallback")
-    assert "API proxy:      /api -> $VITE_DEV_API_PROXY_TARGET" in script
+    assert "API 代理： /api -> $VITE_DEV_API_PROXY_TARGET" in script
     assert "sudo ufw allow $WEB_PORT/tcp" in script
     assert "API_RELOAD=0" in script
     assert "sock.bind((host, port))" in script
@@ -354,6 +357,8 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
     assert 'systemctl restart "${SERVICE_PREFIX}-web.service"' in script
     assert "database decision data check" in script
     assert "bash get_data.sh" in script
+    assert "TUSHARE_TOKEN is empty; skipping get_data.sh and starting empty dashboard" in script
+    assert "手动补数据：TRADE_DATE=YYYY-MM-DD bash get_data.sh" in script
 
 
 def test_start_script_stops_existing_project_before_restart_and_stop_script_exists() -> None:
