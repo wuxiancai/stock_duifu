@@ -238,6 +238,29 @@ def test_get_data_script_bootstraps_recent_open_dates_when_history_is_missing() 
     assert "--trade-date 2026-06-23" not in result.stdout
 
 
+def test_get_data_script_bootstrap_sorts_open_dates_before_limiting() -> None:
+    script = ROOT / "get_data.sh"
+
+    result = run_script(
+        str(script),
+        {
+            "STOCK_GET_DATA_DRY_RUN": "1",
+            "TUSHARE_TOKEN": "token-for-dry-run",
+            "STOCK_GET_DATA_OPEN_DATES": "2026-06-22 2026-06-17 2026-06-18 2026-06-23",
+            "STOCK_GET_DATA_NOW": "2026-06-23T09:30:00+08:00",
+            "STOCK_GET_DATA_STOCK_DAILY_DAYS": "0",
+            "STOCK_GET_DATA_BOOTSTRAP_OPEN_DAYS": "2",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "stock_daily history has 0 trading dates; bootstrapping latest 2 open trading dates through 2026-06-22" in result.stdout
+    assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-17" not in result.stdout
+    assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-18" in result.stdout
+    assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-22" in result.stdout
+    assert "--trade-date 2026-06-23" not in result.stdout
+
+
 def test_get_data_script_defaults_to_today_after_close() -> None:
     script = ROOT / "get_data.sh"
 

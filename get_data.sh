@@ -385,7 +385,8 @@ else:
         for raw in frame[frame["is_open"] == 1]["cal_date"].tolist()
     ]
 
-selected = [item for item in open_days if item <= end][-limit:]
+eligible = sorted(item for item in open_days if item <= end)
+selected = eligible[-limit:]
 for item in selected:
     print(item.isoformat())
 PY
