@@ -327,6 +327,27 @@ def test_get_data_script_skips_closed_single_date_in_dry_run() -> None:
     assert "bash scripts/audit-market-data.sh --trade-date 2026-06-21" not in result.stdout
 
 
+def test_get_data_script_filters_weekend_even_if_open_date_override_contains_it() -> None:
+    script = ROOT / "get_data.sh"
+
+    result = run_script(
+        str(script),
+        {
+            "STOCK_GET_DATA_DRY_RUN": "1",
+            "START_DATE": "20260619",
+            "END_DATE": "20260622",
+            "TUSHARE_TOKEN": "token-for-dry-run",
+            "STOCK_GET_DATA_OPEN_DATES": "2026-06-19 2026-06-21 2026-06-22",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "resolved open trading dates from TuShare trade_cal: 2026-06-19,2026-06-22" in result.stdout
+    assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-19" in result.stdout
+    assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-22" in result.stdout
+    assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-21" not in result.stdout
+
+
 def test_start_script_defaults_to_lan_listen_host() -> None:
     script = (ROOT / "start.sh").read_text()
 

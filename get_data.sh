@@ -19,6 +19,7 @@ AFTER_CLOSE_HOUR="${STOCK_GET_DATA_AFTER_CLOSE_HOUR:-18}"
 BOOTSTRAP_OPEN_DAYS="${STOCK_GET_DATA_BOOTSTRAP_OPEN_DAYS:-25}"
 MIN_HISTORY_OPEN_DAYS="${STOCK_GET_DATA_MIN_HISTORY_OPEN_DAYS:-20}"
 STOCK_DAILY_DAYS_OVERRIDE="${STOCK_GET_DATA_STOCK_DAILY_DAYS:-}"
+A_SHARE_CALENDAR_EXCHANGE="${STOCK_GET_DATA_CALENDAR_EXCHANGE:-SSE}"
 
 info() {
   printf '[stock-data] %s\n' "$*"
@@ -178,7 +179,7 @@ load_env_file() {
 }
 
 default_trade_date() {
-  .venv/bin/python - "$OPEN_DATES_OVERRIDE" "$NOW_OVERRIDE" "$AFTER_CLOSE_HOUR" <<'PY'
+  .venv/bin/python - "$OPEN_DATES_OVERRIDE" "$NOW_OVERRIDE" "$AFTER_CLOSE_HOUR" "$A_SHARE_CALENDAR_EXCHANGE" <<'PY'
 from datetime import date, datetime, timedelta
 import os
 import sys
@@ -186,6 +187,7 @@ import sys
 override = sys.argv[1].strip()
 now_override = sys.argv[2].strip()
 after_close_hour = int(sys.argv[3])
+calendar_exchange = sys.argv[4].strip() or "SSE"
 
 try:
     from zoneinfo import ZoneInfo
@@ -212,7 +214,11 @@ today = now.date()
 include_today = now.hour >= after_close_hour
 
 if override:
-    open_days = sorted(parse_date(item) for item in override.replace(",", " ").split())
+    open_days = sorted(
+        item
+        for item in (parse_date(raw) for raw in override.replace(",", " ").split())
+        if item.weekday() < 5
+    )
 else:
     token = os.environ.get("TUSHARE_TOKEN", "")
     if not token:
@@ -225,13 +231,17 @@ else:
         raise SystemExit(1)
     start = today - timedelta(days=90)
     frame = ts.pro_api(token).trade_cal(
-        exchange="",
+        exchange=calendar_exchange,
         start_date=start.strftime("%Y%m%d"),
         end_date=today.strftime("%Y%m%d"),
     )
     open_days = [
-        datetime.strptime(str(raw), "%Y%m%d").date()
-        for raw in frame[frame["is_open"] == 1]["cal_date"].tolist()
+        item
+        for item in (
+            datetime.strptime(str(raw), "%Y%m%d").date()
+            for raw in frame[frame["is_open"] == 1]["cal_date"].tolist()
+        )
+        if item.weekday() < 5
     ]
 
 eligible = [
@@ -290,7 +300,7 @@ PY
 }
 
 print_open_date_range() {
-  .venv/bin/python - "$1" "$2" "$OPEN_DATES_OVERRIDE" <<'PY'
+  .venv/bin/python - "$1" "$2" "$OPEN_DATES_OVERRIDE" "$A_SHARE_CALENDAR_EXCHANGE" <<'PY'
 from datetime import date, datetime
 import os
 import sys
@@ -298,6 +308,7 @@ import sys
 start = date.fromisoformat(sys.argv[1])
 end = date.fromisoformat(sys.argv[2])
 override = sys.argv[3].strip()
+calendar_exchange = sys.argv[4].strip() or "SSE"
 if start > end:
     print(f"--start must be earlier than or equal to --end: {start} > {end}", file=sys.stderr)
     raise SystemExit(2)
@@ -314,7 +325,7 @@ def parse_date(raw: str) -> date:
 if override:
     for item in override.replace(",", " ").split():
         current = parse_date(item)
-        if start <= current <= end:
+        if start <= current <= end and current.weekday() < 5:
             print(current.isoformat())
     raise SystemExit(0)
 
@@ -331,7 +342,7 @@ except ImportError:
 
 pro = ts.pro_api(token)
 frame = pro.trade_cal(
-    exchange="",
+    exchange=calendar_exchange,
     start_date=start.strftime("%Y%m%d"),
     end_date=end.strftime("%Y%m%d"),
 )
@@ -339,12 +350,14 @@ if frame.empty:
     raise SystemExit(0)
 open_days = frame[frame["is_open"] == 1].sort_values("cal_date")
 for raw in open_days["cal_date"].tolist():
-    print(datetime.strptime(str(raw), "%Y%m%d").date().isoformat())
+    current = datetime.strptime(str(raw), "%Y%m%d").date()
+    if current.weekday() < 5:
+        print(current.isoformat())
 PY
 }
 
 print_recent_open_dates() {
-  .venv/bin/python - "$1" "$2" "$OPEN_DATES_OVERRIDE" <<'PY'
+  .venv/bin/python - "$1" "$2" "$OPEN_DATES_OVERRIDE" "$A_SHARE_CALENDAR_EXCHANGE" <<'PY'
 from datetime import date, datetime, timedelta
 import os
 import sys
@@ -352,6 +365,7 @@ import sys
 end = date.fromisoformat(sys.argv[1])
 limit = int(sys.argv[2])
 override = sys.argv[3].strip()
+calendar_exchange = sys.argv[4].strip() or "SSE"
 
 def parse_date(raw: str) -> date:
     for fmt in ("%Y-%m-%d", "%Y%m%d"):
@@ -363,7 +377,11 @@ def parse_date(raw: str) -> date:
     raise SystemExit(2)
 
 if override:
-    open_days = sorted(parse_date(item) for item in override.replace(",", " ").split())
+    open_days = sorted(
+        item
+        for item in (parse_date(raw) for raw in override.replace(",", " ").split())
+        if item.weekday() < 5
+    )
 else:
     token = os.environ.get("TUSHARE_TOKEN", "")
     if not token:
@@ -376,13 +394,17 @@ else:
         raise SystemExit(1)
     start = end - timedelta(days=max(120, limit * 3))
     frame = ts.pro_api(token).trade_cal(
-        exchange="",
+        exchange=calendar_exchange,
         start_date=start.strftime("%Y%m%d"),
         end_date=end.strftime("%Y%m%d"),
     )
     open_days = [
-        datetime.strptime(str(raw), "%Y%m%d").date()
-        for raw in frame[frame["is_open"] == 1]["cal_date"].tolist()
+        item
+        for item in (
+            datetime.strptime(str(raw), "%Y%m%d").date()
+            for raw in frame[frame["is_open"] == 1]["cal_date"].tolist()
+        )
+        if item.weekday() < 5
     ]
 
 eligible = sorted(item for item in open_days if item <= end)
