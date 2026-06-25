@@ -676,6 +676,8 @@ Environment=API_RELOAD=0
 ExecStart=$ROOT_DIR/scripts/dev-api.sh
 Restart=always
 RestartSec=3
+StandardOutput=append:$ROOT_DIR/.logs/api.log
+StandardError=append:$ROOT_DIR/.logs/api.log
 
 [Install]
 WantedBy=multi-user.target
@@ -695,6 +697,8 @@ Environment=VITE_API_BASE_URL=
 ExecStart=$ROOT_DIR/scripts/dev-web.sh
 Restart=always
 RestartSec=3
+StandardOutput=append:$ROOT_DIR/.logs/web.log
+StandardError=append:$ROOT_DIR/.logs/web.log
 
 [Install]
 WantedBy=multi-user.target

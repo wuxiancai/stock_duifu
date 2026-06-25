@@ -151,8 +151,9 @@ next_available_port() {
 wait_for_url() {
   local url="$1"
   local name="$2"
+  local timeout_seconds="${3:-60}"
   local i
-  for i in $(seq 1 60); do
+  for i in $(seq 1 "$timeout_seconds"); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       info "$name is ready: $url"
       return 0
@@ -174,6 +175,35 @@ wait_for_postgres() {
   done
   echo "PostgreSQL did not become ready in time." >&2
   return 1
+}
+
+print_service_diagnostics() {
+  local unit="$1"
+  local log_file="$2"
+  warn "诊断 systemd 服务：$unit"
+  if command -v systemctl >/dev/null 2>&1; then
+    sudo_cmd systemctl status "$unit" --no-pager || true
+  fi
+  if [ -f "$log_file" ]; then
+    warn "日志尾部：$log_file"
+    tail -n 80 "$log_file" || true
+  fi
+}
+
+start_fallback_processes() {
+  local start_api="${1:-1}"
+  local start_web="${2:-1}"
+  mkdir -p "$LOG_DIR" "$RUN_DIR"
+  if [ "$start_api" = "1" ]; then
+    : >"$LOG_DIR/api.log"
+    API_HOST="$API_LISTEN_HOST" API_PORT="$API_PORT" API_RELOAD=0 DATABASE_URL="$DATABASE_URL" nohup scripts/dev-api.sh >"$LOG_DIR/api.log" 2>&1 &
+    printf '%s\n' "$!" >"$RUN_DIR/api.pid"
+  fi
+  if [ "$start_web" = "1" ]; then
+    : >"$LOG_DIR/web.log"
+    VITE_API_BASE_URL="" VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" WEB_HOST="$WEB_LISTEN_HOST" WEB_PORT="$WEB_PORT" nohup scripts/dev-web.sh >"$LOG_DIR/web.log" 2>&1 &
+    printf '%s\n' "$!" >"$RUN_DIR/web.pid"
+  fi
 }
 
 detect_public_host() {
@@ -539,19 +569,28 @@ start_systemd_or_fallback() {
 
   if systemd_unit_exists "${SERVICE_PREFIX}-api.service" && systemd_unit_exists "${SERVICE_PREFIX}-web.service"; then
     info "starting API/Web through systemd"
+    : >"$LOG_DIR/api.log"
+    : >"$LOG_DIR/web.log"
     sudo_cmd systemctl restart "${SERVICE_PREFIX}-api.service"
     sudo_cmd systemctl restart "${SERVICE_PREFIX}-web.service"
   else
     warn "systemd units not installed; falling back to nohup background processes"
-    : >"$LOG_DIR/api.log"
-    : >"$LOG_DIR/web.log"
-    API_HOST="$API_LISTEN_HOST" API_PORT="$API_PORT" API_RELOAD=0 DATABASE_URL="$DATABASE_URL" nohup scripts/dev-api.sh >"$LOG_DIR/api.log" 2>&1 &
-    printf '%s\n' "$!" >"$RUN_DIR/api.pid"
-    (cd frontend && VITE_API_BASE_URL="" VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" nohup npm run dev -- --host "$WEB_LISTEN_HOST" --port "$WEB_PORT" >"$LOG_DIR/web.log" 2>&1 & printf '%s\n' "$!" >"$RUN_DIR/web.pid")
+    start_fallback_processes 1 1
   fi
 
-  wait_for_url "http://$HEALTHCHECK_HOST:$API_PORT/api/health" "API"
-  wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend"
+  if ! wait_for_url "http://$HEALTHCHECK_HOST:$API_PORT/api/health" "API" 60; then
+    print_service_diagnostics "${SERVICE_PREFIX}-api.service" "$LOG_DIR/api.log"
+    return 1
+  fi
+  if ! wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend" 60; then
+    print_service_diagnostics "${SERVICE_PREFIX}-web.service" "$LOG_DIR/web.log"
+    warn "Web systemd service did not become ready; starting Web with nohup fallback."
+    if systemd_unit_exists "${SERVICE_PREFIX}-web.service"; then
+      sudo_cmd systemctl stop "${SERVICE_PREFIX}-web.service" || true
+    fi
+    start_fallback_processes 0 1
+    wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend fallback" 60
+  fi
 }
 
 check_web_page_access() {

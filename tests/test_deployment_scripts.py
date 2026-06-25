@@ -359,7 +359,8 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
     assert 'WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-${WEB_HOST:-0.0.0.0}}"' in script
     assert 'HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"' in script
     assert 'VITE_DEV_API_PROXY_TARGET="http://$HEALTHCHECK_HOST:$API_PORT"' in script
-    assert 'VITE_API_BASE_URL="" VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" nohup npm run dev' in script
+    assert 'VITE_API_BASE_URL="" VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" WEB_HOST="$WEB_LISTEN_HOST" WEB_PORT="$WEB_PORT" nohup scripts/dev-web.sh' in script
+    assert "Web systemd service did not become ready; starting Web with nohup fallback." in script
     assert 'sync_runtime_env' in script
     assert 'upsert_env_key "POSTGRES_HOST_PORT" "$POSTGRES_HOST_PORT"' in script
     assert 'upsert_env_key "DATABASE_URL" "$DATABASE_URL"' in script
