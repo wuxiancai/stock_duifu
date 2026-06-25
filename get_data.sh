@@ -433,8 +433,19 @@ run_coverage_audit() {
   run_shell "DATABASE_URL='$DATABASE_URL' bash scripts/audit-market-data.sh --trade-date $trade_date"
 }
 
+is_open_trading_date() {
+  local trade_date="$1"
+  local open_dates
+  open_dates="$(print_open_date_range "$trade_date" "$trade_date")"
+  [ -n "$open_dates" ]
+}
+
 run_one_date() {
   local trade_date="$1"
+  if ! is_open_trading_date "$trade_date"; then
+    info "$trade_date is not an open trading date according to TuShare trade_cal; skipping workflow"
+    return 0
+  fi
   run_after_close_workflow "$trade_date"
   run_coverage_audit "$trade_date"
 }
@@ -491,6 +502,7 @@ main() {
     if [ -z "$date_range" ]; then
       info "no open trading dates found from $START_DATE to $END_DATE; skipping workflow"
     else
+      info "resolved open trading dates from TuShare trade_cal: $(printf '%s' "$date_range" | paste -sd ',' -)"
       while IFS= read -r trade_date; do
         if [ -z "$trade_date" ]; then
           continue
@@ -500,6 +512,7 @@ main() {
     fi
   elif [ "$default_mode" = "1" ] && [ -n "$date_range" ]; then
     info "running data workflow for default date set through $TRADE_DATE"
+    info "resolved open trading dates from TuShare trade_cal: $(printf '%s' "$date_range" | paste -sd ',' -)"
     while IFS= read -r trade_date; do
       if [ -z "$trade_date" ]; then
         continue

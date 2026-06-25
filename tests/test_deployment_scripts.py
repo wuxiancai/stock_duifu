@@ -300,6 +300,7 @@ def test_get_data_script_skips_closed_dates_in_batch_dry_run() -> None:
     )
 
     assert result.returncode == 0, result.stderr
+    assert "resolved open trading dates from TuShare trade_cal: 2026-06-18,2026-06-22" in result.stdout
     assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-18" in result.stdout
     assert "bash scripts/run-after-close-workflow.sh --trade-date 2026-06-22" in result.stdout
     assert "--trade-date 2026-06-19" not in result.stdout
