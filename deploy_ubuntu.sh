@@ -91,16 +91,42 @@ run_root_shell() {
   fi
 }
 
-docker_compose() {
+docker_compose_prefix() {
   if docker compose version >/dev/null 2>&1; then
-    docker compose "$@"
-    return
+    printf 'docker compose'
+    return 0
   fi
   if command -v sudo >/dev/null 2>&1 && sudo docker compose version >/dev/null 2>&1; then
+    printf 'sudo docker compose'
+    return 0
+  fi
+  printf 'docker compose'
+}
+
+docker_compose() {
+  local prefix
+  prefix="$(docker_compose_prefix)"
+  if [ "$prefix" = "sudo docker compose" ]; then
     sudo docker compose "$@"
     return
   fi
   docker compose "$@"
+}
+
+run_docker_compose_shell() {
+  local prefix
+  local command
+  prefix="$(docker_compose_prefix)"
+  command="$*"
+  if [ "$DRY_RUN" = "1" ]; then
+    printf '+ POSTGRES_HOST_PORT=%s %s %s\n' "$POSTGRES_HOST_PORT" "$prefix" "$command"
+    return 0
+  fi
+  if [ "$prefix" = "sudo docker compose" ]; then
+    sudo bash -lc "POSTGRES_HOST_PORT='$POSTGRES_HOST_PORT' docker compose $command"
+  else
+    bash -lc "POSTGRES_HOST_PORT='$POSTGRES_HOST_PORT' docker compose $command"
+  fi
 }
 
 is_port_available() {
@@ -429,10 +455,28 @@ postgres_volume_name() {
   printf '%s_postgres_data' "$(compose_project_name)"
 }
 
+docker_cli_prefix() {
+  if docker ps >/dev/null 2>&1; then
+    printf 'docker'
+    return 0
+  fi
+  if command -v sudo >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then
+    printf 'sudo docker'
+    return 0
+  fi
+  printf 'docker'
+}
+
 postgres_volume_exists() {
   local volume_name
+  local prefix
   volume_name="$(postgres_volume_name)"
-  docker volume inspect "$volume_name" >/dev/null 2>&1
+  prefix="$(docker_cli_prefix)"
+  if [ "$prefix" = "sudo docker" ]; then
+    sudo docker volume inspect "$volume_name" >/dev/null 2>&1
+  else
+    docker volume inspect "$volume_name" >/dev/null 2>&1
+  fi
 }
 
 confirm_existing_database_policy() {
@@ -580,13 +624,13 @@ sync_database_url_from_running_container() {
 start_database() {
   if [ "${RESET_DB:-0}" = "1" ]; then
     warn "RESET_DB=1：正在删除旧 PostgreSQL 数据卷并重新部署空库。"
-    run_shell "POSTGRES_HOST_PORT=$POSTGRES_HOST_PORT docker compose down -v"
+    run_docker_compose_shell down -v
   else
     info "保留 PostgreSQL 数据卷；如果已有数据库，本次部署只做迁移和增量检查。"
   fi
 
   info "启动 PostgreSQL 容器：宿主机 $DB_HOST:$POSTGRES_HOST_PORT -> 容器 postgres:5432"
-  run_shell "POSTGRES_HOST_PORT=$POSTGRES_HOST_PORT docker compose up -d postgres"
+  run_docker_compose_shell up -d postgres
   if [ "$DRY_RUN" != "1" ]; then
     wait_for_postgres
     sync_database_url_from_running_container
