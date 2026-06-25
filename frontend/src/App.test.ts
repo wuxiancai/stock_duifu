@@ -385,7 +385,7 @@ describe('App', () => {
     expect(wrapper.text()).toContain('连板高度')
     expect(wrapper.text()).toContain('市场震荡，轻仓参与，优先选择强势板块。')
     expect(wrapper.text()).not.toContain('上一交易日说明不应作为当前解释。')
-    expect(wrapper.text()).toContain('强势板块')
+    expect(wrapper.text()).toContain('强势行业')
     expect(wrapper.text()).toContain('科技风格')
     expect(wrapper.text()).toContain('近5日排名')
     expect(wrapper.text()).toContain('06-18')
@@ -454,7 +454,7 @@ describe('App', () => {
     const databaseHealthTable = wrapper.findAllComponents({ name: 'ElTable' }).find((table) => table.text().includes('个股日线'))
     expect(databaseHealthTable?.props('maxHeight')).toBeUndefined()
 
-    expect(wrapper.text()).not.toContain('板块详情：科技风格')
+    expect(wrapper.text()).not.toContain('行业详情：科技风格')
     const sectorButton = wrapper.findAll('button').find((button) => button.text() === '科技风格')
     expect(sectorButton).toBeTruthy()
 
@@ -462,10 +462,10 @@ describe('App', () => {
     await wrapper.vm.$nextTick()
 
     expect(window.location.pathname).toBe('/sectors/%E7%A7%91%E6%8A%80%E9%A3%8E%E6%A0%BC')
-    expect(wrapper.text()).toContain('板块详情：科技风格')
+    expect(wrapper.text()).toContain('行业详情：科技风格')
     expect(wrapper.text()).toContain('板块共振，趋势多头排列，量价健康')
-    expect(wrapper.text()).toContain('该板块交易计划')
-    expect(wrapper.text()).toContain('返回强势板块')
+    expect(wrapper.text()).toContain('该行业交易计划')
+    expect(wrapper.text()).toContain('返回强势行业')
   })
 
   it('refreshes realtime quotes before loading simulation when target trade date is today', async () => {
@@ -771,7 +771,7 @@ describe('App', () => {
 
     expect(wrapper.text()).toContain('今日决策面板')
     expect(wrapper.text()).toContain('暂无市场建议，请先生成市场环境数据。')
-    expect(wrapper.text()).toContain('暂无强势板块数据')
+    expect(wrapper.text()).toContain('暂无强势行业数据')
     expect(wrapper.text()).toContain('暂无交易计划数据')
     expect(wrapper.text()).not.toContain('failed: 404')
     expect(wrapper.text()).not.toContain('数据异常')

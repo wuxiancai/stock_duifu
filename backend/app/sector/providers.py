@@ -30,6 +30,10 @@ class TushareDCSectorDataProvider:
         "趋势股",
         "反转股",
         "题材股",
+        "昨日连板_含一字",
+        "昨日连板",
+        "高换手",
+        "高振幅",
     }
 
     def __init__(self, token: str, pro_client=None, member_fetch_limit: int = 80):
@@ -46,7 +50,7 @@ class TushareDCSectorDataProvider:
         frame = pro.dc_index(start_date=start_date, end_date=end_date)
         if frame.empty:
             return []
-        frame = _filter_rankable_sector_universe(frame)
+        frame = _filter_industry_sector_universe(frame)
         if frame.empty:
             return []
 
@@ -96,16 +100,31 @@ def _amount_proxy(row) -> float:
 
 
 def _filter_rankable_sector_universe(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return the primary sector universe used by the decision dashboard.
+
+    The strong-sector module must rank stable industry sectors. Concept boards are
+    useful as thematic/elasticity signals, but they should not compete with
+    industry sectors in the main Top 10 ranking.
+    """
+    return _filter_industry_sector_universe(frame)
+
+
+def _filter_industry_sector_universe(frame: pd.DataFrame) -> pd.DataFrame:
     if "idx_type" not in frame.columns or "level" not in frame.columns:
         return frame
+    return frame[
+        frame["idx_type"].eq("行业板块")
+        & frame["level"].eq(TushareDCSectorDataProvider._INDUSTRY_LEVEL)
+    ].copy()
 
-    concept_mask = frame["idx_type"].eq("概念板块") & ~frame["name"].isin(
-        TushareDCSectorDataProvider._EXCLUDED_CONCEPT_NAMES
-    )
-    first_level_industry_mask = frame["idx_type"].eq("行业板块") & frame["level"].eq(
-        TushareDCSectorDataProvider._INDUSTRY_LEVEL
-    )
-    return frame[concept_mask | first_level_industry_mask].copy()
+
+def _filter_concept_sector_universe(frame: pd.DataFrame) -> pd.DataFrame:
+    if "idx_type" not in frame.columns:
+        return frame
+    return frame[
+        frame["idx_type"].eq("概念板块")
+        & ~frame["name"].isin(TushareDCSectorDataProvider._EXCLUDED_CONCEPT_NAMES)
+    ].copy()
 
 
 def _float(value, default: Optional[float] = 0.0) -> float:

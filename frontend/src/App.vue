@@ -684,7 +684,7 @@ onBeforeUnmount(() => {
         </a>
         <a class="nav-item" href="#sectors">
           <el-icon><TrendCharts /></el-icon>
-          <span>强势板块</span>
+          <span>强势行业</span>
         </a>
         <a class="nav-item" href="#plans">
           <el-icon><Finished /></el-icon>
@@ -717,7 +717,7 @@ onBeforeUnmount(() => {
       <header class="toolbar">
         <div>
           <h1>A股短线决策工作台</h1>
-          <p>盘后查看市场环境、强势板块和次日条件交易计划。</p>
+          <p>盘后查看市场环境、强势行业和次日条件交易计划。</p>
         </div>
         <div class="toolbar-actions">
           <el-tag :type="statusType" size="large">
@@ -739,11 +739,11 @@ onBeforeUnmount(() => {
         <section class="panel sector-detail-panel">
           <div class="section-heading table-heading">
             <div>
-              <h2>板块详情：{{ selectedSectorName }}</h2>
-              <p>交易日：{{ sectors?.trade_date ?? '-' }}，集中查看该板块候选股票和交易计划。</p>
+              <h2>行业详情：{{ selectedSectorName }}</h2>
+              <p>交易日：{{ sectors?.trade_date ?? '-' }}，集中查看该行业候选股票和交易计划。</p>
             </div>
             <div class="table-tools">
-              <el-button @click="navigateToDashboardSection('sectors')">返回强势板块</el-button>
+              <el-button @click="navigateToDashboardSection('sectors')">返回强势行业</el-button>
               <el-button :icon="Download" :disabled="!filteredCandidates.length" @click="exportCandidates">导出候选</el-button>
             </div>
           </div>
@@ -752,7 +752,7 @@ onBeforeUnmount(() => {
             <article class="metric primary-metric">
               <el-icon><TrendCharts /></el-icon>
               <div>
-                <span>板块排名</span>
+                <span>行业排名</span>
                 <strong>{{ selectedSector.rank_no }}</strong>
               </div>
             </article>
@@ -784,7 +784,7 @@ onBeforeUnmount(() => {
           </section>
           <el-alert
             v-else
-            title="当前板块不在最新 Top 10 中，请返回强势板块选择。"
+            title="当前行业不在最新 Top 10 中，请返回强势行业选择。"
             type="warning"
             :closable="false"
             show-icon
@@ -794,19 +794,19 @@ onBeforeUnmount(() => {
         <section class="panel">
           <div class="section-heading table-heading">
             <div>
-              <h2>该板块候选股票</h2>
+              <h2>该行业候选股票</h2>
               <p>展示候选股票、策略、评分、入选理由和风险提示。</p>
             </div>
           </div>
 
-          <el-table :data="filteredCandidates" border stripe empty-text="暂无该板块候选股票">
+          <el-table :data="filteredCandidates" border stripe empty-text="暂无该行业候选股票">
             <el-table-column label="股票" min-width="150" sortable prop="stock_name">
               <template #default="{ row }: { row: CandidateItem }">
                 <strong>{{ row.stock_name }}</strong>
                 <small class="muted-code">{{ row.stock_code }}</small>
               </template>
             </el-table-column>
-            <el-table-column prop="sector_rank" label="板块排名" min-width="110" sortable />
+            <el-table-column prop="sector_rank" label="行业排名" min-width="110" sortable />
             <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
             <el-table-column label="评分" min-width="110" sortable prop="stock_score">
               <template #default="{ row }: { row: CandidateItem }">{{ row.stock_score }} / {{ row.sector_score }}</template>
@@ -825,7 +825,7 @@ onBeforeUnmount(() => {
         <section class="panel">
           <div class="section-heading table-heading">
             <div>
-              <h2>该板块交易计划</h2>
+              <h2>该行业交易计划</h2>
               <p>只展示目标交易日属于 {{ selectedSectorName }} 的交易计划。</p>
             </div>
           </div>
@@ -908,22 +908,22 @@ onBeforeUnmount(() => {
       <section id="sectors" class="panel">
         <div class="section-heading table-heading">
           <div>
-            <h2>强势板块</h2>
-            <p>交易日：{{ sectors?.trade_date ?? '-' }}，展示 Top {{ sectors?.items.length ?? 0 }}</p>
+            <h2>强势行业</h2>
+            <p>交易日：{{ sectors?.trade_date ?? '-' }}，主榜只展示东财一级行业 Top {{ sectors?.items.length ?? 0 }}；概念题材不再与行业混排。</p>
           </div>
           <div class="table-tools">
-            <el-input v-model="sectorKeyword" clearable placeholder="筛选板块" />
+            <el-input v-model="sectorKeyword" clearable placeholder="筛选行业" />
             <el-button :icon="Download" :disabled="!filteredSectors.length" @click="exportSectors">导出</el-button>
           </div>
         </div>
 
-        <el-table :data="filteredSectors" border stripe empty-text="暂无强势板块数据">
+        <el-table :data="filteredSectors" border stripe empty-text="暂无强势行业数据">
           <el-table-column prop="rank_no" label="排名" width="88" sortable>
             <template #default="{ row }: { row: SectorTopItem }">
               <el-tag :type="row.rank_no <= 3 ? 'success' : 'info'">{{ row.rank_no }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="sector_name" label="板块" min-width="150" sortable>
+          <el-table-column prop="sector_name" label="行业" min-width="150" sortable>
             <template #default="{ row }: { row: SectorTopItem }">
               <el-button link type="primary" @click="navigateToSector(row.sector_name)">{{ row.sector_name }}</el-button>
             </template>

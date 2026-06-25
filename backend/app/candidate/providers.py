@@ -3,6 +3,8 @@ from datetime import date
 import pandas as pd
 import tushare as ts
 
+from backend.app.sector.providers import _filter_industry_sector_universe
+
 
 class MissingCandidateDataTokenError(RuntimeError):
     pass
@@ -19,6 +21,7 @@ class TushareDCSectorMembershipProvider:
             raise MissingCandidateDataTokenError("TUSHARE_TOKEN is required for candidate sector membership")
         pro = self._pro_client or ts.pro_api(self.token)
         index_frame = pro.dc_index(trade_date=self.trade_date.strftime("%Y%m%d"))
+        index_frame = _filter_industry_sector_universe(index_frame)
         code_by_name = {
             str(row["name"]): str(row["ts_code"])
             for _, row in index_frame.iterrows()

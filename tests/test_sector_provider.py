@@ -2,7 +2,11 @@ from datetime import date
 
 import pandas as pd
 
-from backend.app.sector.providers import TushareDCSectorDataProvider, _filter_rankable_sector_universe
+from backend.app.sector.providers import (
+    TushareDCSectorDataProvider,
+    _filter_concept_sector_universe,
+    _filter_rankable_sector_universe,
+)
 
 
 class FakeTushareSectorClient:
@@ -16,6 +20,8 @@ class FakeTushareSectorClient:
                     "ts_code": "BK0001.DC",
                     "trade_date": "20260618",
                     "name": "机器人",
+                    "idx_type": "行业板块",
+                    "level": "东财一级行业",
                     "pct_change": 5.5,
                     "total_mv": 1000000,
                     "turnover_rate": 3.0,
@@ -25,8 +31,10 @@ class FakeTushareSectorClient:
                 {
                     "ts_code": "BK0002.DC",
                     "trade_date": "20260618",
-                    "name": "银行",
-                    "pct_change": 1.2,
+                    "name": "阿兹海默",
+                    "idx_type": "概念板块",
+                    "level": None,
+                    "pct_change": 6.2,
                     "total_mv": 2000000,
                     "turnover_rate": 1.0,
                     "up_num": 8,
@@ -36,6 +44,8 @@ class FakeTushareSectorClient:
                     "ts_code": "BK0001.DC",
                     "trade_date": "20260617",
                     "name": "机器人",
+                    "idx_type": "行业板块",
+                    "level": "东财一级行业",
                     "pct_change": 2.0,
                     "total_mv": 900000,
                     "turnover_rate": 2.0,
@@ -62,7 +72,7 @@ def test_tushare_dc_sector_provider_maps_index_and_member_rows() -> None:
     records = provider.fetch_sector_window(date(2026, 6, 18))
 
     today_records = [record for record in records if record.trade_date == date(2026, 6, 18)]
-    assert len(records) == 3
+    assert len(records) == 2
     assert today_records[0].sector_code == "BK0001.DC"
     assert today_records[0].sector_name == "机器人"
     assert today_records[0].amount == 30000
@@ -70,7 +80,7 @@ def test_tushare_dc_sector_provider_maps_index_and_member_rows() -> None:
     assert client.member_kwargs == [{"ts_code": "BK0001.DC"}]
 
 
-def test_tushare_dc_sector_provider_filters_to_rankable_board_universe() -> None:
+def test_tushare_dc_sector_provider_filters_to_primary_industry_universe() -> None:
     frame = pd.DataFrame(
         [
             {"ts_code": "BK0001.DC", "name": "培育钻石", "idx_type": "概念板块", "level": None},
@@ -85,4 +95,19 @@ def test_tushare_dc_sector_provider_filters_to_rankable_board_universe() -> None
 
     filtered = _filter_rankable_sector_universe(frame)
 
-    assert filtered["name"].tolist() == ["培育钻石", "非银金融"]
+    assert filtered["name"].tolist() == ["非银金融"]
+
+
+def test_tushare_dc_sector_provider_can_filter_concepts_separately() -> None:
+    frame = pd.DataFrame(
+        [
+            {"ts_code": "BK0001.DC", "name": "培育钻石", "idx_type": "概念板块", "level": None},
+            {"ts_code": "BK0002.DC", "name": "东方财富热股", "idx_type": "概念板块", "level": None},
+            {"ts_code": "BK0003.DC", "name": "非银金融", "idx_type": "行业板块", "level": "东财一级行业"},
+            {"ts_code": "BK0004.DC", "name": "昨日连板_含一字", "idx_type": "概念板块", "level": None},
+        ]
+    )
+
+    filtered = _filter_concept_sector_universe(frame)
+
+    assert filtered["name"].tolist() == ["培育钻石"]
