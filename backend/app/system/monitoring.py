@@ -371,24 +371,29 @@ def _allowed_no_trade_gap(required_rows: int) -> int:
 
 
 def _sector_health_item(target_date: date, sector_rows: int, max_rank: int, command: str) -> DatabaseHealthItem:
+    min_industry_rows = 10
+    max_reasonable_industry_rows = 80
     if sector_rows == 0:
         status = "error"
-        message = "强势板块未生成。"
-    elif max_rank > 511:
+        message = "强势行业未生成。"
+    elif max_rank > max_reasonable_industry_rows:
         status = "error"
-        message = "板块排名超过 511，说明排名宇宙错误。"
-    elif sector_rows != 511:
+        message = "强势行业排名数量异常偏大，可能混入了概念板块或旧口径数据。"
+    elif max_rank != sector_rows:
         status = "warning"
-        message = "板块排名不是 511 行，请确认数据源返回口径。"
+        message = "强势行业排名不连续，请确认生成流程是否完整。"
+    elif sector_rows < min_industry_rows:
+        status = "warning"
+        message = "强势行业数量少于 Top 10，可能数据源返回不完整。"
     else:
         status = "ok"
-        message = "正常"
+        message = "正常，按东财一级行业口径生成强势行业排名。"
     return DatabaseHealthItem(
-        name="强势板块排名",
+        name="强势行业排名",
         status=status,
         message=message,
         actual=f"rows={sector_rows}, max_rank={max_rank}",
-        expected="511 行，max_rank <= 511",
+        expected=f"至少 {min_industry_rows} 个东财一级行业，max_rank=rows，且 max_rank <= {max_reasonable_industry_rows}",
         fix_command="" if status == "ok" else command,
     )
 

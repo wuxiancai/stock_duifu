@@ -16,6 +16,7 @@ from backend.app.data.types import (
 )
 from backend.app.db.models import DataJobRun, MarketDaily, SectorDaily, StockBasic, StockDaily, TradingCalendar, metadata
 from backend.app.main import create_app
+from backend.app.system.monitoring import _sector_health_item
 from backend.app.workflow.service import run_after_close_workflow
 
 
@@ -196,6 +197,24 @@ def test_database_health_api_reports_missing_data_with_fix_command() -> None:
     stock_daily = next(item for item in payload["items"] if item["name"] == "个股日线")
     assert stock_daily["status"] == "error"
     assert stock_daily["fix_command"] == "TRADE_DATE=2026-06-18 bash get_data.sh"
+
+
+def test_sector_health_uses_primary_industry_ranking_universe() -> None:
+    item = _sector_health_item(date(2026, 6, 25), sector_rows=31, max_rank=31, command="TRADE_DATE=2026-06-25 bash get_data.sh")
+
+    assert item.name == "强势行业排名"
+    assert item.status == "ok"
+    assert item.fix_command == ""
+    assert "东财一级行业" in item.message
+    assert "511" not in item.expected
+
+
+def test_sector_health_rejects_legacy_mixed_sector_universe() -> None:
+    item = _sector_health_item(date(2026, 6, 25), sector_rows=511, max_rank=511, command="TRADE_DATE=2026-06-25 bash get_data.sh")
+
+    assert item.status == "error"
+    assert item.fix_command == "TRADE_DATE=2026-06-25 bash get_data.sh"
+    assert "概念板块" in item.message
 
 
 def test_database_health_treats_excluded_st_and_inactive_stock_daily_gaps_as_ok() -> None:
