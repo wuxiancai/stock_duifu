@@ -92,11 +92,14 @@ run_root_shell() {
 }
 
 docker_compose_prefix() {
-  if docker compose version >/dev/null 2>&1; then
+  # `docker compose version` does not require Docker daemon access and can pass
+  # even when the current user cannot connect to /var/run/docker.sock. Use
+  # `docker ps` as the real permission probe.
+  if docker ps >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     printf 'docker compose'
     return 0
   fi
-  if command -v sudo >/dev/null 2>&1 && sudo docker compose version >/dev/null 2>&1; then
+  if command -v sudo >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1 && sudo docker compose version >/dev/null 2>&1; then
     printf 'sudo docker compose'
     return 0
   fi
@@ -354,22 +357,22 @@ ensure_docker_permission() {
   fi
 
   if [ "$DRY_RUN" = "1" ]; then
-    printf '+ docker compose version || sudo docker compose version\n'
+    printf '+ docker ps && docker compose version || sudo docker ps && sudo docker compose version\n'
     if [ "$IS_LINUX" = "1" ]; then
       printf '+ sudo usermod -aG docker %s\n' "$DEPLOY_USER"
     fi
     return 0
   fi
 
-  if docker compose version >/dev/null 2>&1; then
-    info "当前用户可以运行 Docker Compose。"
+  if docker ps >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    info "当前用户可以连接 Docker daemon 并运行 Docker Compose。"
     return
   fi
 
-  if [ "$IS_LINUX" = "1" ] && sudo docker compose version >/dev/null 2>&1; then
-    warn "当前会话无法直接访问 Docker；将 $DEPLOY_USER 加入 docker 组。"
+  if [ "$IS_LINUX" = "1" ] && sudo docker ps >/dev/null 2>&1 && sudo docker compose version >/dev/null 2>&1; then
+    warn "当前会话无法直接访问 Docker daemon；将 $DEPLOY_USER 加入 docker 组。"
     sudo usermod -aG docker "$DEPLOY_USER"
-    warn "docker 组权限需要重新登录后生效；本次部署会继续使用 sudo 运行 Docker。"
+    warn "docker 组权限需要重新登录后生效；本次部署会自动使用 sudo docker compose 继续执行。"
     return
   fi
 

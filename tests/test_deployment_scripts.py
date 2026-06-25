@@ -41,6 +41,7 @@ def test_deploy_script_has_dry_run_and_keeps_database_empty() -> None:
     assert "scripts/db-upgrade.sh" in result.stdout
     assert "does not fetch market data" in result.stdout
     assert "检查 Docker daemon 和 Docker Compose 权限" in result.stdout
+    assert "docker ps" in result.stdout
     assert "docker compose version" in result.stdout
     combined_output = result.stdout + result.stderr
     assert "installing systemd services: stock-api.service, stock-web.service" in combined_output or "跳过 systemd 服务安装" in combined_output
