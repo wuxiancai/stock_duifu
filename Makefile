@@ -1,7 +1,10 @@
-.PHONY: start deploy-ubuntu get-data install check-dev-environment test test-backend test-frontend db-upgrade db-current ingest-market-data audit-market-data run-after-close-workflow backfill-target-daily run-realtime-workflow generate-market-environment generate-sector-ranking generate-candidates generate-trade-plans track-trade-plans retarget-closed-trade-plans generate-trade-reviews run-simulation dev-api dev-web
+.PHONY: start deploy deploy-ubuntu get-data install check-dev-environment test test-backend test-frontend db-upgrade db-current ingest-market-data audit-market-data run-after-close-workflow backfill-target-daily run-realtime-workflow generate-market-environment generate-sector-ranking generate-candidates generate-trade-plans track-trade-plans retarget-closed-trade-plans generate-trade-reviews run-simulation dev-api dev-web
 
 start:
 	bash start.sh
+
+deploy:
+	bash deploy.sh
 
 deploy-ubuntu:
 	bash deploy_ubuntu.sh

@@ -23,7 +23,7 @@ def run_script(path: str, env: Optional[dict[str, str]] = None) -> subprocess.Co
 
 
 def test_deploy_script_has_dry_run_and_keeps_database_empty() -> None:
-    script = ROOT / "deploy_ubuntu.sh"
+    script = ROOT / "deploy.sh"
 
     result = run_script(
         str(script),
@@ -40,11 +40,10 @@ def test_deploy_script_has_dry_run_and_keeps_database_empty() -> None:
     assert "docker compose up -d postgres" in result.stdout
     assert "scripts/db-upgrade.sh" in result.stdout
     assert "does not fetch market data" in result.stdout
-    assert "checking Docker daemon and permissions" in result.stdout
-    assert "systemctl enable --now docker" in result.stdout
-    assert "usermod -aG docker" in result.stdout
-    assert "installing systemd services: stock-api.service, stock-web.service" in result.stdout
-    assert "systemctl enable stock-api.service stock-web.service" in result.stdout
+    assert "检查 Docker daemon 和 Docker Compose 权限" in result.stdout
+    assert "docker compose version" in result.stdout
+    combined_output = result.stdout + result.stderr
+    assert "installing systemd services: stock-api.service, stock-web.service" in combined_output or "跳过 systemd 服务安装" in combined_output
     assert "get_data.sh" in result.stdout
     assert "安装工作日 23:00 自动拉数任务" in result.stdout
     assert "CRON_TZ=Asia/Shanghai" in result.stdout
@@ -61,7 +60,7 @@ def test_deploy_script_has_dry_run_and_keeps_database_empty() -> None:
 
 
 def test_deploy_script_uses_high_default_postgres_port_instead_of_5432() -> None:
-    script = ROOT / "deploy_ubuntu.sh"
+    script = ROOT / "deploy.sh"
 
     result = run_script(
         str(script),
@@ -83,7 +82,7 @@ def test_deploy_script_uses_high_default_postgres_port_instead_of_5432() -> None
 
 
 def test_deploy_script_honors_explicit_postgres_host_port() -> None:
-    script = ROOT / "deploy_ubuntu.sh"
+    script = ROOT / "deploy.sh"
 
     result = run_script(
         str(script),
@@ -122,7 +121,7 @@ def test_deploy_script_advances_postgres_port_when_base_port_is_busy() -> None:
         busy_port = busy_socket.getsockname()[1]
         expected_port = busy_port + 1
 
-        script = ROOT / "deploy_ubuntu.sh"
+        script = ROOT / "deploy.sh"
         result = run_script(
             str(script),
             {
@@ -162,7 +161,7 @@ def test_deploy_script_overrides_stale_local_database_url_when_port_advances() -
         busy_port = busy_socket.getsockname()[1]
         expected_port = busy_port + 1
 
-        script = ROOT / "deploy_ubuntu.sh"
+        script = ROOT / "deploy.sh"
         result = run_script(
             str(script),
             {

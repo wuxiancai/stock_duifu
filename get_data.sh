@@ -227,7 +227,7 @@ else:
     try:
         import tushare as ts
     except ImportError:
-        print("tushare is required to resolve the default trade date. Run: bash deploy_ubuntu.sh", file=sys.stderr)
+        print("tushare is required to resolve the default trade date. Run: bash deploy.sh", file=sys.stderr)
         raise SystemExit(1)
     start = today - timedelta(days=90)
     frame = ts.pro_api(token).trade_cal(
@@ -257,11 +257,11 @@ PY
 
 require_runtime() {
   if [ ! -x ".venv/bin/python" ]; then
-    echo "Missing .venv. Run: bash deploy_ubuntu.sh" >&2
+    echo "Missing .venv. Run: bash deploy.sh" >&2
     exit 1
   fi
   if [ ! -x ".venv/bin/alembic" ]; then
-    echo "Missing backend dependencies. Run: bash deploy_ubuntu.sh" >&2
+    echo "Missing backend dependencies. Run: bash deploy.sh" >&2
     exit 1
   fi
 }
@@ -337,7 +337,7 @@ if not token:
 try:
     import tushare as ts
 except ImportError:
-    print("tushare is required to resolve trading dates. Run: bash deploy_ubuntu.sh", file=sys.stderr)
+    print("tushare is required to resolve trading dates. Run: bash deploy.sh", file=sys.stderr)
     raise SystemExit(1)
 
 pro = ts.pro_api(token)
@@ -390,7 +390,7 @@ else:
     try:
         import tushare as ts
     except ImportError:
-        print("tushare is required to resolve trading dates. Run: bash deploy_ubuntu.sh", file=sys.stderr)
+        print("tushare is required to resolve trading dates. Run: bash deploy.sh", file=sys.stderr)
         raise SystemExit(1)
     start = end - timedelta(days=max(120, limit * 3))
     frame = ts.pro_api(token).trade_cal(

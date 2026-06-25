@@ -21,6 +21,23 @@ EXPLICIT_TUSHARE_TOKEN="${TUSHARE_TOKEN:-}"
 DEPLOY_USER="${SUDO_USER:-${USER:-$(id -un)}}"
 SERVICE_PREFIX="${STOCK_SERVICE_PREFIX:-stock}"
 LOG_DIR="$ROOT_DIR/.logs"
+OS_NAME="$(uname -s)"
+IS_LINUX="0"
+IS_MACOS="0"
+PLATFORM_NAME="$OS_NAME"
+case "$OS_NAME" in
+  Linux)
+    IS_LINUX="1"
+    PLATFORM_NAME="Linux"
+    ;;
+  Darwin)
+    IS_MACOS="1"
+    PLATFORM_NAME="macOS"
+    ;;
+  *)
+    PLATFORM_NAME="$OS_NAME"
+    ;;
+esac
 
 info() {
   printf '[股票部署] %s\n' "$*"
@@ -171,6 +188,8 @@ ensure_system_packages() {
   local missing=0
   local command_name
 
+  info "检测部署系统：$PLATFORM_NAME"
+
   for command_name in python3 curl docker; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
       missing=1
@@ -181,17 +200,62 @@ ensure_system_packages() {
     missing=1
   fi
 
-  if ! command -v systemctl >/dev/null 2>&1; then
+  if [ "$IS_LINUX" = "1" ] && ! command -v systemctl >/dev/null 2>&1; then
     missing=1
   fi
 
   if [ "$missing" -eq 0 ]; then
-    info "system packages already available; skipping apt install"
+    info "$PLATFORM_NAME 基础依赖已满足，跳过系统依赖安装。"
     return
   fi
 
-  if [ "$DRY_RUN" = "1" ]; then
-    info "installing missing Ubuntu system packages"
+  if [ "$IS_MACOS" = "1" ]; then
+    if [ "$DRY_RUN" = "1" ]; then
+      info "演练模式：macOS 需要 Python3、curl、Docker Desktop 与 Docker Compose。"
+      printf '+ brew install python curl\n'
+      printf '+ open -a Docker\n'
+      return
+    fi
+    if ! command -v python3 >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+      if ! command -v brew >/dev/null 2>&1; then
+        echo "macOS 缺少 Python3/curl，且未安装 Homebrew。请先安装 Homebrew，或手动安装 Python3。" >&2
+        exit 1
+      fi
+      info "macOS 缺少 Python3 或 curl，使用 Homebrew 安装。"
+      run brew install python curl
+    fi
+    if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+      cat >&2 <<'EOF'
+macOS 需要 Docker Desktop，并且 Docker Desktop 必须已经启动。
+请先安装并启动 Docker Desktop，然后重新执行：bash deploy.sh
+EOF
+      exit 1
+    fi
+    return
+  fi
+
+  if [ "$IS_LINUX" = "1" ]; then
+    if [ "$DRY_RUN" = "1" ]; then
+      info "演练模式：Linux 缺少依赖时会使用 apt 安装系统依赖。"
+      run_sudo apt-get update
+      run_sudo apt-get install -y \
+        ca-certificates \
+        curl \
+        docker.io \
+        docker-compose-plugin \
+        python3 \
+        python3-pip \
+        python3-venv \
+        systemd
+      return
+    fi
+
+    if ! command -v apt-get >/dev/null 2>&1; then
+      echo "当前 Linux 缺少必要系统依赖，但没有 apt-get；请手动安装 Python3、curl、Docker、Docker Compose v2。" >&2
+      exit 1
+    fi
+
+    info "Linux 缺少依赖，使用 apt 安装系统依赖。"
     run_sudo apt-get update
     run_sudo apt-get install -y \
       ca-certificates \
@@ -205,22 +269,8 @@ ensure_system_packages() {
     return
   fi
 
-  if ! command -v apt-get >/dev/null 2>&1; then
-    echo "Missing required system packages and apt-get is unavailable." >&2
-    exit 1
-  fi
-
-  info "installing missing Ubuntu system packages"
-  run_sudo apt-get update
-  run_sudo apt-get install -y \
-    ca-certificates \
-    curl \
-    docker.io \
-    docker-compose-plugin \
-    python3 \
-    python3-pip \
-    python3-venv \
-    systemd
+  echo "暂不支持自动部署当前系统：$OS_NAME。请使用 Linux 或 macOS。" >&2
+  exit 1
 }
 
 node_major_version() {
@@ -235,43 +285,79 @@ ensure_node_runtime() {
   local major
   major="$(node_major_version)"
   if [ "$major" -ge 20 ] && command -v npm >/dev/null 2>&1; then
-    info "Node.js $(node -v) already satisfies frontend build requirements"
+    info "Node.js $(node -v) 已满足前端构建要求。"
     return
   fi
 
-  if ! command -v apt-get >/dev/null 2>&1; then
-    echo "Node.js 20+ is required, and apt-get is unavailable for installation." >&2
-    exit 1
+  if [ "$IS_MACOS" = "1" ]; then
+    if [ "$DRY_RUN" = "1" ]; then
+      info "演练模式：macOS 会检查 Node.js 20+；缺少时可用 Homebrew 安装 node。"
+      printf '+ brew install node\n'
+      return
+    fi
+    if ! command -v brew >/dev/null 2>&1; then
+      echo "Node.js 20+ 是前端构建必需项；当前 macOS 未安装 Homebrew，请先手动安装 Node.js 20+。" >&2
+      exit 1
+    fi
+    info "macOS 缺少 Node.js 20+，使用 Homebrew 安装 node。"
+    run brew install node
+    return
   fi
 
-  info "installing Node.js 22.x from NodeSource for Vite frontend build"
-  run_root_shell "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -"
-  run_sudo apt-get install -y nodejs
+  if [ "$IS_LINUX" = "1" ]; then
+    if ! command -v apt-get >/dev/null 2>&1; then
+      echo "Node.js 20+ 是前端构建必需项，且当前系统没有 apt-get；请手动安装 Node.js 20+。" >&2
+      exit 1
+    fi
+
+    info "Linux 缺少 Node.js 20+，从 NodeSource 安装 Node.js 22.x。"
+    run_root_shell "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -"
+    run_sudo apt-get install -y nodejs
+    return
+  fi
+
+  echo "Node.js 20+ 是前端构建必需项；当前系统暂不支持自动安装。" >&2
+  exit 1
 }
 
 ensure_docker_permission() {
-  info "checking Docker daemon and permissions"
-  run_sudo systemctl enable --now docker
+  info "检查 Docker daemon 和 Docker Compose 权限。"
+
+  if [ "$IS_LINUX" = "1" ]; then
+    run_sudo systemctl enable --now docker
+  fi
 
   if [ "$DRY_RUN" = "1" ]; then
     printf '+ docker compose version || sudo docker compose version\n'
-    printf '+ sudo usermod -aG docker %s\n' "$DEPLOY_USER"
+    if [ "$IS_LINUX" = "1" ]; then
+      printf '+ sudo usermod -aG docker %s\n' "$DEPLOY_USER"
+    fi
     return 0
   fi
 
   if docker compose version >/dev/null 2>&1; then
-    info "current user can run Docker Compose"
+    info "当前用户可以运行 Docker Compose。"
     return
   fi
 
-  if sudo docker compose version >/dev/null 2>&1; then
-    warn "current session cannot access Docker directly; adding $DEPLOY_USER to docker group"
+  if [ "$IS_LINUX" = "1" ] && sudo docker compose version >/dev/null 2>&1; then
+    warn "当前会话无法直接访问 Docker；将 $DEPLOY_USER 加入 docker 组。"
     sudo usermod -aG docker "$DEPLOY_USER"
-    warn "docker group membership takes effect after re-login; this deployment will use sudo for Docker where needed"
+    warn "docker 组权限需要重新登录后生效；本次部署会继续使用 sudo 运行 Docker。"
     return
   fi
 
-  echo "Docker Compose is installed but not usable by current user or sudo." >&2
+  if [ "$IS_MACOS" = "1" ]; then
+    cat >&2 <<'EOF'
+Docker Compose 不可用。macOS 请确认：
+  1. 已安装 Docker Desktop。
+  2. Docker Desktop 已启动。
+  3. 终端中执行 docker compose version 能正常输出。
+EOF
+    exit 1
+  fi
+
+  echo "Docker Compose 已安装但当前用户不可用。" >&2
   exit 1
 }
 
@@ -387,7 +473,7 @@ EOF
       info "用户选择保留已有数据库卷，本次部署不会删除数据库数据。"
     fi
   else
-    warn "检测到已有数据库卷 ${volume_name}，但当前不是交互终端；默认保留数据库。若要删除重建，请显式执行：RESET_DB=1 bash deploy_ubuntu.sh"
+    warn "检测到已有数据库卷 ${volume_name}，但当前不是交互终端；默认保留数据库。若要删除重建，请显式执行：RESET_DB=1 bash deploy.sh"
   fi
 }
 
@@ -508,11 +594,16 @@ start_database() {
 }
 
 run_migrations() {
-  info "running database migrations only; deploy_ubuntu.sh does not fetch market data"
+  info "running database migrations only; deploy.sh does not fetch market data"
   run_shell "DATABASE_URL='$DATABASE_URL' scripts/db-upgrade.sh"
 }
 
 write_systemd_units() {
+  if [ "$IS_LINUX" != "1" ] || ! command -v systemctl >/dev/null 2>&1; then
+    warn "$PLATFORM_NAME 不使用 systemd，跳过 systemd 服务安装；start.sh 会使用 nohup fallback 启动 API/Web。"
+    return 0
+  fi
+
   local api_unit="/etc/systemd/system/${SERVICE_PREFIX}-api.service"
   local web_unit="/etc/systemd/system/${SERVICE_PREFIX}-web.service"
 
@@ -625,7 +716,7 @@ print_deployment_health_report() {
 }
 
 main() {
-  info "deploying from $ROOT_DIR"
+  info "deploying from $ROOT_DIR on $PLATFORM_NAME"
   ensure_system_packages
   ensure_node_runtime
   ensure_docker_permission
@@ -651,17 +742,17 @@ main() {
 部署演练完成：没有真正修改文件、安装软件、启动容器、写入服务或拉取行情数据。
 
 真实部署会执行以下动作：
-  1. 检查并安装 Ubuntu 依赖、Docker、Node.js 和 Python 环境。
+  1. 自适应检查 Linux/macOS 依赖、Docker、Node.js 和 Python 环境。
   2. 创建或复用 .env，并在需要时询问 TuShare Token；回车可跳过。
   3. 检查是否已有 PostgreSQL 数据库卷；如已存在，会询问保留或删除重建。
   4. 启动 PostgreSQL 容器并执行数据库迁移。
-  5. 安装 systemd 服务：${SERVICE_PREFIX}-api.service、${SERVICE_PREFIX}-web.service。
+  5. Linux 安装 systemd 服务：${SERVICE_PREFIX}-api.service、${SERVICE_PREFIX}-web.service；macOS 跳过 systemd，使用 start.sh 的 nohup fallback。
   6. 安装工作日 23:00 自动拉数任务：bash get_data.sh。
   7. 自动执行 bash start.sh 启动系统。
   8. 自动检查 Web、API 和数据库健康状态。
 
 常用命令：
-  查看服务状态：systemctl status ${SERVICE_PREFIX}-api.service ${SERVICE_PREFIX}-web.service --no-pager
+  Linux 查看服务状态：systemctl status ${SERVICE_PREFIX}-api.service ${SERVICE_PREFIX}-web.service --no-pager
   查看夜间拉数日志：tail -n 100 $ROOT_DIR/.logs/get_data_cron.log
   手动拉取数据：TRADE_DATE=YYYY-MM-DD bash get_data.sh
   重启系统：bash start.sh
@@ -685,7 +776,7 @@ EOF
   API 健康： http://$HEALTHCHECK_HOST:$API_PORT/api/health
 
 数据说明：
-  - deploy_ubuntu.sh 只负责部署、迁移和启动。
+  - deploy.sh 只负责部署、迁移和启动；deploy_ubuntu.sh 仅保留为兼容旧命令的入口。
   - start.sh 会检查数据库是否已有 A 股决策数据。
   - 如果 .env 中有 TUSHARE_TOKEN，首次启动会自动执行 get_data.sh 拉取真实行情并生成强势行业、候选股和交易计划。
   - 如果没有 TUSHARE_TOKEN，系统会启动为空页面；后续补 token 后执行 bash start.sh 或 TRADE_DATE=YYYY-MM-DD bash get_data.sh 即可补数据。
@@ -707,7 +798,8 @@ EOF
   重新启动：bash start.sh
   停止全部：bash stop.sh
 
-如果刚才把用户加入了 docker 组，请重新登录服务器，让 Docker 权限在交互终端中生效。
+如果在 Linux 上刚才把用户加入了 docker 组，请重新登录服务器，让 Docker 权限在交互终端中生效。
+macOS 上请保持 Docker Desktop 处于运行状态。
 
 EOF
 }

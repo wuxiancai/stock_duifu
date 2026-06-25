@@ -348,12 +348,12 @@ select_runtime_ports() {
 
 ensure_dependencies() {
   if ! command -v docker >/dev/null 2>&1; then
-    echo "Missing docker command. Please run bash deploy_ubuntu.sh first." >&2
+    echo "Missing docker command. Please run bash deploy.sh first." >&2
     exit 1
   fi
 
   if ! docker compose version >/dev/null 2>&1 && ! sudo docker compose version >/dev/null 2>&1; then
-    echo "Missing Docker Compose v2 or Docker permission. Please run bash deploy_ubuntu.sh first." >&2
+    echo "Missing Docker Compose v2 or Docker permission. Please run bash deploy.sh first." >&2
     exit 1
   fi
 
