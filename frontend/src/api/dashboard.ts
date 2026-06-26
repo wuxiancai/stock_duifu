@@ -95,6 +95,8 @@ export interface CandidateItem {
   stock_name: string
   sector_name: string
   sector_rank: number
+  sector_category: string
+  stock_pool_rank: number | null
   strategy_type: string
   stock_score: number
   sector_score: number
@@ -280,6 +282,15 @@ export interface SimulationLatestResponse {
     profit_loss_ratio: number | null
   }
   messages: string[]
+  virtual_positions: SimulationPosition[]
+  virtual_trades: SimulationTrade[]
+  virtual_risk: {
+    max_drawdown: number
+    position_count: number
+    position_ratio: number
+    win_rate: number
+    profit_loss_ratio: number | null
+  }
 }
 
 export interface SimulationWorkflowResponse {

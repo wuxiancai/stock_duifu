@@ -17,6 +17,8 @@ class CandidateResult:
     stock_name: str
     sector_name: str
     sector_rank: int
+    sector_category: str
+    stock_pool_rank: Optional[int]
     strategy_type: str
     stock_score: int
     sector_score: int
@@ -106,8 +108,8 @@ def calculate_candidate_stocks(
         results,
         key=lambda item: (item.stock_score, item.sector_score, item.amount),
         reverse=True,
-    )
-    return _select_by_industry_quota(ordered, sector_by_name, limit)
+    )[:limit]
+    return _rank_stock_pool(ordered, sector_by_name)
 
 
 def _build_sector_selections(session: Session, trade_date: date) -> list[SectorSelection]:
@@ -159,11 +161,11 @@ def _classify_sector_selection(sector: SectorDaily, ranks: tuple[int, ...]) -> O
 
     if top3_count >= 3 and average_rank <= 5 and min(ranks) == 1:
         category = "核心主升"
-        quota = 4
+        quota = 5
         bonus = 10
     elif top10_count >= 5 and average_rank <= 6 and rank_std <= 4:
         category = "稳定强势"
-        quota = 2
+        quota = 3
         bonus = 8
     elif current_rank <= 5 and top10_count >= 3 and average_rank <= 8:
         category = "强势延续"
@@ -171,7 +173,7 @@ def _classify_sector_selection(sector: SectorDaily, ranks: tuple[int, ...]) -> O
         bonus = 5
     elif top10_count >= 3 and average_rank <= 10:
         category = "趋势观察"
-        quota = 1
+        quota = 0
         bonus = 2
     else:
         return None
@@ -189,40 +191,58 @@ def _classify_sector_selection(sector: SectorDaily, ranks: tuple[int, ...]) -> O
     )
 
 
-def _select_by_industry_quota(
+def _rank_stock_pool(
     ordered: list[CandidateResult],
     selection_by_sector: dict[str, SectorSelection],
-    limit: int,
+    pool_limit: int = 10,
 ) -> list[CandidateResult]:
-    selected: list[CandidateResult] = []
-    used_keys: set[tuple[str, str]] = set()
+    selected_keys: set[tuple[str, str]] = set()
     sector_counts: dict[str, int] = {}
+    pool: list[CandidateResult] = []
 
     for item in ordered:
         selection = selection_by_sector.get(item.sector_name)
-        if selection is None:
+        if selection is None or selection.quota <= 0:
             continue
         key = (item.stock_code, item.strategy_type)
-        if key in used_keys:
+        if key in selected_keys:
             continue
         if sector_counts.get(item.sector_name, 0) >= selection.quota:
             continue
-        selected.append(item)
-        used_keys.add(key)
+        pool.append(_with_stock_pool_rank(item, len(pool) + 1))
+        selected_keys.add(key)
         sector_counts[item.sector_name] = sector_counts.get(item.sector_name, 0) + 1
-        if len(selected) >= limit:
-            return selected
-
-    for item in ordered:
-        selection = selection_by_sector.get(item.sector_name)
-        key = (item.stock_code, item.strategy_type)
-        if selection is None or key in used_keys:
-            continue
-        selected.append(item)
-        used_keys.add(key)
-        if len(selected) >= limit:
+        if len(pool) >= pool_limit:
             break
-    return selected
+
+    pool_by_key = {(item.stock_code, item.strategy_type): item for item in pool}
+    ranked: list[CandidateResult] = []
+    for item in ordered:
+        key = (item.stock_code, item.strategy_type)
+        ranked.append(pool_by_key.get(key) or item)
+    return ranked
+
+
+def _with_stock_pool_rank(item: CandidateResult, rank: int) -> CandidateResult:
+    return CandidateResult(
+        trade_date=item.trade_date,
+        stock_code=item.stock_code,
+        stock_name=item.stock_name,
+        sector_name=item.sector_name,
+        sector_rank=item.sector_rank,
+        sector_category=item.sector_category,
+        stock_pool_rank=rank,
+        strategy_type=item.strategy_type,
+        stock_score=item.stock_score,
+        sector_score=item.sector_score,
+        nine_turn_signal=item.nine_turn_signal,
+        nine_turn_count=item.nine_turn_count,
+        nine_turn_score=item.nine_turn_score,
+        close_price=item.close_price,
+        amount=item.amount,
+        reason=item.reason,
+        risk_note=item.risk_note,
+    )
 
 
 def load_latest_candidates(engine: Engine) -> Optional[tuple[date, list[CandidateResult]]]:
@@ -235,6 +255,15 @@ def load_latest_candidates(engine: Engine) -> Optional[tuple[date, list[Candidat
             .where(CandidateStock.trade_date == latest_date)
             .order_by(desc(CandidateStock.stock_score), CandidateStock.stock_code)
         ).all()
+        records = sorted(
+            records,
+            key=lambda item: (
+                item.stock_pool_rank is None,
+                item.stock_pool_rank or 9999,
+                -item.stock_score,
+                item.stock_code,
+            ),
+        )
         return (
             latest_date,
             [
@@ -244,6 +273,8 @@ def load_latest_candidates(engine: Engine) -> Optional[tuple[date, list[Candidat
                     stock_name=record.stock_name,
                     sector_name=record.sector_name,
                     sector_rank=record.sector_rank,
+                    sector_category=record.sector_category,
+                    stock_pool_rank=record.stock_pool_rank,
                     strategy_type=record.strategy_type,
                     stock_score=record.stock_score,
                     sector_score=record.sector_score,
@@ -289,6 +320,8 @@ def _strategy_candidates(
         "stock_name": basic.stock_name,
         "sector_name": sector.sector_name,
         "sector_rank": sector.rank_no,
+        "sector_category": selection.category,
+        "stock_pool_rank": None,
         "sector_score": sector.sector_score,
         "nine_turn_signal": nine_turn_signal,
         "nine_turn_count": nine_turn_count,

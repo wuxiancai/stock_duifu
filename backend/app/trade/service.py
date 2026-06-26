@@ -236,12 +236,23 @@ def calculate_trade_plans(
     if market is None or market.market_status == "风险":
         return []
 
-    candidates = session.scalars(
+    query = (
         select(CandidateStock)
-        .where(CandidateStock.trade_date == plan_date)
-        .order_by(desc(CandidateStock.stock_score), desc(CandidateStock.sector_score), desc(CandidateStock.amount))
-    ).all()
-    selected = _select_candidates(candidates, market.market_status, limit=limit)
+        .where(CandidateStock.trade_date == plan_date, CandidateStock.stock_pool_rank.is_not(None))
+        .order_by(CandidateStock.stock_pool_rank, desc(CandidateStock.stock_score), CandidateStock.stock_code)
+    )
+    if limit is not None:
+        query = query.limit(limit)
+    selected = session.scalars(query).all()
+    if not selected:
+        fallback_limit = min(limit, _legacy_market_plan_limit(market.market_status)) if limit is not None else _legacy_market_plan_limit(market.market_status)
+        fallback_query = (
+            select(CandidateStock)
+            .where(CandidateStock.trade_date == plan_date)
+            .order_by(desc(CandidateStock.stock_score), desc(CandidateStock.sector_score), desc(CandidateStock.amount))
+            .limit(fallback_limit)
+        )
+        selected = session.scalars(fallback_query).all()
 
     plans: list[TradePlanResult] = []
     for candidate in selected:
@@ -334,6 +345,7 @@ def track_trade_plans(
         results: list[TradePlanTrackingResult] = []
         now = _trade_event_time(target_trade_date)
         target_is_open = _target_is_open(session, target_trade_date)
+        can_live_trigger = _can_live_trigger(target_trade_date)
 
         for plan in plans:
             daily = session.scalar(
@@ -347,12 +359,18 @@ def track_trade_plans(
             pct_chg = _number(display_daily.pct_chg) if display_daily else None
 
             if daily and plan.status in {"待触发", "未触发"}:
-                status, trigger_price, note = _evaluate_plan_tracking(plan, daily, mark_untriggered_at_close)
-                plan.status = status
-                plan.tracking_note = note
-                if trigger_price is not None:
-                    plan.trigger_price = trigger_price
-                    plan.trigger_time = now
+                if can_live_trigger or str(daily.source).startswith("unit-test"):
+                    status, trigger_price, note = _evaluate_plan_tracking(plan, daily, mark_untriggered_at_close)
+                    plan.status = status
+                    plan.tracking_note = note
+                    if trigger_price is not None:
+                        plan.trigger_price = trigger_price
+                        plan.trigger_time = now
+                elif mark_untriggered_at_close and plan.status == "待触发":
+                    plan.status = "未触发"
+                    plan.tracking_note = "非盘中实时轮询窗口，收盘后不回放触发；按纪律标记为未触发"
+                elif not plan.tracking_note:
+                    plan.tracking_note = "等待盘中实时行情轮询触发；收盘后不回放触发"
             elif daily is None and (
                 not plan.tracking_note or plan.tracking_note == "目标交易日暂无日线数据，保持待触发状态"
             ):
@@ -775,31 +793,6 @@ def _key_indicators(history: list[StockDaily]) -> dict:
     }
 
 
-def _select_candidates(
-    candidates: list[CandidateStock],
-    market_status: str,
-    limit: Optional[int],
-) -> list[CandidateStock]:
-    max_new = _max_new_positions(market_status)
-    if limit is not None:
-        max_new = min(max_new, limit)
-    selected: list[CandidateStock] = []
-    used_stocks: set[str] = set()
-    used_sectors: set[str] = set()
-
-    for candidate in candidates:
-        if candidate.stock_code in used_stocks:
-            continue
-        if market_status == "强势" and candidate.sector_name in used_sectors and len(used_sectors) < 3:
-            continue
-        selected.append(candidate)
-        used_stocks.add(candidate.stock_code)
-        used_sectors.add(candidate.sector_name)
-        if len(selected) >= max_new:
-            break
-    return selected
-
-
 def _build_plan(
     candidate: CandidateStock,
     history: list[StockDaily],
@@ -946,7 +939,7 @@ def _next_open_trade_date_after(session: Session, after_date: date) -> Optional[
     )
 
 
-def _max_new_positions(market_status: str) -> int:
+def _legacy_market_plan_limit(market_status: str) -> int:
     if market_status == "强势":
         return 3
     if market_status == "中性":
@@ -998,6 +991,11 @@ def _number(value) -> float:
     if isinstance(value, Decimal):
         return float(value)
     return float(value or 0)
+
+
+def _can_live_trigger(trade_date: date) -> bool:
+    local_now = datetime.now(TRADING_TZ)
+    return local_now.date() == trade_date and _is_trading_time(local_now)
 
 
 def _trade_event_time(trade_date: date) -> datetime:

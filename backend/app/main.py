@@ -405,6 +405,8 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
                     "stock_name": item.stock_name,
                     "sector_name": item.sector_name,
                     "sector_rank": item.sector_rank,
+                    "sector_category": item.sector_category,
+                    "stock_pool_rank": item.stock_pool_rank,
                     "strategy_type": item.strategy_type,
                     "stock_score": item.stock_score,
                     "sector_score": item.sector_score,

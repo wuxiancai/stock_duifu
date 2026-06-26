@@ -75,7 +75,7 @@ def test_sector_selection_keeps_stable_second_rank_industry() -> None:
 
     assert selection is not None
     assert selection.category == "稳定强势"
-    assert selection.quota == 2
+    assert selection.quota == 3
     assert selection.persistence_bonus == 8
 
 
@@ -84,7 +84,7 @@ def test_sector_selection_allows_core_trend_more_quota() -> None:
 
     assert selection is not None
     assert selection.category == "核心主升"
-    assert selection.quota == 4
+    assert selection.quota == 5
 
 
 def _seed_stock_basic(session: Session) -> None:

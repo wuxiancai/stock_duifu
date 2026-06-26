@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal
 from time import sleep
@@ -18,6 +18,8 @@ from backend.app.db.models import (
     SimulationPosition,
     SimulationTrade,
     StockDaily,
+    VirtualPosition,
+    VirtualTrade,
     TradePlan,
     TradingCalendar,
 )
@@ -125,6 +127,11 @@ class SimulationSummary:
     equity_curve: list[SimulationEquityPoint]
     risk: SimulationRiskSnapshot
     messages: list[str]
+    virtual_positions: list[SimulationPositionSnapshot] = field(default_factory=list)
+    virtual_trades: list[SimulationTradeSnapshot] = field(default_factory=list)
+    virtual_risk: SimulationRiskSnapshot = field(
+        default_factory=lambda: SimulationRiskSnapshot(max_drawdown=0, position_count=0, position_ratio=0)
+    )
 
 
 @dataclass(frozen=True)
@@ -190,8 +197,11 @@ def run_simulation(engine: Engine, trade_date: date) -> SimulationSummary:
         messages: list[str] = []
 
         _sell_positions(session, account, trade_date, messages)
+        _sell_virtual_positions(session, trade_date, messages)
         _buy_triggered_plans(session, account, trade_date, messages)
+        _buy_virtual_triggered_plans(session, trade_date, messages)
         _mark_to_market(session, account, trade_date)
+        _mark_virtual_to_market(session, trade_date)
         _save_equity(session, account, trade_date)
         session.commit()
         return _load_summary(session, account.id, trade_date, messages)
@@ -297,7 +307,7 @@ def _buy_triggered_plans(session: Session, account: SimulationAccount, trade_dat
     plans = session.scalars(
         select(TradePlan)
         .where(TradePlan.target_trade_date == trade_date, TradePlan.status == "已触发", TradePlan.trigger_price.is_not(None))
-        .order_by(desc(TradePlan.stock_score), TradePlan.stock_code)
+        .order_by(TradePlan.trigger_time, desc(TradePlan.stock_score), TradePlan.stock_code)
     ).all()
     trade_time = _simulation_trade_time(trade_date)
     for plan in plans:
@@ -347,7 +357,7 @@ def _buy_triggered_plans(session: Session, account: SimulationAccount, trade_dat
                 break
             quantity -= 100
         if quantity < 100:
-            messages.append(f"{plan.stock_code} 可用现金不足 100 股，未模拟买入")
+            messages.append(f"{plan.stock_code} 已触发但资金不足，虚拟交易已买入")
             continue
 
         amount = round(price * quantity, 4)
@@ -407,6 +417,123 @@ def _buy_triggered_plans(session: Session, account: SimulationAccount, trade_dat
         )
 
 
+def _sell_virtual_positions(session: Session, trade_date: date, messages: list[str]) -> None:
+    positions = session.scalars(
+        select(VirtualPosition)
+        .where(VirtualPosition.position_status.in_(ACTIVE_POSITION_STATUSES))
+        .order_by(VirtualPosition.stock_code)
+    ).all()
+    trade_time = _simulation_trade_time(trade_date)
+    for position in positions:
+        daily = session.scalar(
+            select(StockDaily).where(StockDaily.stock_code == position.stock_code, StockDaily.trade_date == trade_date)
+        )
+        if daily is None:
+            messages.append(f"{position.stock_code} 虚拟持仓缺少目标交易日日线，暂不卖出")
+            continue
+        if _number(daily.pct_chg) <= -9.8:
+            messages.append(f"{position.stock_code} 虚拟持仓目标交易日跌停，按保守成交规则不卖出")
+            continue
+        sell_action = _virtual_sell_action(session, position, daily, trade_date)
+        if sell_action is None:
+            _refresh_position_price(position, _number(daily.close))
+            continue
+        quantity, price, reason, final_status = sell_action
+        _execute_virtual_sell(
+            session=session,
+            position=position,
+            trade_date=trade_date,
+            trade_time=trade_time,
+            price=price,
+            quantity=quantity,
+            reason=reason,
+            final_status=final_status,
+        )
+
+
+def _buy_virtual_triggered_plans(session: Session, trade_date: date, messages: list[str]) -> None:
+    plans = session.scalars(
+        select(TradePlan)
+        .where(TradePlan.target_trade_date == trade_date, TradePlan.status == "已触发", TradePlan.trigger_price.is_not(None))
+        .order_by(TradePlan.trigger_time, desc(TradePlan.stock_score), TradePlan.stock_code)
+    ).all()
+    trade_time = _simulation_trade_time(trade_date)
+    for plan in plans:
+        existing_position = session.scalar(select(VirtualPosition).where(VirtualPosition.trade_plan_id == plan.id))
+        existing_buy = session.scalar(
+            select(VirtualTrade).where(VirtualTrade.trade_plan_id == plan.id, VirtualTrade.trade_type == "买入")
+        )
+        if existing_position is not None or existing_buy is not None:
+            continue
+        if _number(plan.stop_loss_price) <= 0:
+            continue
+        daily = session.scalar(
+            select(StockDaily).where(StockDaily.stock_code == plan.stock_code, StockDaily.trade_date == trade_date)
+        )
+        if daily is None or _number(daily.pct_chg) >= 9.8:
+            continue
+        if _number(daily.open) > _number(plan.buy_price_high) * 1.03 and _number(daily.low) > _number(plan.buy_price_high):
+            continue
+        if _number(daily.close) < _number(plan.stop_loss_price) and _number(daily.high) < _number(plan.buy_price_low):
+            continue
+        price = round(_number(plan.trigger_price), 4)
+        target_amount = DEFAULT_INITIAL_CASH * _number(plan.position_ratio)
+        quantity = int(target_amount // (price * 100)) * 100
+        if quantity < 100:
+            continue
+        amount = round(price * quantity, 4)
+        fee = _fees(amount, "买入")
+        cost = round(amount + fee["total_fee"], 4)
+        reason = plan.tracking_note or plan.buy_condition
+        position = VirtualPosition(
+            trade_plan_id=plan.id,
+            stock_code=plan.stock_code,
+            stock_name=plan.stock_name,
+            sector_name=plan.sector_name,
+            strategy_type=plan.strategy_type,
+            buy_price=price,
+            current_price=_number(daily.close),
+            quantity=quantity,
+            market_value=round(_number(daily.close) * quantity, 4),
+            cost_amount=cost,
+            unrealized_profit=round(_number(daily.close) * quantity - cost, 4),
+            unrealized_return=round((_number(daily.close) * quantity - cost) / cost, 4),
+            stop_loss_price=_number(plan.stop_loss_price),
+            take_profit_price=_number(plan.take_profit_price),
+            first_take_profit_touched=False,
+            first_take_profit_high=0,
+            first_take_profit_protect_price=0,
+            position_status="持仓中",
+            buy_reason=reason,
+            sell_reason="",
+        )
+        session.add(position)
+        session.flush()
+        session.add(
+            VirtualTrade(
+                trade_plan_id=plan.id,
+                stock_code=plan.stock_code,
+                stock_name=plan.stock_name,
+                trade_date=trade_date,
+                trade_time=trade_time,
+                trade_type="买入",
+                price=price,
+                quantity=quantity,
+                amount=amount,
+                commission=fee["commission"],
+                stamp_tax=fee["stamp_tax"],
+                transfer_fee=fee["transfer_fee"],
+                total_fee=fee["total_fee"],
+                net_amount=-cost,
+                cash_after=round(DEFAULT_INITIAL_CASH - cost, 4),
+                position_ratio_after=round(cost / DEFAULT_INITIAL_CASH, 4),
+                profit_loss=None,
+                profit_loss_return=None,
+                reason=reason,
+            )
+        )
+
+
 def _mark_to_market(session: Session, account: SimulationAccount, trade_date: date) -> None:
     positions = session.scalars(
         select(SimulationPosition).where(
@@ -426,6 +553,18 @@ def _mark_to_market(session: Session, account: SimulationAccount, trade_date: da
     account.total_profit = round(_number(account.total_assets) - _number(account.initial_cash), 4)
     account.total_return = round(_number(account.total_profit) / _number(account.initial_cash), 4)
     account.max_drawdown = _max_drawdown(session, account, _number(account.total_assets))
+
+
+def _mark_virtual_to_market(session: Session, trade_date: date) -> None:
+    positions = session.scalars(
+        select(VirtualPosition).where(VirtualPosition.position_status.in_(ACTIVE_POSITION_STATUSES))
+    ).all()
+    for position in positions:
+        daily = session.scalar(
+            select(StockDaily).where(StockDaily.stock_code == position.stock_code, StockDaily.trade_date == trade_date)
+        )
+        if daily is not None:
+            _refresh_position_price(position, _number(daily.close))
 
 
 def _save_equity(session: Session, account: SimulationAccount, trade_date: date) -> None:
@@ -471,8 +610,20 @@ def _load_summary(session: Session, account_id: int, as_of_date: date, messages:
     equity = session.scalars(
         _simulation_equity_query(session, account_id)
     ).all()
+    virtual_positions = session.scalars(
+        select(VirtualPosition)
+        .where(VirtualPosition.position_status.in_(ACTIVE_POSITION_STATUSES))
+        .order_by(VirtualPosition.stock_code)
+    ).all()
+    virtual_trades = session.scalars(
+        select(VirtualTrade).order_by(desc(VirtualTrade.trade_date), desc(VirtualTrade.trade_time), desc(VirtualTrade.id))
+    ).all()
     position_ratio = round(_number(account.market_value) / _number(account.total_assets), 4) if _number(account.total_assets) > 0 else 0
     risk_stats = _risk_stats(session, account_id)
+    virtual_risk_stats = _virtual_risk_stats(session)
+    virtual_market_value = sum(_number(item.market_value) for item in virtual_positions)
+    virtual_base = DEFAULT_INITIAL_CASH * len(virtual_positions) if virtual_positions else 0
+    virtual_position_ratio = round(virtual_market_value / virtual_base, 4) if virtual_base > 0 else 0
     return SimulationSummary(
         as_of_date=as_of_date,
         account=_account_snapshot(account),
@@ -487,6 +638,15 @@ def _load_summary(session: Session, account_id: int, as_of_date: date, messages:
             profit_loss_ratio=risk_stats["profit_loss_ratio"],
         ),
         messages=messages,
+        virtual_positions=[_position_snapshot(item) for item in virtual_positions],
+        virtual_trades=[_trade_snapshot(item) for item in virtual_trades],
+        virtual_risk=SimulationRiskSnapshot(
+            max_drawdown=0,
+            position_count=len(virtual_positions),
+            position_ratio=virtual_position_ratio,
+            win_rate=virtual_risk_stats["win_rate"],
+            profit_loss_ratio=virtual_risk_stats["profit_loss_ratio"],
+        ),
     )
 
 
@@ -580,8 +740,42 @@ def _sell_action(
     return None
 
 
+def _virtual_sell_action(
+    session: Session,
+    position: VirtualPosition,
+    daily: StockDaily,
+    trade_date: date,
+) -> Optional[tuple[int, float, str, str]]:
+    quantity = int(position.quantity)
+    if quantity <= 0:
+        return None
+    if _number(daily.low) <= _number(position.stop_loss_price):
+        return quantity, round(min(_number(daily.open), _number(position.stop_loss_price)), 4), "跌破计划止损价，虚拟交易全仓止损", "已清仓"
+    if _market_is_risk(session, trade_date):
+        return quantity, _sell_at_close(daily), "大盘转风险，虚拟交易卖出剩余仓位", "已清仓"
+    if _sector_is_fading(session, position, trade_date):
+        return quantity, _sell_at_close(daily), "板块退潮，虚拟交易卖出剩余仓位", "已清仓"
+    if _number(daily.pct_chg) <= -7:
+        return quantity, _sell_at_close(daily), "快速跳水，虚拟交易卖出剩余仓位", "已清仓"
+    if not _has_virtual_sell_reason(session, position, "第一止盈移动保护"):
+        first_take_profit_action = _first_take_profit_trailing_action(position, daily, trade_date, quantity)
+        if first_take_profit_action is not None:
+            return first_take_profit_action
+    if _has_virtual_sell_reason(session, position, "第一止盈移动保护") and not _has_virtual_sell_reason(session, position, "达到第二止盈位"):
+        second_take_profit = _second_take_profit_price(position)
+        if _number(daily.high) >= second_take_profit:
+            sell_quantity = _lot_floor(quantity * 0.6)
+            if sell_quantity > 0:
+                return sell_quantity, second_take_profit, "达到第二止盈位，虚拟交易再卖出 30%", "部分止盈"
+    if _breaks_ma5(session, position.stock_code, trade_date, _number(daily.close)):
+        return quantity, _sell_at_close(daily), "跌破 MA5，虚拟交易卖出剩余仓位", "已清仓"
+    if _virtual_holding_days(session, position, trade_date) >= MAX_HOLDING_DAYS:
+        return quantity, _sell_at_close(daily), "持仓超期，虚拟交易按收盘价卖出剩余仓位", "已清仓"
+    return None
+
+
 def _first_take_profit_trailing_action(
-    position: SimulationPosition,
+    position,
     daily: StockDaily,
     trade_date: date,
     quantity: int,
@@ -615,6 +809,68 @@ def _first_take_profit_trailing_action(
         if sell_quantity > 0:
             return sell_quantity, protect_price, "第一止盈移动保护跌破，模拟卖出 50%", "部分止盈"
     return None
+
+
+def _execute_virtual_sell(
+    session: Session,
+    position: VirtualPosition,
+    trade_date: date,
+    trade_time: datetime,
+    price: float,
+    quantity: int,
+    reason: str,
+    final_status: str,
+) -> None:
+    quantity = min(quantity, int(position.quantity))
+    if quantity <= 0:
+        return
+    original_quantity = int(position.quantity)
+    original_cost = _number(position.cost_amount)
+    amount = round(price * quantity, 4)
+    fee = _fees(amount, "卖出")
+    net_amount = round(amount - fee["total_fee"], 4)
+    sold_cost = round(original_cost * quantity / original_quantity, 4) if original_quantity > 0 else 0
+    profit_loss = round(net_amount - sold_cost, 4)
+    profit_loss_return = round(profit_loss / sold_cost, 4) if sold_cost > 0 else None
+    remaining_quantity = original_quantity - quantity
+    position.sell_reason = reason
+    position.current_price = price
+    if remaining_quantity <= 0:
+        position.position_status = "已清仓"
+        position.quantity = 0
+        position.market_value = 0
+        position.cost_amount = 0
+        position.unrealized_profit = 0
+        position.unrealized_return = 0
+    else:
+        position.position_status = final_status
+        position.quantity = remaining_quantity
+        position.cost_amount = round(original_cost - sold_cost, 4)
+        _refresh_position_price(position, price)
+    session.flush()
+    session.add(
+        VirtualTrade(
+            trade_plan_id=position.trade_plan_id,
+            stock_code=position.stock_code,
+            stock_name=position.stock_name,
+            trade_date=trade_date,
+            trade_time=trade_time,
+            trade_type="卖出",
+            price=price,
+            quantity=quantity,
+            amount=amount,
+            commission=fee["commission"],
+            stamp_tax=fee["stamp_tax"],
+            transfer_fee=fee["transfer_fee"],
+            total_fee=fee["total_fee"],
+            net_amount=net_amount,
+            cash_after=round(DEFAULT_INITIAL_CASH - _number(position.cost_amount), 4),
+            position_ratio_after=round(_number(position.cost_amount) / DEFAULT_INITIAL_CASH, 4),
+            profit_loss=profit_loss,
+            profit_loss_return=profit_loss_return,
+            reason=reason,
+        )
+    )
 
 
 def _execute_sell(
@@ -724,6 +980,27 @@ def _risk_stats(session: Session, account_id: int) -> dict[str, Optional[float]]
     return {"win_rate": win_rate, "profit_loss_ratio": profit_loss_ratio}
 
 
+def _virtual_risk_stats(session: Session) -> dict[str, Optional[float]]:
+    sells = session.scalars(
+        select(VirtualTrade).where(
+            VirtualTrade.trade_type == "卖出",
+            VirtualTrade.profit_loss.is_not(None),
+        )
+    ).all()
+    if not sells:
+        return {"win_rate": 0.0, "profit_loss_ratio": None}
+    profits = [_number(item.profit_loss) for item in sells]
+    wins = [item for item in profits if item > 0]
+    losses = [item for item in profits if item < 0]
+    win_rate = round(len(wins) / len(profits), 4)
+    if not wins or not losses:
+        return {"win_rate": win_rate, "profit_loss_ratio": None}
+    avg_win = sum(wins) / len(wins)
+    avg_loss = abs(sum(losses) / len(losses))
+    profit_loss_ratio = round(avg_win / avg_loss, 4) if avg_loss > 0 else None
+    return {"win_rate": win_rate, "profit_loss_ratio": profit_loss_ratio}
+
+
 def _account_snapshot(record: SimulationAccount) -> SimulationAccountSnapshot:
     return SimulationAccountSnapshot(
         id=record.id,
@@ -739,7 +1016,7 @@ def _account_snapshot(record: SimulationAccount) -> SimulationAccountSnapshot:
     )
 
 
-def _position_snapshot(record: SimulationPosition) -> SimulationPositionSnapshot:
+def _position_snapshot(record) -> SimulationPositionSnapshot:
     return SimulationPositionSnapshot(
         id=record.id,
         stock_code=record.stock_code,
@@ -761,7 +1038,7 @@ def _position_snapshot(record: SimulationPosition) -> SimulationPositionSnapshot
     )
 
 
-def _trade_snapshot(record: SimulationTrade) -> SimulationTradeSnapshot:
+def _trade_snapshot(record) -> SimulationTradeSnapshot:
     return SimulationTradeSnapshot(
         id=record.id,
         trade_plan_id=record.trade_plan_id,
@@ -830,7 +1107,18 @@ def _has_sell_reason(session: Session, position: SimulationPosition, reason_pref
     return existing is not None
 
 
-def _second_take_profit_price(position: SimulationPosition) -> float:
+def _has_virtual_sell_reason(session: Session, position: VirtualPosition, reason_prefix: str) -> bool:
+    existing = session.scalar(
+        select(VirtualTrade.id).where(
+            VirtualTrade.trade_plan_id == position.trade_plan_id,
+            VirtualTrade.trade_type == "卖出",
+            VirtualTrade.reason.like(f"{reason_prefix}%"),
+        )
+    )
+    return existing is not None
+
+
+def _second_take_profit_price(position) -> float:
     first_gap = _number(position.take_profit_price) - _number(position.buy_price)
     return round(_number(position.buy_price) + first_gap * SECOND_TAKE_PROFIT_MULTIPLIER, 4)
 
@@ -840,7 +1128,7 @@ def _market_is_risk(session: Session, trade_date: date) -> bool:
     return market is not None and market.market_status == "风险"
 
 
-def _sector_is_fading(session: Session, position: SimulationPosition, trade_date: date) -> bool:
+def _sector_is_fading(session: Session, position, trade_date: date) -> bool:
     sector = session.scalar(
         select(SectorDaily).where(
             SectorDaily.trade_date == trade_date,
@@ -871,6 +1159,18 @@ def _holding_days(session: Session, position: SimulationPosition, trade_date: da
             SimulationTrade.account_id == position.account_id,
             SimulationTrade.trade_plan_id == position.trade_plan_id,
             SimulationTrade.trade_type == "买入",
+        )
+    )
+    if first_buy_date is None:
+        return 0
+    return (trade_date - first_buy_date).days
+
+
+def _virtual_holding_days(session: Session, position: VirtualPosition, trade_date: date) -> int:
+    first_buy_date = session.scalar(
+        select(func.min(VirtualTrade.trade_date)).where(
+            VirtualTrade.trade_plan_id == position.trade_plan_id,
+            VirtualTrade.trade_type == "买入",
         )
     )
     if first_buy_date is None:

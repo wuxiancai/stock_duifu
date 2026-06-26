@@ -90,6 +90,7 @@ class CandidateStock(Base):
         Index("ix_candidate_stock_trade_date", "trade_date"),
         Index("ix_candidate_stock_stock_code", "stock_code"),
         Index("ix_candidate_stock_strategy_type", "strategy_type"),
+        Index("ix_candidate_stock_stock_pool_rank", "stock_pool_rank"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -98,6 +99,8 @@ class CandidateStock(Base):
     stock_name: Mapped[str] = mapped_column(String(100), nullable=False)
     sector_name: Mapped[str] = mapped_column(String(100), nullable=False)
     sector_rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    sector_category: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    stock_pool_rank: Mapped[Optional[int]] = mapped_column(Integer)
     strategy_type: Mapped[str] = mapped_column(String(40), nullable=False)
     stock_score: Mapped[int] = mapped_column(Integer, nullable=False)
     sector_score: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -380,6 +383,79 @@ class SimulationTrade(Base):
     account_id: Mapped[int] = mapped_column(
         ForeignKey("simulation_account.id", ondelete="CASCADE"), nullable=False
     )
+    trade_plan_id: Mapped[int] = mapped_column(
+        ForeignKey("trade_plan.id"), nullable=False
+    )
+    stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    stock_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    trade_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    trade_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    trade_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    commission: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    stamp_tax: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    transfer_fee: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    total_fee: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    net_amount: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    cash_after: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    position_ratio_after: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=0)
+    profit_loss: Mapped[Optional[float]] = mapped_column(Numeric(20, 4))
+    profit_loss_return: Mapped[Optional[float]] = mapped_column(Numeric(10, 4))
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class VirtualPosition(Base):
+    __tablename__ = "virtual_position"
+    __table_args__ = (
+        UniqueConstraint("trade_plan_id", name="uq_virtual_position_plan"),
+        Index("ix_virtual_position_stock_code", "stock_code"),
+        Index("ix_virtual_position_status", "position_status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trade_plan_id: Mapped[int] = mapped_column(
+        ForeignKey("trade_plan.id"), nullable=False
+    )
+    stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    stock_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    sector_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    strategy_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    buy_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    current_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    market_value: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    cost_amount: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
+    unrealized_profit: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False, default=0)
+    unrealized_return: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=0)
+    stop_loss_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    take_profit_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
+    first_take_profit_touched: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    first_take_profit_high: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    first_take_profit_protect_price: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    position_status: Mapped[str] = mapped_column(String(20), nullable=False, default="持仓中")
+    buy_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    sell_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class VirtualTrade(Base):
+    __tablename__ = "virtual_trade"
+    __table_args__ = (
+        Index("ix_virtual_trade_trade_date", "trade_date"),
+        Index("ix_virtual_trade_stock_code", "stock_code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     trade_plan_id: Mapped[int] = mapped_column(
         ForeignKey("trade_plan.id"), nullable=False
     )

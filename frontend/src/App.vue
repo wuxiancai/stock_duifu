@@ -140,7 +140,9 @@ const filteredCandidates = computed(() => {
 })
 
 const stockPoolTop10 = computed(() => {
-  return (candidates.value?.items ?? []).slice(0, 10)
+  return (candidates.value?.items ?? [])
+    .filter((item) => item.stock_pool_rank !== null)
+    .sort((a, b) => (a.stock_pool_rank ?? 9999) - (b.stock_pool_rank ?? 9999))
 })
 
 const sectorTradePlans = computed(() => {
@@ -178,6 +180,18 @@ const trackingRows = computed(() => {
 const simulationTrades = computed(() => {
   const positionsByCode = new Map((simulation.value?.positions ?? []).map((position) => [position.stock_code, position]))
   return (simulation.value?.trades ?? []).map((trade) => {
+    const position = positionsByCode.get(trade.stock_code)
+    return {
+      ...trade,
+      display_profit_loss: trade.profit_loss ?? position?.unrealized_profit ?? null,
+      display_profit_loss_return: trade.profit_loss_return ?? position?.unrealized_return ?? null
+    }
+  })
+})
+
+const virtualTrades = computed(() => {
+  const positionsByCode = new Map((simulation.value?.virtual_positions ?? []).map((position) => [position.stock_code, position]))
+  return (simulation.value?.virtual_trades ?? []).map((trade) => {
     const position = positionsByCode.get(trade.stock_code)
     return {
       ...trade,
@@ -988,7 +1002,7 @@ onBeforeUnmount(() => {
         <div class="section-heading table-heading">
           <div>
             <h2>股票池</h2>
-            <p>交易日：{{ candidates?.trade_date ?? '-' }}，展示候选股票评分排名前 10；今日交易计划从股票池中进一步筛选生成。</p>
+            <p>交易日：{{ candidates?.trade_date ?? '-' }}，按核心主升 5 / 稳定强势 3 / 强势延续 2 生成股票池；不足 10 只则宁缺毋滥。今日交易计划对股票池全部生成。</p>
           </div>
           <div class="table-tools">
             <el-button :icon="Download" :disabled="!stockPoolTop10.length" @click="exportCandidates">导出候选</el-button>
@@ -997,7 +1011,7 @@ onBeforeUnmount(() => {
 
         <el-table :data="stockPoolTop10" border stripe empty-text="暂无股票池数据" class="stock-pool-table">
           <el-table-column label="排名" width="62" align="center">
-            <template #default="{ $index }">{{ $index + 1 }}</template>
+            <template #default="{ row }: { row: CandidateItem }">{{ row.stock_pool_rank ?? '-' }}</template>
           </el-table-column>
           <el-table-column label="股票" min-width="116" sortable prop="stock_name">
             <template #default="{ row }: { row: CandidateItem }">
@@ -1011,6 +1025,7 @@ onBeforeUnmount(() => {
             </template>
           </el-table-column>
           <el-table-column prop="sector_rank" label="行业排名" width="88" sortable />
+          <el-table-column prop="sector_category" label="行业类型" width="100" sortable />
           <el-table-column prop="strategy_type" label="策略" min-width="92" sortable />
           <el-table-column label="九转" width="76" sortable prop="nine_turn_count">
             <template #default="{ row }: { row: CandidateItem }">
@@ -1386,6 +1401,83 @@ onBeforeUnmount(() => {
                 <span :class="polarityClass(row.max_drawdown, true)">{{ formatReturn(row.max_drawdown) }}</span>
               </template>
             </el-table-column>
+          </el-table>
+
+          <div class="table-subheading virtual-heading">
+            <h3>虚拟交易</h3>
+            <span>每只触发股票独立按 100 万本金 × 计划仓位验证，不计入资金曲线。</span>
+          </div>
+
+          <div class="table-subheading">
+            <h3>虚拟持仓</h3>
+          </div>
+          <el-table :data="simulation.virtual_positions ?? []" border stripe max-height="260" empty-text="暂无虚拟持仓">
+            <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+              <template #default="{ row }: { row: SimulationPosition }">
+                <strong>{{ row.stock_name }}</strong>
+                <small class="muted-code">{{ row.stock_code }}</small>
+              </template>
+            </el-table-column>
+            <el-table-column prop="sector_name" label="板块" min-width="120" sortable />
+            <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
+            <el-table-column prop="quantity" label="数量" min-width="100" sortable />
+            <el-table-column label="成本/现价" min-width="130">
+              <template #default="{ row }: { row: SimulationPosition }">
+                {{ formatPrice(row.buy_price) }} /
+                <span :class="priceVsClass(row.current_price, row.buy_price)">{{ formatPrice(row.current_price) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="市值" min-width="120" sortable prop="market_value">
+              <template #default="{ row }: { row: SimulationPosition }">{{ formatMoney(row.market_value) }}</template>
+            </el-table-column>
+            <el-table-column label="浮盈亏" min-width="130" sortable prop="unrealized_profit">
+              <template #default="{ row }: { row: SimulationPosition }">
+                <span :class="polarityClass(row.unrealized_profit)">{{ formatMoney(row.unrealized_profit) }}</span>
+                /
+                <span :class="polarityClass(row.unrealized_return)">{{ formatReturn(row.unrealized_return) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="止损/第一止盈" min-width="150">
+              <template #default="{ row }: { row: SimulationPosition }">
+                {{ formatPrice(row.stop_loss_price) }} / {{ formatPrice(row.take_profit_price) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="buy_reason" label="买入原因" min-width="240" show-overflow-tooltip />
+            <el-table-column prop="position_status" label="状态" min-width="100" sortable />
+          </el-table>
+
+          <div class="table-subheading">
+            <h3>虚拟交易记录</h3>
+            <span>胜率 {{ formatReturn(simulation.virtual_risk?.win_rate ?? 0) }} / 盈亏比 {{ simulation.virtual_risk?.profit_loss_ratio ?? '-' }}</span>
+          </div>
+          <el-table :data="virtualTrades" border stripe max-height="300" empty-text="暂无虚拟交易记录">
+            <el-table-column label="时间" min-width="90" sortable prop="trade_time">
+              <template #default="{ row }: { row: SimulationTrade }">{{ formatTime(row.trade_time) }}</template>
+            </el-table-column>
+            <el-table-column prop="trade_type" label="方向" width="90" sortable />
+            <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+              <template #default="{ row }: { row: SimulationTrade }">
+                <strong>{{ row.stock_name }}</strong>
+                <small class="muted-code">{{ row.stock_code }}</small>
+              </template>
+            </el-table-column>
+            <el-table-column label="价格/数量" min-width="130">
+              <template #default="{ row }: { row: SimulationTrade }">{{ formatPrice(row.price) }} / {{ row.quantity }}</template>
+            </el-table-column>
+            <el-table-column label="成交金额" min-width="120" sortable prop="amount">
+              <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.amount) }}</template>
+            </el-table-column>
+            <el-table-column label="费用" min-width="110" sortable prop="total_fee">
+              <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.total_fee) }}</template>
+            </el-table-column>
+            <el-table-column label="盈亏" min-width="130" sortable prop="display_profit_loss">
+              <template #default="{ row }: { row: SimulationTrade & { display_profit_loss: number | null, display_profit_loss_return: number | null } }">
+                <span :class="polarityClass(row.display_profit_loss)">{{ formatMoney(row.display_profit_loss) }}</span>
+                /
+                <span :class="polarityClass(row.display_profit_loss_return)">{{ formatReturn(row.display_profit_loss_return) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="reason" label="原因" min-width="260" show-overflow-tooltip />
           </el-table>
         </template>
         <el-empty v-else description="暂无模拟交易数据，请先运行模拟交易" />
