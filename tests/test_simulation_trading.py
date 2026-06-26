@@ -255,7 +255,7 @@ def test_simulation_fee_rates_are_configurable(monkeypatch) -> None:
     get_settings.cache_clear()
 
 
-def test_run_simulation_sells_half_at_first_take_profit_and_marks_partial_position() -> None:
+def test_run_simulation_activates_first_take_profit_trailing_without_immediate_sell() -> None:
     engine = _engine()
     with Session(engine) as session:
         _seed_trade_plan(session)
@@ -268,35 +268,38 @@ def test_run_simulation_sells_half_at_first_take_profit_and_marks_partial_positi
 
     assert len(summary.positions) == 1
     position = summary.positions[0]
-    assert position.position_status == "部分止盈"
-    assert position.quantity > 0
-    sell = next(trade for trade in summary.trades if trade.trade_type == "卖出")
-    assert sell.reason == "达到第一止盈位，模拟卖出 50%"
-    assert sell.quantity % 100 == 0
-    assert sell.profit_loss is not None and sell.profit_loss > 0
-    assert summary.risk.win_rate == 1.0
-    assert summary.risk.profit_loss_ratio is None
+    assert position.position_status == "持仓中"
+    assert not any(trade.trade_type == "卖出" for trade in summary.trades)
+    with Session(engine) as session:
+        stored = session.scalar(select(SimulationPosition).where(SimulationPosition.stock_code == "000001"))
+        assert stored.first_take_profit_touched is True
+        assert float(stored.first_take_profit_high) == 13.5
+        assert float(stored.first_take_profit_protect_price) == 13.2
+        assert "第一止盈已触达" in stored.sell_reason
 
 
-def test_run_simulation_sells_thirty_percent_more_at_second_take_profit() -> None:
+def test_run_simulation_sells_half_when_first_take_profit_trailing_protect_breaks() -> None:
     engine = _engine()
     with Session(engine) as session:
         _seed_trade_plan(session)
         _add_daily(session, "000001", date(2026, 6, 19), 10.2, 10.8, 10.0, 10.5)
         _add_daily(session, "000001", date(2026, 6, 22), 13.0, 13.5, 12.9, 13.3, pct_chg=6.0)
-        _add_daily(session, "000001", date(2026, 6, 23), 14.6, 15.0, 14.2, 14.8, pct_chg=7.0)
+        _add_daily(session, "000001", date(2026, 6, 23), 13.8, 15.0, 14.7, 14.8, pct_chg=7.0)
+        _add_daily(session, "000001", date(2026, 6, 24), 14.6, 14.7, 14.5, 14.5, pct_chg=-1.5)
         session.commit()
 
     run_simulation(engine, date(2026, 6, 19))
     first = run_simulation(engine, date(2026, 6, 22))
     second = run_simulation(engine, date(2026, 6, 23))
+    third = run_simulation(engine, date(2026, 6, 24))
 
-    first_sell = next(trade for trade in first.trades if trade.trade_type == "卖出")
-    second_sell = next(trade for trade in second.trades if trade.trade_type == "卖出")
-    assert first_sell.reason == "达到第一止盈位，模拟卖出 50%"
-    assert second_sell.reason == "达到第二止盈位，模拟再卖出 30%"
-    assert second.positions[0].position_status == "部分止盈"
-    assert second.positions[0].quantity < first.positions[0].quantity
+    assert not any(trade.trade_type == "卖出" for trade in first.trades)
+    assert not any(trade.trade_type == "卖出" for trade in second.trades)
+    first_sell = next(trade for trade in third.trades if trade.trade_type == "卖出")
+    assert first_sell.reason == "第一止盈移动保护跌破，模拟卖出 50%"
+    assert first_sell.price == 14.55
+    assert third.positions[0].position_status == "部分止盈"
+    assert third.positions[0].quantity < second.positions[0].quantity
 
 
 def test_run_simulation_sells_remaining_position_when_close_breaks_ma5() -> None:

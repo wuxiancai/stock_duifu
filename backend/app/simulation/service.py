@@ -32,6 +32,7 @@ TRADING_AFTERNOON_START = time(13, 0)
 TRADING_END = time(15, 0)
 DEFAULT_LOOP_INTERVAL_SECONDS = 300
 MAX_HOLDING_DAYS = 5
+FIRST_TAKE_PROFIT_TRAILING_PCT = 0.03
 SECOND_TAKE_PROFIT_MULTIPLIER = 1.5
 ACTIVE_POSITION_STATUSES = ("持仓中", "部分止盈", "待卖出")
 
@@ -370,6 +371,9 @@ def _buy_triggered_plans(session: Session, account: SimulationAccount, trade_dat
             unrealized_return=round((_number(daily.close) * quantity - cost) / cost, 4),
             stop_loss_price=_number(plan.stop_loss_price),
             take_profit_price=_number(plan.take_profit_price),
+            first_take_profit_touched=False,
+            first_take_profit_high=0,
+            first_take_profit_protect_price=0,
             position_status="持仓中",
             buy_reason=reason,
             sell_reason="",
@@ -557,11 +561,13 @@ def _sell_action(
         return quantity, _sell_at_close(daily), "板块退潮，模拟卖出剩余仓位", "已清仓"
     if _number(daily.pct_chg) <= -7:
         return quantity, _sell_at_close(daily), "快速跳水，按当前价模拟卖出剩余仓位并记录滑点", "已清仓"
-    if not _has_sell_reason(session, position, "达到第一止盈位") and _number(daily.high) >= _number(position.take_profit_price):
-        sell_quantity = _lot_floor(quantity * 0.5)
-        if sell_quantity > 0:
-            return sell_quantity, _number(position.take_profit_price), "达到第一止盈位，模拟卖出 50%", "部分止盈"
-    if _has_sell_reason(session, position, "达到第一止盈位") and not _has_sell_reason(session, position, "达到第二止盈位"):
+
+    if not _has_sell_reason(session, position, "第一止盈移动保护"):
+        first_take_profit_action = _first_take_profit_trailing_action(position, daily, trade_date, quantity)
+        if first_take_profit_action is not None:
+            return first_take_profit_action
+
+    if _has_sell_reason(session, position, "第一止盈移动保护") and not _has_sell_reason(session, position, "达到第二止盈位"):
         second_take_profit = _second_take_profit_price(position)
         if _number(daily.high) >= second_take_profit:
             sell_quantity = _lot_floor(quantity * 0.6)
@@ -571,6 +577,43 @@ def _sell_action(
         return quantity, _sell_at_close(daily), "跌破 MA5，模拟卖出剩余仓位", "已清仓"
     if _holding_days(session, position, trade_date) >= MAX_HOLDING_DAYS:
         return quantity, _sell_at_close(daily), "持仓超期，按收盘价模拟卖出剩余仓位", "已清仓"
+    return None
+
+
+def _first_take_profit_trailing_action(
+    position: SimulationPosition,
+    daily: StockDaily,
+    trade_date: date,
+    quantity: int,
+) -> Optional[tuple[int, float, str, str]]:
+    take_profit = _number(position.take_profit_price)
+    high = _number(daily.high)
+    low = _number(daily.low)
+    close = _number(daily.close)
+    if high < take_profit and not position.first_take_profit_touched:
+        return None
+
+    was_touched = bool(position.first_take_profit_touched)
+    if high >= take_profit:
+        previous_high = _number(position.first_take_profit_high)
+        protected_high = max(previous_high, high, take_profit)
+        protect_price = round(max(take_profit, protected_high * (1 - FIRST_TAKE_PROFIT_TRAILING_PCT)), 4)
+        position.first_take_profit_touched = True
+        position.first_take_profit_high = protected_high
+        position.first_take_profit_protect_price = protect_price
+        if not was_touched:
+            position.sell_reason = f"第一止盈已触达，启动移动保护，当前保护价 {protect_price:.2f}"
+            return None
+
+    if not position.first_take_profit_touched:
+        return None
+
+    protect_price = _number(position.first_take_profit_protect_price) or take_profit
+    same_trade_date_as_entry = getattr(position.created_at, "date", lambda: None)() == trade_date
+    if close <= protect_price or (not same_trade_date_as_entry and low <= protect_price):
+        sell_quantity = _lot_floor(quantity * 0.5)
+        if sell_quantity > 0:
+            return sell_quantity, protect_price, "第一止盈移动保护跌破，模拟卖出 50%", "部分止盈"
     return None
 
 
