@@ -157,6 +157,33 @@ def test_generate_trade_plans_persists_complete_risk_controlled_plans() -> None:
         assert saved[0].market_status == "中性"
 
 
+def test_generate_trade_plans_fallback_target_skips_weekend_when_future_calendar_missing() -> None:
+    engine = _engine()
+    plan_date = date(2026, 6, 26)
+    with Session(engine) as session:
+        session.add(
+            MarketDaily(
+                trade_date=plan_date,
+                market_score=45,
+                market_status="弱势",
+                up_count=1600,
+                down_count=3300,
+                limit_up_count=28,
+                limit_down_count=12,
+                total_amount=900000000000,
+                suggestion="弱势市场只做低仓位条件计划",
+            )
+        )
+        _seed_candidates(session, plan_date)
+        _seed_histories(session, plan_date)
+        session.commit()
+
+    plans = generate_trade_plans(engine, plan_date)
+
+    assert plans
+    assert all(plan.target_trade_date == date(2026, 6, 29) for plan in plans)
+
+
 def test_generate_trade_plans_is_idempotent_for_same_plan_date() -> None:
     engine = _engine()
     plan_date = _seed_fixture(engine)

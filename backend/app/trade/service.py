@@ -927,7 +927,14 @@ def _trade_plan_has_simulation_records(session: Session, trade_plan_id: int) -> 
 
 def _next_open_trade_date(session: Session, plan_date: date) -> date:
     next_open = _next_open_trade_date_after(session, plan_date)
-    return next_open or plan_date + timedelta(days=1)
+    return next_open or _next_weekday_after(plan_date)
+
+
+def _next_weekday_after(after_date: date) -> date:
+    candidate = after_date + timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate += timedelta(days=1)
+    return candidate
 
 
 def _next_open_trade_date_after(session: Session, after_date: date) -> Optional[date]:
