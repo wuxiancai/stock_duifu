@@ -255,15 +255,7 @@ def load_latest_candidates(engine: Engine) -> Optional[tuple[date, list[Candidat
             .where(CandidateStock.trade_date == latest_date)
             .order_by(desc(CandidateStock.stock_score), CandidateStock.stock_code)
         ).all()
-        records = sorted(
-            records,
-            key=lambda item: (
-                item.stock_pool_rank is None,
-                item.stock_pool_rank or 9999,
-                -item.stock_score,
-                item.stock_code,
-            ),
-        )
+        records = _ensure_displayable_stock_pool(records)
         return (
             latest_date,
             [
@@ -289,6 +281,28 @@ def load_latest_candidates(engine: Engine) -> Optional[tuple[date, list[Candidat
                 for record in records
             ],
         )
+
+
+def _ensure_displayable_stock_pool(records: list[CandidateStock]) -> list[CandidateStock]:
+    if any(record.stock_pool_rank is not None for record in records):
+        return sorted(
+            records,
+            key=lambda item: (
+                item.stock_pool_rank is None,
+                item.stock_pool_rank or 9999,
+                -item.stock_score,
+                item.stock_code,
+            ),
+        )
+
+    ordered = sorted(
+        records,
+        key=lambda item: (item.stock_score, item.sector_score, item.amount),
+        reverse=True,
+    )
+    for rank, record in enumerate(ordered[:10], start=1):
+        record.stock_pool_rank = rank
+    return ordered
 
 
 def _strategy_candidates(
