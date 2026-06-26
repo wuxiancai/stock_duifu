@@ -60,7 +60,7 @@ def _sector_daily(name: str = "电子", rank: int = 1) -> SectorDaily:
 
 
 def test_sector_selection_excludes_single_day_spike() -> None:
-    assert _classify_sector_selection(_sector_daily(rank=1), (1, 20, 30, 35, 40)) is None
+    assert _classify_sector_selection(_sector_daily(rank=1), (1, 6, 8, 9, 10)) is None
 
 
 def test_sector_selection_keeps_stable_second_rank_industry() -> None:
@@ -188,6 +188,7 @@ def test_generate_candidate_stocks_filters_and_persists_explainable_strategies()
     assert all(candidate.stock_code not in {"000004", "000005"} for candidate in candidates)
     assert all("行业持续性" in candidate.reason for candidate in candidates)
     assert all("近5日排名" in candidate.reason for candidate in candidates)
+    assert all("极限 Top5" in candidate.reason for candidate in candidates)
     assert all(candidate.nine_turn_signal in {"", "buy", "sell"} for candidate in candidates)
 
     with Session(engine) as session:
