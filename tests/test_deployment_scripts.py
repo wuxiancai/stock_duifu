@@ -384,7 +384,10 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
     assert "数据库运行数据自检" in script
     assert "bash get_data.sh" in script
     assert "TUSHARE_TOKEN 为空；跳过自动拉数" in script
-    assert "最新交易日增量检查" in script
+    assert "检查最新开市日是否需要增量补齐" in script
+    assert "最新开市日数据已完整，本次启动跳过 get_data.sh" in script
+    assert "最新开市日数据不完整，开始执行 bash get_data.sh 增量补齐" in script
+    assert "latest_open_data_is_complete" in script
     assert "数据日期覆盖范围" in script
     assert "手动补数据：TRADE_DATE=YYYY-MM-DD bash get_data.sh" in script
     assert "check_web_page_access" in script

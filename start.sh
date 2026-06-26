@@ -445,6 +445,57 @@ select
 " 2>/dev/null || true
 }
 
+latest_open_data_status() {
+  docker_compose exec -T postgres psql -U stock -d stock -At -F '|' -c "
+with latest_open as (
+  select max(trade_date) as trade_date
+  from trading_calendar
+  where is_open = true and trade_date <= current_date
+)
+select
+  coalesce((select trade_date::text from latest_open), '') as latest_open_date,
+  (select count(*) from stock_daily where trade_date = (select trade_date from latest_open)) as stock_daily_rows,
+  (select count(*) from market_daily where trade_date = (select trade_date from latest_open)) as market_rows,
+  (select count(*) from sector_daily where trade_date = (select trade_date from latest_open)) as sector_rows,
+  (select count(*) from candidate_stock where trade_date = (select trade_date from latest_open)) as candidate_rows,
+  (select count(*) from trade_plan where plan_date = (select trade_date from latest_open)) as plan_rows,
+  (select count(*) from data_job_run where trade_date = (select trade_date from latest_open) and status in ('success','warning')) as data_jobs;
+" 2>/dev/null || true
+}
+
+latest_open_data_is_complete() {
+  local status_line="$1"
+  local latest_open stock_daily_rows market_rows sector_rows candidate_rows plan_rows data_jobs
+  if [ -z "$status_line" ]; then
+    return 1
+  fi
+  IFS='|' read -r latest_open stock_daily_rows market_rows sector_rows candidate_rows plan_rows data_jobs <<<"$status_line"
+  if [ -z "$latest_open" ]; then
+    return 1
+  fi
+  [ "$stock_daily_rows" -gt 0 ] && [ "$market_rows" -gt 0 ] && [ "$sector_rows" -gt 0 ] && [ "$candidate_rows" -gt 0 ] && [ "$plan_rows" -gt 0 ] && [ "$data_jobs" -gt 0 ]
+}
+
+print_latest_open_data_status() {
+  local status_line="$1"
+  local latest_open stock_daily_rows market_rows sector_rows candidate_rows plan_rows data_jobs
+  if [ -z "$status_line" ]; then
+    warn "暂时无法读取最新开市日数据状态。"
+    return 0
+  fi
+  IFS='|' read -r latest_open stock_daily_rows market_rows sector_rows candidate_rows plan_rows data_jobs <<<"$status_line"
+  cat <<EOF
+[stock-start] 最新开市日数据状态：
+  最新开市日=${latest_open:-无}
+  个股日线行数=$stock_daily_rows
+  市场环境行数=$market_rows
+  强势行业行数=$sector_rows
+  候选股票行数=$candidate_rows
+  交易计划行数=$plan_rows
+  成功/警告拉数任务数=$data_jobs
+EOF
+}
+
 print_database_date_summary() {
   local summary
   local stock_start stock_end market_latest sector_latest candidate_latest plan_latest
@@ -541,14 +592,21 @@ EOF
   成功/警告拉数任务数=$data_jobs
 EOF
   else
-    info "数据库已有完整运行基础数据；继续执行一次最新交易日增量检查。"
+    info "数据库已有完整运行基础数据；检查最新开市日是否需要增量补齐。"
     if [ -n "${TUSHARE_TOKEN:-}" ] && [ "${STOCK_START_SKIP_INCREMENTAL_DATA_CHECK:-0}" != "1" ]; then
-      info "开始执行 bash get_data.sh：检查最近已完成开市日是否已有数据，缺失则自动增量补齐。"
-      if ! bash get_data.sh; then
-        warn "增量数据检查失败。系统会继续启动，但建议查看日志并手动补数据。"
-        print_manual_data_commands
+      local latest_status
+      latest_status="$(latest_open_data_status)"
+      print_latest_open_data_status "$latest_status"
+      if latest_open_data_is_complete "$latest_status"; then
+        info "最新开市日数据已完整，本次启动跳过 get_data.sh。"
       else
-        ran_get_data="1"
+        info "最新开市日数据不完整，开始执行 bash get_data.sh 增量补齐。"
+        if ! bash get_data.sh; then
+          warn "增量数据检查失败。系统会继续启动，但建议查看日志并手动补数据。"
+          print_manual_data_commands
+        else
+          ran_get_data="1"
+        fi
       fi
     else
       warn "未配置 TUSHARE_TOKEN 或设置了 STOCK_START_SKIP_INCREMENTAL_DATA_CHECK=1，本次不执行最新交易日增量补齐。"
