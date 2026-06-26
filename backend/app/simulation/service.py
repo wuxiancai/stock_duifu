@@ -328,8 +328,8 @@ def _buy_triggered_plans(session: Session, account: SimulationAccount, trade_dat
         if _number(daily.pct_chg) >= 9.8:
             messages.append(f"{plan.stock_code} 计划触发但目标交易日涨停，按保守成交规则不买入")
             continue
-        if _number(daily.open) > _number(plan.buy_price_high) * 1.03:
-            messages.append(f"{plan.stock_code} 目标交易日高开超过计划买入上限 3%，取消模拟买入")
+        if _number(daily.open) > _number(plan.buy_price_high) * 1.03 and _number(daily.low) > _number(plan.buy_price_high):
+            messages.append(f"{plan.stock_code} 目标交易日高开超过计划买入上限 3%，且盘中未回落触达买入区间，取消模拟买入")
             continue
         if _number(daily.open) < _number(plan.stop_loss_price) or _number(daily.low) < _number(plan.stop_loss_price):
             messages.append(f"{plan.stock_code} 目标交易日低开或盘中跌破止损价，取消模拟买入")

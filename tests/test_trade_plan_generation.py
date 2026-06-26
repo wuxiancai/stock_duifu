@@ -488,6 +488,70 @@ def test_track_realtime_trade_plans_api_backfills_quotes_and_returns_current_pri
     assert all(item["pct_chg"] is not None for item in latest.json()["items"])
 
 
+def test_track_trade_plans_triggers_when_gap_up_later_pulls_back_into_buy_range() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        plan = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
+        session.add(
+            StockDaily(
+                stock_code="000001",
+                trade_date=date(2026, 6, 19),
+                open=float(plan.buy_price_high) * 1.05,
+                high=float(plan.buy_price_high) * 1.06,
+                low=float(plan.buy_price_high),
+                close=float(plan.buy_price_high) * 1.04,
+                pre_close=float(plan.buy_price_low),
+                change=1.0,
+                pct_chg=5.0,
+                volume=1000,
+                amount=1000000000,
+                turnover_rate=3.0,
+                source="unit-test-realtime",
+            )
+        )
+        session.commit()
+
+    results = track_trade_plans(engine, date(2026, 6, 19))
+
+    item = next(row for row in results if row.stock_code == "000001")
+    assert item.status == "已触发"
+
+
+def test_track_trade_plans_cancels_gap_up_that_never_pulls_back_into_buy_range() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        plan = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
+        price = float(plan.buy_price_high) * 1.05
+        session.add(
+            StockDaily(
+                stock_code="000001",
+                trade_date=date(2026, 6, 19),
+                open=price,
+                high=price * 1.01,
+                low=price,
+                close=price,
+                pre_close=float(plan.buy_price_low),
+                change=1.0,
+                pct_chg=5.0,
+                volume=1000,
+                amount=1000000000,
+                turnover_rate=3.0,
+                source="unit-test-realtime",
+            )
+        )
+        session.commit()
+
+    results = track_trade_plans(engine, date(2026, 6, 19))
+
+    item = next(row for row in results if row.stock_code == "000001")
+    assert item.status == "取消"
+    assert "盘中未回落触达买入区间" in item.tracking_note
+
+
 def test_track_trade_plans_can_mark_untriggered_after_close() -> None:
     engine = _engine()
     plan_date = _seed_fixture(engine)
