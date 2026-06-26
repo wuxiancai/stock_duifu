@@ -15,6 +15,8 @@ from backend.app.db.models import (
     SimulationPosition,
     SimulationTrade,
     StockDaily,
+    VirtualPosition,
+    VirtualTrade,
     TradePlan,
     TradingCalendar,
     metadata,
@@ -200,6 +202,55 @@ def test_trading_time_excludes_lunch_break() -> None:
     assert _is_trading_time(datetime(2026, 6, 19, 13, 0, tzinfo=TRADING_TZ))
     assert _is_trading_time(datetime(2026, 6, 19, 15, 0, tzinfo=TRADING_TZ))
     assert not _is_trading_time(datetime(2026, 6, 19, 23, 0, tzinfo=TRADING_TZ))
+
+
+def test_run_simulation_does_not_virtual_buy_when_real_simulation_bought() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_trade_plan(session)
+        _add_daily(session, "000001", date(2026, 6, 19), 10.2, 10.8, 10.0, 10.5)
+        session.commit()
+
+    summary = run_simulation(engine, date(2026, 6, 19))
+
+    assert len(summary.positions) == 1
+    assert summary.virtual_positions == []
+    assert summary.virtual_trades == []
+    with Session(engine) as session:
+        assert session.query(SimulationTrade).filter(SimulationTrade.trade_type == "买入").count() == 1
+        assert session.query(VirtualTrade).count() == 0
+        assert session.query(VirtualPosition).count() == 0
+
+
+def test_run_simulation_does_not_open_new_positions_after_close_or_wrong_day() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_trade_plan(session)
+        session.add(
+            StockDaily(
+                stock_code="000001",
+                trade_date=date(2026, 6, 19),
+                open=10.2,
+                high=10.8,
+                low=10.0,
+                close=10.5,
+                pre_close=10.0,
+                change=0.5,
+                pct_chg=5.0,
+                volume=1000,
+                amount=1000000000,
+                turnover_rate=3.0,
+                source="tushare",
+            )
+        )
+        session.commit()
+
+    summary = run_simulation(engine, date(2026, 6, 19))
+
+    assert summary.positions == []
+    assert summary.virtual_positions == []
+    assert any("非盘中交易时间，不新增模拟买入" in message for message in summary.messages)
+    assert any("非盘中交易时间，不新增虚拟买入" in message for message in summary.messages)
 
 
 def test_run_simulation_only_executes_planned_stocks_and_blocks_limit_up_buy() -> None:

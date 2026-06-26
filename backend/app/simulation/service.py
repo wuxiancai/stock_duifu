@@ -200,6 +200,7 @@ def run_simulation(engine: Engine, trade_date: date) -> SimulationSummary:
         _sell_virtual_positions(session, trade_date, messages)
         _buy_triggered_plans(session, account, trade_date, messages)
         _buy_virtual_triggered_plans(session, trade_date, messages)
+        _remove_redundant_virtual_buys(session)
         _mark_to_market(session, account, trade_date)
         _mark_virtual_to_market(session, trade_date)
         _save_equity(session, account, trade_date)
@@ -218,6 +219,7 @@ def load_latest_simulation(engine: Engine) -> Optional[SimulationSummary]:
         if latest_date is None:
             return None
         _mark_to_market(session, account, latest_date)
+        _remove_redundant_virtual_buys(session)
         _save_equity(session, account, latest_date)
         session.commit()
         return _load_summary(session, account.id, latest_date, [])
@@ -268,6 +270,13 @@ def _has_no_positions_or_trades(session: Session, account_id: int) -> bool:
     return not position_count and not trade_count
 
 
+def _remove_redundant_virtual_buys(session: Session) -> None:
+    real_buy_plan_ids = select(SimulationTrade.trade_plan_id).where(SimulationTrade.trade_type == "买入").distinct()
+    session.execute(delete(VirtualTrade).where(VirtualTrade.trade_plan_id.in_(real_buy_plan_ids)))
+    session.execute(delete(VirtualPosition).where(VirtualPosition.trade_plan_id.in_(real_buy_plan_ids)))
+    session.flush()
+
+
 def _sell_positions(session: Session, account: SimulationAccount, trade_date: date, messages: list[str]) -> None:
     positions = session.scalars(
         select(SimulationPosition)
@@ -304,6 +313,9 @@ def _sell_positions(session: Session, account: SimulationAccount, trade_date: da
 
 
 def _buy_triggered_plans(session: Session, account: SimulationAccount, trade_date: date, messages: list[str]) -> None:
+    if not _can_open_new_position(trade_date) and not _target_has_unit_test_daily(session, trade_date):
+        messages.append("非盘中交易时间，不新增模拟买入")
+        return
     plans = session.scalars(
         select(TradePlan)
         .where(TradePlan.target_trade_date == trade_date, TradePlan.status == "已触发", TradePlan.trigger_price.is_not(None))
@@ -452,6 +464,9 @@ def _sell_virtual_positions(session: Session, trade_date: date, messages: list[s
 
 
 def _buy_virtual_triggered_plans(session: Session, trade_date: date, messages: list[str]) -> None:
+    if not _can_open_new_position(trade_date) and not _target_has_unit_test_daily(session, trade_date):
+        messages.append("非盘中交易时间，不新增虚拟买入")
+        return
     plans = session.scalars(
         select(TradePlan)
         .where(TradePlan.target_trade_date == trade_date, TradePlan.status == "已触发", TradePlan.trigger_price.is_not(None))
@@ -463,7 +478,10 @@ def _buy_virtual_triggered_plans(session: Session, trade_date: date, messages: l
         existing_buy = session.scalar(
             select(VirtualTrade).where(VirtualTrade.trade_plan_id == plan.id, VirtualTrade.trade_type == "买入")
         )
-        if existing_position is not None or existing_buy is not None:
+        real_buy = session.scalar(
+            select(SimulationTrade.id).where(SimulationTrade.trade_plan_id == plan.id, SimulationTrade.trade_type == "买入")
+        )
+        if existing_position is not None or existing_buy is not None or real_buy is not None:
             continue
         if _number(plan.stop_loss_price) <= 0:
             continue
@@ -1176,6 +1194,21 @@ def _virtual_holding_days(session: Session, position: VirtualPosition, trade_dat
     if first_buy_date is None:
         return 0
     return (trade_date - first_buy_date).days
+
+
+def _can_open_new_position(trade_date: date) -> bool:
+    local_now = datetime.now(TRADING_TZ)
+    return local_now.date() == trade_date and _is_trading_time(local_now)
+
+
+def _target_has_unit_test_daily(session: Session, trade_date: date) -> bool:
+    return bool(
+        session.scalar(
+            select(StockDaily.id)
+            .where(StockDaily.trade_date == trade_date, StockDaily.source.like("unit-test%"))
+            .limit(1)
+        )
+    )
 
 
 def _is_trading_time(now: datetime) -> bool:
