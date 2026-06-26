@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from backend.app.candidate.service import CandidateSectorMembershipProvider, _classify_sector_selection, generate_candidate_stocks
+from backend.app.candidate.service import CandidateSectorMembershipProvider, _classify_sector_selection, _nine_turn_sequence, generate_candidate_stocks
 from backend.app.db.models import CandidateStock, SectorDaily, StockBasic, StockDaily, metadata
 from backend.app.main import create_app
 
@@ -57,6 +57,12 @@ def _sector_daily(name: str = "电子", rank: int = 1) -> SectorDaily:
         strong_stock_count=10,
         sector_score=90,
     )
+
+
+def test_nine_turn_sequence_uses_recent_valid_signal_when_current_day_breaks_sequence() -> None:
+    closes = [10, 10, 10, 10, 11, 12, 13, 14, 13, 13]
+
+    assert _nine_turn_sequence(closes) == ("sell", 6)
 
 
 def test_sector_selection_excludes_single_day_spike() -> None:
@@ -188,7 +194,7 @@ def test_generate_candidate_stocks_filters_and_persists_explainable_strategies()
     assert all(candidate.stock_code not in {"000004", "000005"} for candidate in candidates)
     assert all("行业持续性" in candidate.reason for candidate in candidates)
     assert all("近5日排名" in candidate.reason for candidate in candidates)
-    assert all("极限 Top5" in candidate.reason for candidate in candidates)
+    assert all("当前 机器人 第 1 名" in candidate.reason for candidate in candidates)
     assert all(candidate.nine_turn_signal in {"", "buy", "sell"} for candidate in candidates)
 
     with Session(engine) as session:

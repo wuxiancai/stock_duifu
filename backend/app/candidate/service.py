@@ -452,21 +452,23 @@ def _nine_turn_sequence(closes: list[float]) -> tuple[str, int]:
         return "", 0
     sell_count = 0
     buy_count = 0
+    recent_signal: tuple[str, int] = ("", 0)
+    recent_window_start = max(4, len(closes) - 9)
     for index in range(4, len(closes)):
         if closes[index] > closes[index - 4]:
             sell_count = min(sell_count + 1, 9)
             buy_count = 0
+            if index >= recent_window_start:
+                recent_signal = ("sell", sell_count)
         elif closes[index] < closes[index - 4]:
             buy_count = min(buy_count + 1, 9)
             sell_count = 0
+            if index >= recent_window_start:
+                recent_signal = ("buy", buy_count)
         else:
             sell_count = 0
             buy_count = 0
-    if sell_count:
-        return "sell", sell_count
-    if buy_count:
-        return "buy", buy_count
-    return "", 0
+    return recent_signal
 
 
 def _nine_turn_score(signal: str, count: int) -> int:
