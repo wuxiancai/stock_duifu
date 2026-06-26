@@ -1,6 +1,6 @@
 """add simulation trailing take profit state
 
-Revision ID: 0010_simulation_trailing_take_profit
+Revision ID: 0010_trailing_take_profit
 Revises: 0009_data_job_monitoring
 Create Date: 2026-06-26 00:00:00
 """
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0010_simulation_trailing_take_profit"
+revision: str = "0010_trailing_take_profit"
 down_revision: Union[str, None] = "0009_data_job_monitoring"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
