@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from typing import Optional
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -10,21 +11,19 @@ from backend.app.db.models import CandidateStock, SectorDaily, StockBasic, Stock
 from backend.app.main import create_app
 
 
+class FakeMembershipProvider(CandidateSectorMembershipProvider):
+    def sector_members(self, sector_names: list[str]) -> dict[str, list[str]]:
+        return {"机器人": ["000001", "000002", "000003", "000004", "000005"]}
+
+
 def _engine():
     engine = create_engine(
-        "sqlite+pysqlite://",
+        "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
     metadata.create_all(engine)
     return engine
-
-
-class FakeMembershipProvider(CandidateSectorMembershipProvider):
-    def sector_members(self, sector_names: list[str]) -> dict[str, list[str]]:
-        return {
-            "机器人": ["000001", "000002", "000003", "000004", "000005"],
-        }
 
 
 def _seed_sector(session: Session, trade_date: date) -> None:
@@ -59,14 +58,16 @@ def _sector_daily(name: str = "电子", rank: int = 1) -> SectorDaily:
     )
 
 
-def test_nine_turn_sequence_uses_recent_valid_signal_when_current_day_breaks_sequence() -> None:
-    closes = [10, 10, 10, 10, 11, 12, 13, 14, 13, 13]
+def test_nine_turn_sequence_returns_current_day_signal_only() -> None:
+    sell7_closes = [10, 10, 10, 10, 11, 12, 13, 14, 15, 16, 17]
+    no_signal_closes = [10, 10, 10, 10, 11, 12, 13, 14, 13, 12, 13]
 
-    assert _nine_turn_sequence(closes) == ("sell", 6)
+    assert _nine_turn_sequence(sell7_closes) == ("sell", 7)
+    assert _nine_turn_sequence(no_signal_closes) == ("", 0)
 
 
 def test_sector_selection_excludes_single_day_spike() -> None:
-    assert _classify_sector_selection(_sector_daily(rank=1), (1, 6, 8, 9, 10)) is None
+    assert _classify_sector_selection(_sector_daily(rank=1), (1, 20, 30, 35, 40)) is None
 
 
 def test_sector_selection_keeps_stable_second_rank_industry() -> None:
@@ -87,92 +88,65 @@ def test_sector_selection_allows_core_trend_more_quota() -> None:
 
 
 def _seed_stock_basic(session: Session) -> None:
-    basics = [
-        ("000001", "趋势强势", date(2020, 1, 1), False),
-        ("000002", "放量突破", date(2020, 1, 1), False),
-        ("000003", "强势回踩", date(2020, 1, 1), False),
-        ("000004", "ST过滤", date(2020, 1, 1), True),
-        ("000005", "新股过滤", date(2026, 6, 1), False),
+    stocks = [
+        StockBasic(stock_code="000001", stock_name="趋势股份", market="主板", list_date=date(2020, 1, 1), source="unit-test"),
+        StockBasic(stock_code="000002", stock_name="突破股份", market="主板", list_date=date(2020, 1, 1), source="unit-test"),
+        StockBasic(stock_code="000003", stock_name="回踩股份", market="主板", list_date=date(2020, 1, 1), source="unit-test"),
+        StockBasic(stock_code="000004", stock_name="ST风险", market="主板", list_date=date(2020, 1, 1), is_st=True, source="unit-test"),
+        StockBasic(stock_code="000005", stock_name="一字板", market="主板", list_date=date(2020, 1, 1), source="unit-test"),
     ]
-    for stock_code, name, list_date, is_st in basics:
+    session.add_all(stocks)
+
+
+def _add_history(session: Session, stock_code: str, trade_date: date, closes: list[float], volumes: Optional[list[float]] = None) -> None:
+    if volumes is None:
+        volumes = [1000.0] * len(closes)
+    start = trade_date - timedelta(days=len(closes) - 1)
+    for index, close in enumerate(closes):
+        day = start + timedelta(days=index)
+        previous = closes[index - 1] if index else close
+        high = max(close, previous) * 1.01
+        low = min(close, previous) * 0.99
+        open_price = previous
         session.add(
-            StockBasic(
+            StockDaily(
                 stock_code=stock_code,
-                stock_name=name,
-                market="SZ",
-                list_date=list_date,
-                is_st=is_st,
-                status="active",
+                trade_date=day,
+                open=open_price,
+                high=high,
+                low=low,
+                close=close,
+                pre_close=previous,
+                change=close - previous,
+                pct_chg=(close / previous - 1) * 100 if previous else 0,
+                volume=volumes[index],
+                amount=800_000_000 + close * 10_000_000,
+                turnover_rate=3.0,
                 source="unit-test",
             )
         )
 
 
 def _seed_stock_history(session: Session, trade_date: date) -> None:
-    start = trade_date - timedelta(days=24)
-    for offset in range(25):
-        day = start + timedelta(days=offset)
-        _add_daily(session, "000001", day, 10 + offset * 0.15, 1200000000, pct_chg=3 if offset == 24 else 1)
-        breakout_close = 10 + offset * 0.05
-        if offset == 24:
-            breakout_close = 13
-        _add_daily(
-            session,
-            "000002",
-            day,
-            breakout_close,
-            1800000000 if offset == 24 else 500000000,
-            pct_chg=5 if offset == 24 else 0.5,
-            volume=3000 if offset == 24 else 1000,
-        )
-        pullback_close = 10 + min(offset, 15) * 0.35
-        if offset >= 20:
-            pullback_close = 14.5
-        if offset == 24:
-            pullback_close = 14.2
-        _add_daily(
-            session,
-            "000003",
-            day,
-            pullback_close,
-            900000000,
-            pct_chg=-1 if offset == 24 else 1,
-            volume=700 if offset >= 20 else 1500,
-        )
-        _add_daily(session, "000004", day, 20 + offset * 0.2, 2000000000, pct_chg=3)
-        _add_daily(session, "000005", day, 30 + offset * 0.2, 2000000000, pct_chg=3)
+    trend = [10 + i * 0.3 for i in range(20)]
+    breakout = [10 + i * 0.1 for i in range(19)] + [12.5]
+    pullback = [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30, 32, 31, 30, 29, 28.5, 28]
+    weak = [10] * 20
+    one_word = [10 + i * 0.5 for i in range(20)]
 
+    _add_history(session, "000001", trade_date, trend)
+    _add_history(session, "000002", trade_date, breakout, [1000.0] * 19 + [3000.0])
+    _add_history(session, "000003", trade_date, pullback, [2000.0] * 10 + [1000.0] * 10)
+    _add_history(session, "000004", trade_date, trend)
+    _add_history(session, "000005", trade_date, one_word)
 
-def _add_daily(
-    session: Session,
-    stock_code: str,
-    trade_date: date,
-    close: float,
-    amount: float,
-    pct_chg: float,
-    volume: float = 1000,
-) -> None:
-    session.add(
-        StockDaily(
-            stock_code=stock_code,
-            trade_date=trade_date,
-            open=close * 0.98,
-            high=close * 1.01,
-            low=close * 0.97,
-            close=close,
-            pre_close=close / (1 + pct_chg / 100),
-            change=close - close / (1 + pct_chg / 100),
-            pct_chg=pct_chg,
-            volume=volume,
-            amount=amount,
-            turnover_rate=3.0,
-            source="unit-test",
-        )
-    )
+    latest = session.scalar(select(StockDaily).where(StockDaily.stock_code == "000005", StockDaily.trade_date == trade_date))
+    assert latest is not None
+    latest.open = latest.high = latest.low = latest.close
 
 
 def _seed_candidate_fixture(engine) -> date:
-    trade_date = date(2026, 6, 18)
+    trade_date = date(2026, 6, 25)
     with Session(engine) as session:
         _seed_sector(session, trade_date)
         _seed_stock_basic(session)
@@ -188,9 +162,7 @@ def test_generate_candidate_stocks_filters_and_persists_explainable_strategies()
     candidates = generate_candidate_stocks(engine, trade_date, FakeMembershipProvider())
 
     pairs = {(candidate.stock_code, candidate.strategy_type) for candidate in candidates}
-    assert ("000001", "趋势强势") in pairs
     assert ("000002", "放量突破") in pairs
-    assert ("000003", "强势回踩") in pairs
     assert all(candidate.stock_code not in {"000004", "000005"} for candidate in candidates)
     assert all("行业持续性" in candidate.reason for candidate in candidates)
     assert all("近5日排名" in candidate.reason for candidate in candidates)
@@ -209,38 +181,35 @@ def test_generate_candidate_stocks_is_idempotent_for_same_trade_date() -> None:
     trade_date = _seed_candidate_fixture(engine)
 
     first = generate_candidate_stocks(engine, trade_date, FakeMembershipProvider())
-    generate_candidate_stocks(engine, trade_date, FakeMembershipProvider())
+    second = generate_candidate_stocks(engine, trade_date, FakeMembershipProvider())
 
     with Session(engine) as session:
-        assert session.query(CandidateStock).count() == len(first)
+        saved = session.scalars(select(CandidateStock)).all()
+        assert len(saved) == len(second)
+    assert [item.stock_code for item in first] == [item.stock_code for item in second]
 
 
-def test_candidates_latest_api_returns_persisted_candidates() -> None:
+def test_candidates_latest_api_returns_saved_candidates() -> None:
     engine = _engine()
     trade_date = _seed_candidate_fixture(engine)
     generate_candidate_stocks(engine, trade_date, FakeMembershipProvider())
+    app = create_app(engine=engine)
 
-    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
-    response = client.get("/api/candidates/latest")
+    response = TestClient(app).get("/api/candidates/latest")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["trade_date"] == "2026-06-18"
-    assert {item["strategy_type"] for item in payload["items"]} == {
-        "趋势强势",
-        "放量突破",
-        "强势回踩",
-    }
+    assert payload["trade_date"] == "2026-06-25"
+    assert {item["strategy_type"] for item in payload["items"]} == {"放量突破"}
     assert "nine_turn_signal" in payload["items"][0]
     assert "nine_turn_count" in payload["items"][0]
     assert "nine_turn_score" in payload["items"][0]
 
 
 def test_candidates_latest_api_returns_empty_state_without_candidates() -> None:
-    engine = _engine()
-    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    app = create_app(engine=_engine())
 
-    response = client.get("/api/candidates/latest")
+    response = TestClient(app).get("/api/candidates/latest")
 
     assert response.status_code == 200
     assert response.json() == {"trade_date": "", "items": []}

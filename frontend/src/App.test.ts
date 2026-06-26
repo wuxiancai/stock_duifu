@@ -399,7 +399,7 @@ describe('App', () => {
     expect(wrapper.findAll('.rank-history-rank').map((rank) => rank.text())).toEqual(['7', '2', '-', '5', '8'])
     expect(wrapper.text()).toContain('5日涨幅')
     expect(wrapper.text()).toContain('股票池')
-    expect(wrapper.text()).toContain('sell4')
+    expect(wrapper.text()).toContain('4')
     expect(wrapper.text()).toContain('展示候选股票评分排名前 10')
     expect(wrapper.text()).toContain('今日交易计划从股票池中进一步筛选生成')
     expect(wrapper.text()).toContain('今日交易计划')

@@ -325,7 +325,7 @@ function syncRoutePath() {
 
 function formatNineTurn(row: CandidateItem) {
   if (!row.nine_turn_signal || !row.nine_turn_count) return '-'
-  return `${row.nine_turn_signal}${row.nine_turn_count}`
+  return String(row.nine_turn_count)
 }
 
 function nineTurnClass(row: CandidateItem) {

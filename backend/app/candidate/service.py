@@ -38,7 +38,7 @@ class SectorSelection:
     recent_ranks: tuple[int, ...]
     average_rank: float
     top3_count: int
-    top5_count: int
+    top10_count: int
     rank_std: float
 
 
@@ -136,7 +136,7 @@ def _build_sector_selections(session: Session, trade_date: date) -> list[SectorS
         key=lambda item: (
             item.persistence_bonus,
             item.top3_count,
-            item.top5_count,
+            item.top10_count,
             -item.average_rank,
             item.sector.sector_score,
         ),
@@ -152,28 +152,24 @@ def _classify_sector_selection(sector: SectorDaily, ranks: tuple[int, ...]) -> O
     average_rank = sum(ranks) / len(ranks)
     rank_std = _rank_std(ranks, average_rank)
     top3_count = sum(1 for rank in ranks if rank <= 3)
-    top5_count = sum(1 for rank in ranks if rank <= 5)
+    top10_count = sum(1 for rank in ranks if rank <= 10)
 
-    # 单日异动：今天突然进 Top3，昨天不在极限 Top5，且近 5 日持续性不足，直接剔除。
-    if current_rank <= 3 and previous_rank is not None and previous_rank > 5 and top5_count <= 2:
+    if current_rank <= 3 and previous_rank is not None and previous_rank > 10 and top10_count <= 2:
         return None
 
-    category = ""
-    quota = 0
-    bonus = 0
     if top3_count >= 3 and average_rank <= 5 and min(ranks) == 1:
         category = "核心主升"
         quota = 4
         bonus = 10
-    elif top5_count >= 5 and average_rank <= 5 and rank_std <= 3:
+    elif top10_count >= 5 and average_rank <= 6 and rank_std <= 4:
         category = "稳定强势"
         quota = 2
         bonus = 8
-    elif current_rank <= 5 and top5_count >= 3 and average_rank <= 6:
+    elif current_rank <= 5 and top10_count >= 3 and average_rank <= 8:
         category = "强势延续"
         quota = 2
         bonus = 5
-    elif top5_count >= 3 and average_rank <= 7:
+    elif top10_count >= 3 and average_rank <= 10:
         category = "趋势观察"
         quota = 1
         bonus = 2
@@ -188,7 +184,7 @@ def _classify_sector_selection(sector: SectorDaily, ranks: tuple[int, ...]) -> O
         recent_ranks=ranks,
         average_rank=average_rank,
         top3_count=top3_count,
-        top5_count=top5_count,
+        top10_count=top10_count,
         rank_std=rank_std,
     )
 
@@ -304,7 +300,7 @@ def _strategy_candidates(
     rank_text = "/".join(str(rank) for rank in selection.recent_ranks)
     sector_note = (
         f"行业持续性：{selection.category}，近5日排名 {rank_text}，"
-        f"均值 {selection.average_rank:.1f}，极限 Top5 出现 {selection.top5_count} 天；"
+        f"均值 {selection.average_rank:.1f}，Top10 出现 {selection.top10_count} 天；"
         f"当前 {sector.sector_name} 第 {sector.rank_no} 名，行业评分 {sector.sector_score}"
     )
 
@@ -452,23 +448,21 @@ def _nine_turn_sequence(closes: list[float]) -> tuple[str, int]:
         return "", 0
     sell_count = 0
     buy_count = 0
-    recent_signal: tuple[str, int] = ("", 0)
-    recent_window_start = max(4, len(closes) - 9)
     for index in range(4, len(closes)):
         if closes[index] > closes[index - 4]:
             sell_count = min(sell_count + 1, 9)
             buy_count = 0
-            if index >= recent_window_start:
-                recent_signal = ("sell", sell_count)
         elif closes[index] < closes[index - 4]:
             buy_count = min(buy_count + 1, 9)
             sell_count = 0
-            if index >= recent_window_start:
-                recent_signal = ("buy", buy_count)
         else:
             sell_count = 0
             buy_count = 0
-    return recent_signal
+    if sell_count:
+        return "sell", sell_count
+    if buy_count:
+        return "buy", buy_count
+    return "", 0
 
 
 def _nine_turn_score(signal: str, count: int) -> int:
