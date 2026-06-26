@@ -29,6 +29,19 @@ class CandidateResult:
     risk_note: str
 
 
+@dataclass(frozen=True)
+class SectorSelection:
+    sector: SectorDaily
+    category: str
+    quota: int
+    persistence_bonus: int
+    recent_ranks: tuple[int, ...]
+    average_rank: float
+    top3_count: int
+    top10_count: int
+    rank_std: float
+
+
 class CandidateSectorMembershipProvider(Protocol):
     def sector_members(self, sector_names: list[str]) -> dict[str, list[str]]:
         ...
@@ -56,29 +69,25 @@ def calculate_candidate_stocks(
     membership_provider: CandidateSectorMembershipProvider,
     limit: int = 50,
 ) -> list[CandidateResult]:
-    sectors = session.scalars(
-        select(SectorDaily)
-        .where(SectorDaily.trade_date == trade_date)
-        .order_by(SectorDaily.rank_no)
-        .limit(10)
-    ).all()
-    if not sectors:
+    sector_selections = _build_sector_selections(session, trade_date)
+    if not sector_selections:
         return []
-    sector_by_name = {sector.sector_name: sector for sector in sectors}
+
+    sector_by_name = {selection.sector.sector_name: selection for selection in sector_selections}
     membership = membership_provider.sector_members(list(sector_by_name.keys()))
-    sector_by_stock: dict[str, SectorDaily] = {}
+    sector_by_stock: dict[str, SectorSelection] = {}
     for sector_name, codes in membership.items():
-        sector = sector_by_name.get(sector_name)
-        if sector is None:
+        selection = sector_by_name.get(sector_name)
+        if selection is None:
             continue
         for code in codes:
             normalized = _normalize_code(code)
             current = sector_by_stock.get(normalized)
-            if current is None or sector.rank_no < current.rank_no:
-                sector_by_stock[normalized] = sector
+            if current is None or selection.sector.rank_no < current.sector.rank_no:
+                sector_by_stock[normalized] = selection
 
     results: list[CandidateResult] = []
-    for stock_code, sector in sector_by_stock.items():
+    for stock_code, selection in sector_by_stock.items():
         basic = session.scalar(select(StockBasic).where(StockBasic.stock_code == stock_code))
         if basic is None or not _passes_basic_filter(session, basic, trade_date):
             continue
@@ -91,34 +100,127 @@ def calculate_candidate_stocks(
             continue
         if _is_one_word_limit_up(session, stock_code, trade_date, history[-1]):
             continue
-        results.extend(_strategy_candidates(basic, sector, history, trade_date))
+        results.extend(_strategy_candidates(basic, selection, history, trade_date))
 
     ordered = sorted(
         results,
         key=lambda item: (item.stock_score, item.sector_score, item.amount),
         reverse=True,
     )
-    return _select_diversified_candidates(ordered, limit)
+    return _select_by_industry_quota(ordered, sector_by_name, limit)
 
 
-def _select_diversified_candidates(ordered: list[CandidateResult], limit: int) -> list[CandidateResult]:
+def _build_sector_selections(session: Session, trade_date: date) -> list[SectorSelection]:
+    current_sectors = session.scalars(
+        select(SectorDaily)
+        .where(SectorDaily.trade_date == trade_date)
+        .order_by(SectorDaily.rank_no)
+        .limit(10)
+    ).all()
+
+    selections: list[SectorSelection] = []
+    for sector in current_sectors:
+        history = session.scalars(
+            select(SectorDaily)
+            .where(SectorDaily.sector_name == sector.sector_name, SectorDaily.trade_date <= trade_date)
+            .order_by(desc(SectorDaily.trade_date))
+            .limit(5)
+        ).all()
+        ranks = tuple(int(row.rank_no) for row in history)
+        selection = _classify_sector_selection(sector, ranks)
+        if selection is not None:
+            selections.append(selection)
+
+    return sorted(
+        selections,
+        key=lambda item: (
+            item.persistence_bonus,
+            item.top3_count,
+            item.top10_count,
+            -item.average_rank,
+            item.sector.sector_score,
+        ),
+        reverse=True,
+    )
+
+
+def _classify_sector_selection(sector: SectorDaily, ranks: tuple[int, ...]) -> Optional[SectorSelection]:
+    if not ranks:
+        return None
+    current_rank = ranks[0]
+    previous_rank = ranks[1] if len(ranks) > 1 else None
+    average_rank = sum(ranks) / len(ranks)
+    rank_std = _rank_std(ranks, average_rank)
+    top3_count = sum(1 for rank in ranks if rank <= 3)
+    top10_count = sum(1 for rank in ranks if rank <= 10)
+
+    # 单日异动：今天突然进 Top3，昨天不在 Top10，且近 5 日持续性不足，直接剔除。
+    if current_rank <= 3 and previous_rank is not None and previous_rank > 10 and top10_count <= 2:
+        return None
+
+    category = ""
+    quota = 0
+    bonus = 0
+    if top3_count >= 3 and average_rank <= 5 and min(ranks) == 1:
+        category = "核心主升"
+        quota = 4
+        bonus = 10
+    elif top10_count >= 5 and average_rank <= 6 and rank_std <= 4:
+        category = "稳定强势"
+        quota = 2
+        bonus = 8
+    elif current_rank <= 5 and top10_count >= 3 and average_rank <= 8:
+        category = "强势延续"
+        quota = 2
+        bonus = 5
+    elif top10_count >= 3 and average_rank <= 10:
+        category = "趋势观察"
+        quota = 1
+        bonus = 2
+    else:
+        return None
+
+    return SectorSelection(
+        sector=sector,
+        category=category,
+        quota=quota,
+        persistence_bonus=bonus,
+        recent_ranks=ranks,
+        average_rank=average_rank,
+        top3_count=top3_count,
+        top10_count=top10_count,
+        rank_std=rank_std,
+    )
+
+
+def _select_by_industry_quota(
+    ordered: list[CandidateResult],
+    selection_by_sector: dict[str, SectorSelection],
+    limit: int,
+) -> list[CandidateResult]:
     selected: list[CandidateResult] = []
     used_keys: set[tuple[str, str]] = set()
-    used_sectors: set[str] = set()
+    sector_counts: dict[str, int] = {}
 
     for item in ordered:
+        selection = selection_by_sector.get(item.sector_name)
+        if selection is None:
+            continue
         key = (item.stock_code, item.strategy_type)
-        if key in used_keys or item.sector_name in used_sectors:
+        if key in used_keys:
+            continue
+        if sector_counts.get(item.sector_name, 0) >= selection.quota:
             continue
         selected.append(item)
         used_keys.add(key)
-        used_sectors.add(item.sector_name)
+        sector_counts[item.sector_name] = sector_counts.get(item.sector_name, 0) + 1
         if len(selected) >= limit:
             return selected
 
     for item in ordered:
+        selection = selection_by_sector.get(item.sector_name)
         key = (item.stock_code, item.strategy_type)
-        if key in used_keys:
+        if selection is None or key in used_keys:
             continue
         selected.append(item)
         used_keys.add(key)
@@ -164,10 +266,11 @@ def load_latest_candidates(engine: Engine) -> Optional[tuple[date, list[Candidat
 
 def _strategy_candidates(
     basic: StockBasic,
-    sector: SectorDaily,
+    selection: SectorSelection,
     history: list[StockDaily],
     trade_date: date,
 ) -> list[CandidateResult]:
+    sector = selection.sector
     latest = history[-1]
     closes = [_number(row.close) for row in history]
     volumes = [_number(row.volume) for row in history]
@@ -198,7 +301,12 @@ def _strategy_candidates(
         "amount": amount,
     }
     candidates: list[CandidateResult] = []
-    sector_note = f"板块排名 Top 10：{sector.sector_name} 第 {sector.rank_no} 名，板块评分 {sector.sector_score}"
+    rank_text = "/".join(str(rank) for rank in selection.recent_ranks)
+    sector_note = (
+        f"行业持续性：{selection.category}，近5日排名 {rank_text}，"
+        f"均值 {selection.average_rank:.1f}，Top10 出现 {selection.top10_count} 天；"
+        f"当前 {sector.sector_name} 第 {sector.rank_no} 名，行业评分 {sector.sector_score}"
+    )
 
     if (
         last_close > ma5 > ma10 > ma20
@@ -211,7 +319,11 @@ def _strategy_candidates(
             CandidateResult(
                 **common,
                 strategy_type="趋势强势",
-                stock_score=_score_with_nine_turn(70 + min(twenty_day_return, 30) + min(five_day_return, 10), nine_turn_score),
+                stock_score=_score_with_modifiers(
+                    70 + min(twenty_day_return, 30) + min(five_day_return, 10),
+                    selection.persistence_bonus,
+                    nine_turn_score,
+                ),
                 reason=(
                     f"{sector_note}；收盘价站上 MA5/MA10/MA20 且均线多头；"
                     f"20 日涨幅 {twenty_day_return:.2f}%、5 日涨幅 {five_day_return:.2f}%；"
@@ -231,7 +343,11 @@ def _strategy_candidates(
             CandidateResult(
                 **common,
                 strategy_type="放量突破",
-                stock_score=_score_with_nine_turn(72 + min(volume_ratio * 8, 20) + min(_number(latest.pct_chg), 8), nine_turn_score),
+                stock_score=_score_with_modifiers(
+                    72 + min(volume_ratio * 8, 20) + min(_number(latest.pct_chg), 8),
+                    selection.persistence_bonus,
+                    nine_turn_score,
+                ),
                 reason=(
                     f"{sector_note}；收盘价突破近 20 日高点 {previous_20_high:.2f}；"
                     f"量能为 5 日均量 {volume_ratio:.2f} 倍；当日涨幅 {_number(latest.pct_chg):.2f}%"
@@ -254,7 +370,11 @@ def _strategy_candidates(
             CandidateResult(
                 **common,
                 strategy_type="强势回踩",
-                stock_score=_score_with_nine_turn(68 + min(twenty_day_return, 30) + max(0, 10 - pullback_near_ma * 100), nine_turn_score),
+                stock_score=_score_with_modifiers(
+                    68 + min(twenty_day_return, 30) + max(0, 10 - pullback_near_ma * 100),
+                    selection.persistence_bonus,
+                    nine_turn_score,
+                ),
                 reason=(
                     f"{sector_note}；20 日涨幅 {twenty_day_return:.2f}% 后回踩 MA10/MA20 附近；"
                     f"当前仍在 MA20 上方；近 5 日成交量较前 5 日缩小"
@@ -313,12 +433,18 @@ def _ma(values: list[float], window: int) -> float:
     return sum(values[-window:]) / window
 
 
+def _rank_std(ranks: tuple[int, ...], average_rank: float) -> float:
+    if len(ranks) <= 1:
+        return 0.0
+    return (sum((rank - average_rank) ** 2 for rank in ranks) / len(ranks)) ** 0.5
+
+
 def _score(value: float) -> int:
     return max(0, min(100, int(round(value))))
 
 
-def _score_with_nine_turn(value: float, nine_turn_score: int) -> int:
-    return max(0, min(120, _score(value) + nine_turn_score))
+def _score_with_modifiers(value: float, persistence_bonus: int, nine_turn_score: int) -> int:
+    return max(0, min(120, _score(value) + persistence_bonus + nine_turn_score))
 
 
 def _nine_turn_sequence(closes: list[float]) -> tuple[str, int]:

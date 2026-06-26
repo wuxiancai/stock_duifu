@@ -140,13 +140,7 @@ const filteredCandidates = computed(() => {
 })
 
 const stockPoolTop10 = computed(() => {
-  return [...(candidates.value?.items ?? [])]
-    .sort((left, right) => {
-      if (right.stock_score !== left.stock_score) return right.stock_score - left.stock_score
-      if (right.sector_score !== left.sector_score) return right.sector_score - left.sector_score
-      return left.sector_rank - right.sector_rank || right.amount - left.amount
-    })
-    .slice(0, 10)
+  return (candidates.value?.items ?? []).slice(0, 10)
 })
 
 const sectorTradePlans = computed(() => {

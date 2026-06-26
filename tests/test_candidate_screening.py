@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from backend.app.candidate.service import CandidateSectorMembershipProvider, generate_candidate_stocks
+from backend.app.candidate.service import CandidateSectorMembershipProvider, _classify_sector_selection, generate_candidate_stocks
 from backend.app.db.models import CandidateStock, SectorDaily, StockBasic, StockDaily, metadata
 from backend.app.main import create_app
 
@@ -28,19 +28,56 @@ class FakeMembershipProvider(CandidateSectorMembershipProvider):
 
 
 def _seed_sector(session: Session, trade_date: date) -> None:
-    session.add(
-        SectorDaily(
-            trade_date=trade_date,
-            sector_name="机器人",
-            rank_no=1,
-            daily_return=5.5,
-            five_day_return=8.0,
-            amount_change=30.0,
-            limit_up_count=3,
-            strong_stock_count=10,
-            sector_score=100,
+    ranks = [5, 4, 3, 2, 1]
+    for index, rank in enumerate(ranks):
+        session.add(
+            SectorDaily(
+                trade_date=trade_date - timedelta(days=4 - index),
+                sector_name="机器人",
+                rank_no=rank,
+                daily_return=5.5,
+                five_day_return=8.0,
+                amount_change=30.0,
+                limit_up_count=3,
+                strong_stock_count=10,
+                sector_score=100,
+            )
         )
+
+
+def _sector_daily(name: str = "电子", rank: int = 1) -> SectorDaily:
+    return SectorDaily(
+        trade_date=date(2026, 6, 25),
+        sector_name=name,
+        rank_no=rank,
+        daily_return=1.0,
+        five_day_return=5.0,
+        amount_change=1.0,
+        limit_up_count=1,
+        strong_stock_count=10,
+        sector_score=90,
     )
+
+
+def test_sector_selection_excludes_single_day_spike() -> None:
+    assert _classify_sector_selection(_sector_daily(rank=1), (1, 20, 30, 35, 40)) is None
+
+
+def test_sector_selection_keeps_stable_second_rank_industry() -> None:
+    selection = _classify_sector_selection(_sector_daily(rank=2), (2, 2, 2, 2, 2))
+
+    assert selection is not None
+    assert selection.category == "稳定强势"
+    assert selection.quota == 2
+    assert selection.persistence_bonus == 8
+
+
+def test_sector_selection_allows_core_trend_more_quota() -> None:
+    selection = _classify_sector_selection(_sector_daily(rank=1), (1, 1, 3, 2, 4))
+
+    assert selection is not None
+    assert selection.category == "核心主升"
+    assert selection.quota == 4
 
 
 def _seed_stock_basic(session: Session) -> None:
@@ -149,7 +186,8 @@ def test_generate_candidate_stocks_filters_and_persists_explainable_strategies()
     assert ("000002", "放量突破") in pairs
     assert ("000003", "强势回踩") in pairs
     assert all(candidate.stock_code not in {"000004", "000005"} for candidate in candidates)
-    assert all("板块排名 Top 10" in candidate.reason for candidate in candidates)
+    assert all("行业持续性" in candidate.reason for candidate in candidates)
+    assert all("近5日排名" in candidate.reason for candidate in candidates)
     assert all(candidate.nine_turn_signal in {"", "buy", "sell"} for candidate in candidates)
 
     with Session(engine) as session:
