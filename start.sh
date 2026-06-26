@@ -458,6 +458,7 @@ select
   (select count(*) from market_daily where trade_date = (select trade_date from latest_open)) as market_rows,
   (select count(*) from sector_daily where trade_date = (select trade_date from latest_open)) as sector_rows,
   (select count(*) from candidate_stock where trade_date = (select trade_date from latest_open)) as candidate_rows,
+  (select count(*) from candidate_stock where trade_date = (select trade_date from latest_open) and reason like '%行业持续性%') as current_candidate_rows,
   (select count(*) from trade_plan where plan_date = (select trade_date from latest_open)) as plan_rows,
   (select count(*) from data_job_run where trade_date = (select trade_date from latest_open) and status in ('success','warning')) as data_jobs;
 " 2>/dev/null || true
@@ -465,25 +466,25 @@ select
 
 latest_open_data_is_complete() {
   local status_line="$1"
-  local latest_open stock_daily_rows market_rows sector_rows candidate_rows plan_rows data_jobs
+  local latest_open stock_daily_rows market_rows sector_rows candidate_rows current_candidate_rows plan_rows data_jobs
   if [ -z "$status_line" ]; then
     return 1
   fi
-  IFS='|' read -r latest_open stock_daily_rows market_rows sector_rows candidate_rows plan_rows data_jobs <<<"$status_line"
+  IFS='|' read -r latest_open stock_daily_rows market_rows sector_rows candidate_rows current_candidate_rows plan_rows data_jobs <<<"$status_line"
   if [ -z "$latest_open" ]; then
     return 1
   fi
-  [ "$stock_daily_rows" -gt 0 ] && [ "$market_rows" -gt 0 ] && [ "$sector_rows" -gt 0 ] && [ "$candidate_rows" -gt 0 ] && [ "$plan_rows" -gt 0 ] && [ "$data_jobs" -gt 0 ]
+  [ "$stock_daily_rows" -gt 0 ] && [ "$market_rows" -gt 0 ] && [ "$sector_rows" -gt 0 ] && [ "$candidate_rows" -gt 0 ] && [ "$current_candidate_rows" -gt 0 ] && [ "$plan_rows" -gt 0 ] && [ "$data_jobs" -gt 0 ]
 }
 
 print_latest_open_data_status() {
   local status_line="$1"
-  local latest_open stock_daily_rows market_rows sector_rows candidate_rows plan_rows data_jobs
+  local latest_open stock_daily_rows market_rows sector_rows candidate_rows current_candidate_rows plan_rows data_jobs
   if [ -z "$status_line" ]; then
     warn "暂时无法读取最新开市日数据状态。"
     return 0
   fi
-  IFS='|' read -r latest_open stock_daily_rows market_rows sector_rows candidate_rows plan_rows data_jobs <<<"$status_line"
+  IFS='|' read -r latest_open stock_daily_rows market_rows sector_rows candidate_rows current_candidate_rows plan_rows data_jobs <<<"$status_line"
   cat <<EOF
 [stock-start] 最新开市日数据状态：
   最新开市日=${latest_open:-无}
@@ -491,6 +492,7 @@ print_latest_open_data_status() {
   市场环境行数=$market_rows
   强势行业行数=$sector_rows
   候选股票行数=$candidate_rows
+  新口径候选行数=$current_candidate_rows
   交易计划行数=$plan_rows
   成功/警告拉数任务数=$data_jobs
 EOF
