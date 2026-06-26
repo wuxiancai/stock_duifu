@@ -381,10 +381,12 @@ function formatTime(value: string | null | undefined) {
 function formatDateTime(value: string | null | undefined) {
   if (!value) return '-'
   return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
     hour12: false
   }).format(new Date(value))
 }
@@ -1132,7 +1134,7 @@ onBeforeUnmount(() => {
             </template>
           </el-table-column>
           <el-table-column label="触发时间" min-width="160" prop="trigger_time">
-            <template #default="{ row }: { row: TradePlanItem }">{{ row.trigger_time ?? '-' }}</template>
+            <template #default="{ row }: { row: TradePlanItem }">{{ formatDateTime(row.trigger_time) }}</template>
           </el-table-column>
           <el-table-column label="触发价" min-width="100" sortable prop="trigger_price">
             <template #default="{ row }: { row: TradePlanItem }">{{ formatPrice(row.trigger_price) }}</template>
@@ -1244,7 +1246,7 @@ onBeforeUnmount(() => {
                 <span :class="polarityClass(row.unrealized_return)">{{ formatReturn(row.unrealized_return) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="止损/止盈" min-width="130">
+            <el-table-column label="止损/第一止盈" min-width="150">
               <template #default="{ row }: { row: SimulationPosition }">
                 {{ formatPrice(row.stop_loss_price) }} / {{ formatPrice(row.take_profit_price) }}
               </template>
