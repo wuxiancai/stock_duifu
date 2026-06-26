@@ -144,7 +144,7 @@ const stockPoolTop10 = computed(() => {
     .sort((left, right) => {
       if (right.stock_score !== left.stock_score) return right.stock_score - left.stock_score
       if (right.sector_score !== left.sector_score) return right.sector_score - left.sector_score
-      return left.sector_rank - right.sector_rank
+      return left.sector_rank - right.sector_rank || right.amount - left.amount
     })
     .slice(0, 10)
 })
@@ -327,6 +327,18 @@ function navigateToDashboardSection(sectionId = 'sectors') {
 
 function syncRoutePath() {
   routePath.value = window.location.pathname
+}
+
+function formatNineTurn(row: CandidateItem) {
+  if (!row.nine_turn_signal || !row.nine_turn_count) return '-'
+  return `${row.nine_turn_signal}${row.nine_turn_count}`
+}
+
+function nineTurnClass(row: CandidateItem) {
+  return {
+    'nine-turn-sell': row.nine_turn_signal === 'sell',
+    'nine-turn-buy': row.nine_turn_signal === 'buy'
+  }
 }
 
 function scrollToTop() {
@@ -698,6 +710,10 @@ onBeforeUnmount(() => {
           <el-icon><TrendCharts /></el-icon>
           <span>强势行业</span>
         </a>
+        <a class="nav-item" href="#stock-pool">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>股票池</span>
+        </a>
         <a class="nav-item" href="#plans">
           <el-icon><Finished /></el-icon>
           <span>交易计划</span>
@@ -985,33 +1001,38 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <el-table :data="stockPoolTop10" border stripe empty-text="暂无股票池数据">
-          <el-table-column label="排名" width="86" align="center">
+        <el-table :data="stockPoolTop10" border stripe empty-text="暂无股票池数据" class="stock-pool-table">
+          <el-table-column label="排名" width="62" align="center">
             <template #default="{ $index }">{{ $index + 1 }}</template>
           </el-table-column>
-          <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+          <el-table-column label="股票" min-width="116" sortable prop="stock_name">
             <template #default="{ row }: { row: CandidateItem }">
               <strong>{{ row.stock_name }}</strong>
               <small class="muted-code">{{ row.stock_code }}</small>
             </template>
           </el-table-column>
-          <el-table-column prop="sector_name" label="行业" min-width="120" sortable>
+          <el-table-column prop="sector_name" label="行业" min-width="88" sortable>
             <template #default="{ row }: { row: CandidateItem }">
               <el-button link type="primary" @click="navigateToSector(row.sector_name)">{{ row.sector_name }}</el-button>
             </template>
           </el-table-column>
-          <el-table-column prop="sector_rank" label="行业排名" min-width="110" sortable />
-          <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
-          <el-table-column label="评分" min-width="110" sortable prop="stock_score">
+          <el-table-column prop="sector_rank" label="行业排名" width="88" sortable />
+          <el-table-column prop="strategy_type" label="策略" min-width="92" sortable />
+          <el-table-column label="九转" width="76" sortable prop="nine_turn_count">
+            <template #default="{ row }: { row: CandidateItem }">
+              <span :class="nineTurnClass(row)">{{ formatNineTurn(row) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="评分" width="92" sortable prop="stock_score">
             <template #default="{ row }: { row: CandidateItem }">{{ row.stock_score }} / {{ row.sector_score }}</template>
           </el-table-column>
-          <el-table-column label="收盘价" min-width="110" sortable prop="close_price">
+          <el-table-column label="收盘" width="82" sortable prop="close_price">
             <template #default="{ row }: { row: CandidateItem }">{{ formatPrice(row.close_price) }}</template>
           </el-table-column>
-          <el-table-column label="成交额" min-width="130" sortable prop="amount">
+          <el-table-column label="成交额" width="96" sortable prop="amount">
             <template #default="{ row }: { row: CandidateItem }">{{ formatLargeAmount(row.amount) }}</template>
           </el-table-column>
-          <el-table-column prop="reason" label="入选理由" min-width="300" show-overflow-tooltip />
+          <el-table-column prop="reason" label="入选理由" min-width="150" show-overflow-tooltip />
         </el-table>
       </section>
 

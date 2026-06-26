@@ -20,6 +20,9 @@ class CandidateResult:
     strategy_type: str
     stock_score: int
     sector_score: int
+    nine_turn_signal: str
+    nine_turn_count: int
+    nine_turn_score: int
     close_price: float
     amount: float
     reason: str
@@ -90,11 +93,38 @@ def calculate_candidate_stocks(
             continue
         results.extend(_strategy_candidates(basic, sector, history, trade_date))
 
-    return sorted(
+    ordered = sorted(
         results,
         key=lambda item: (item.stock_score, item.sector_score, item.amount),
         reverse=True,
-    )[:limit]
+    )
+    return _select_diversified_candidates(ordered, limit)
+
+
+def _select_diversified_candidates(ordered: list[CandidateResult], limit: int) -> list[CandidateResult]:
+    selected: list[CandidateResult] = []
+    used_keys: set[tuple[str, str]] = set()
+    used_sectors: set[str] = set()
+
+    for item in ordered:
+        key = (item.stock_code, item.strategy_type)
+        if key in used_keys or item.sector_name in used_sectors:
+            continue
+        selected.append(item)
+        used_keys.add(key)
+        used_sectors.add(item.sector_name)
+        if len(selected) >= limit:
+            return selected
+
+    for item in ordered:
+        key = (item.stock_code, item.strategy_type)
+        if key in used_keys:
+            continue
+        selected.append(item)
+        used_keys.add(key)
+        if len(selected) >= limit:
+            break
+    return selected
 
 
 def load_latest_candidates(engine: Engine) -> Optional[tuple[date, list[CandidateResult]]]:
@@ -119,6 +149,9 @@ def load_latest_candidates(engine: Engine) -> Optional[tuple[date, list[Candidat
                     strategy_type=record.strategy_type,
                     stock_score=record.stock_score,
                     sector_score=record.sector_score,
+                    nine_turn_signal=record.nine_turn_signal,
+                    nine_turn_count=record.nine_turn_count,
+                    nine_turn_score=record.nine_turn_score,
                     close_price=_number(record.close_price),
                     amount=_number(record.amount),
                     reason=record.reason,
@@ -143,6 +176,8 @@ def _strategy_candidates(
     ma20 = _ma(closes, 20)
     last_close = closes[-1]
     amount = _number(latest.amount)
+    nine_turn_signal, nine_turn_count = _nine_turn_sequence(closes)
+    nine_turn_score = _nine_turn_score(nine_turn_signal, nine_turn_count)
     twenty_day_return = (last_close / closes[-20] - 1) * 100 if closes[-20] else 0.0
     five_day_return = (last_close / closes[-5] - 1) * 100 if closes[-5] else 0.0
     previous_20_high = max(closes[-20:-1])
@@ -156,6 +191,9 @@ def _strategy_candidates(
         "sector_name": sector.sector_name,
         "sector_rank": sector.rank_no,
         "sector_score": sector.sector_score,
+        "nine_turn_signal": nine_turn_signal,
+        "nine_turn_count": nine_turn_count,
+        "nine_turn_score": nine_turn_score,
         "close_price": last_close,
         "amount": amount,
     }
@@ -173,7 +211,7 @@ def _strategy_candidates(
             CandidateResult(
                 **common,
                 strategy_type="趋势强势",
-                stock_score=_score(70 + min(twenty_day_return, 30) + min(five_day_return, 10)),
+                stock_score=_score_with_nine_turn(70 + min(twenty_day_return, 30) + min(five_day_return, 10), nine_turn_score),
                 reason=(
                     f"{sector_note}；收盘价站上 MA5/MA10/MA20 且均线多头；"
                     f"20 日涨幅 {twenty_day_return:.2f}%、5 日涨幅 {five_day_return:.2f}%；"
@@ -193,7 +231,7 @@ def _strategy_candidates(
             CandidateResult(
                 **common,
                 strategy_type="放量突破",
-                stock_score=_score(72 + min(volume_ratio * 8, 20) + min(_number(latest.pct_chg), 8)),
+                stock_score=_score_with_nine_turn(72 + min(volume_ratio * 8, 20) + min(_number(latest.pct_chg), 8), nine_turn_score),
                 reason=(
                     f"{sector_note}；收盘价突破近 20 日高点 {previous_20_high:.2f}；"
                     f"量能为 5 日均量 {volume_ratio:.2f} 倍；当日涨幅 {_number(latest.pct_chg):.2f}%"
@@ -216,7 +254,7 @@ def _strategy_candidates(
             CandidateResult(
                 **common,
                 strategy_type="强势回踩",
-                stock_score=_score(68 + min(twenty_day_return, 30) + max(0, 10 - pullback_near_ma * 100)),
+                stock_score=_score_with_nine_turn(68 + min(twenty_day_return, 30) + max(0, 10 - pullback_near_ma * 100), nine_turn_score),
                 reason=(
                     f"{sector_note}；20 日涨幅 {twenty_day_return:.2f}% 后回踩 MA10/MA20 附近；"
                     f"当前仍在 MA20 上方；近 5 日成交量较前 5 日缩小"
@@ -277,6 +315,46 @@ def _ma(values: list[float], window: int) -> float:
 
 def _score(value: float) -> int:
     return max(0, min(100, int(round(value))))
+
+
+def _score_with_nine_turn(value: float, nine_turn_score: int) -> int:
+    return max(0, min(120, _score(value) + nine_turn_score))
+
+
+def _nine_turn_sequence(closes: list[float]) -> tuple[str, int]:
+    if len(closes) < 5:
+        return "", 0
+    sell_count = 0
+    buy_count = 0
+    for index in range(4, len(closes)):
+        if closes[index] > closes[index - 4]:
+            sell_count = min(sell_count + 1, 9)
+            buy_count = 0
+        elif closes[index] < closes[index - 4]:
+            buy_count = min(buy_count + 1, 9)
+            sell_count = 0
+        else:
+            sell_count = 0
+            buy_count = 0
+    if sell_count:
+        return "sell", sell_count
+    if buy_count:
+        return "buy", buy_count
+    return "", 0
+
+
+def _nine_turn_score(signal: str, count: int) -> int:
+    if signal == "sell" and 1 <= count <= 3:
+        return 2
+    if signal == "sell" and 4 <= count <= 6:
+        return 4
+    if signal == "sell" and 7 <= count <= 9:
+        return 2
+    if signal == "buy" and 1 <= count <= 8:
+        return -4
+    if signal == "buy" and count == 9:
+        return 1
+    return 0
 
 
 def _number(value) -> float:

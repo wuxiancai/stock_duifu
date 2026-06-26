@@ -461,6 +461,23 @@ textarea {
   word-break: break-word;
 }
 
+.stock-pool-table .cell {
+  padding-left: 8px;
+  padding-right: 8px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.nine-turn-sell {
+  color: #d0302f;
+  font-weight: 700;
+}
+
+.nine-turn-buy {
+  color: #168a4a;
+  font-weight: 700;
+}
+
 @media (max-width: 1100px) {
   .metric-grid,
   .decision-grid,

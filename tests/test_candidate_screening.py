@@ -150,6 +150,7 @@ def test_generate_candidate_stocks_filters_and_persists_explainable_strategies()
     assert ("000003", "强势回踩") in pairs
     assert all(candidate.stock_code not in {"000004", "000005"} for candidate in candidates)
     assert all("板块排名 Top 10" in candidate.reason for candidate in candidates)
+    assert all(candidate.nine_turn_signal in {"", "buy", "sell"} for candidate in candidates)
 
     with Session(engine) as session:
         saved = session.scalars(select(CandidateStock).order_by(CandidateStock.stock_code)).all()
@@ -185,6 +186,9 @@ def test_candidates_latest_api_returns_persisted_candidates() -> None:
         "放量突破",
         "强势回踩",
     }
+    assert "nine_turn_signal" in payload["items"][0]
+    assert "nine_turn_count" in payload["items"][0]
+    assert "nine_turn_score" in payload["items"][0]
 
 
 def test_candidates_latest_api_returns_empty_state_without_candidates() -> None:

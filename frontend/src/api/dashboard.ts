@@ -98,6 +98,9 @@ export interface CandidateItem {
   strategy_type: string
   stock_score: number
   sector_score: number
+  nine_turn_signal: string
+  nine_turn_count: number
+  nine_turn_score: number
   close_price: number
   amount: number
   reason: string
