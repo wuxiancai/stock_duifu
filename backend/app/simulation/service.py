@@ -331,8 +331,8 @@ def _buy_triggered_plans(session: Session, account: SimulationAccount, trade_dat
         if _number(daily.open) > _number(plan.buy_price_high) * 1.03 and _number(daily.low) > _number(plan.buy_price_high):
             messages.append(f"{plan.stock_code} 目标交易日高开超过计划买入上限 3%，且盘中未回落触达买入区间，取消模拟买入")
             continue
-        if _number(daily.open) < _number(plan.stop_loss_price) or _number(daily.low) < _number(plan.stop_loss_price):
-            messages.append(f"{plan.stock_code} 目标交易日低开或盘中跌破止损价，取消模拟买入")
+        if _number(daily.close) < _number(plan.stop_loss_price) and _number(daily.high) < _number(plan.buy_price_low):
+            messages.append(f"{plan.stock_code} 当前/收盘仍低于计划止损价且未重新触达买入区间，取消模拟买入")
             continue
 
         price = round(_number(plan.trigger_price), 4)

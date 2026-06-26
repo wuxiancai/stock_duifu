@@ -691,8 +691,8 @@ def _evaluate_plan_tracking(
     touched_buy_range = low <= buy_high and high >= buy_low
     if open_price > buy_high * 1.03 and not touched_buy_range:
         return "取消", None, "目标交易日高开超过计划买入上限 3%，且盘中未回落触达买入区间，按纪律取消追高"
-    if open_price < stop_loss or low < stop_loss:
-        return "取消", None, "目标交易日跌破计划止损价，按纪律取消计划"
+    if close < stop_loss and not touched_buy_range:
+        return "取消", None, "目标交易日当前/收盘仍低于计划止损价，且未重新触达买入区间，按纪律取消计划"
     if touched_buy_range:
         trigger_price = round(min(max(open_price, buy_low), buy_high), 4)
         return "已触发", trigger_price, "目标交易日价格触达计划买入区间"
