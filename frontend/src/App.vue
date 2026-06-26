@@ -139,6 +139,16 @@ const filteredCandidates = computed(() => {
   return items.filter((item) => item.sector_name === sectorName)
 })
 
+const stockPoolTop10 = computed(() => {
+  return [...(candidates.value?.items ?? [])]
+    .sort((left, right) => {
+      if (right.stock_score !== left.stock_score) return right.stock_score - left.stock_score
+      if (right.sector_score !== left.sector_score) return right.sector_score - left.sector_score
+      return left.sector_rank - right.sector_rank
+    })
+    .slice(0, 10)
+})
+
 const sectorTradePlans = computed(() => {
   const sectorName = selectedSectorName.value.trim()
   if (!sectorName) return []
@@ -961,6 +971,47 @@ onBeforeUnmount(() => {
           <el-table-column prop="limit_up_count" label="涨停" min-width="90" sortable />
           <el-table-column prop="strong_stock_count" label="强势股" min-width="100" sortable />
           <el-table-column prop="sector_score" label="评分" min-width="90" sortable />
+        </el-table>
+      </section>
+
+      <section id="stock-pool" class="panel stock-pool-panel">
+        <div class="section-heading table-heading">
+          <div>
+            <h2>股票池</h2>
+            <p>交易日：{{ candidates?.trade_date ?? '-' }}，展示候选股票评分排名前 10；今日交易计划从股票池中进一步筛选生成。</p>
+          </div>
+          <div class="table-tools">
+            <el-button :icon="Download" :disabled="!stockPoolTop10.length" @click="exportCandidates">导出候选</el-button>
+          </div>
+        </div>
+
+        <el-table :data="stockPoolTop10" border stripe empty-text="暂无股票池数据">
+          <el-table-column label="排名" width="86" align="center">
+            <template #default="{ $index }">{{ $index + 1 }}</template>
+          </el-table-column>
+          <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+            <template #default="{ row }: { row: CandidateItem }">
+              <strong>{{ row.stock_name }}</strong>
+              <small class="muted-code">{{ row.stock_code }}</small>
+            </template>
+          </el-table-column>
+          <el-table-column prop="sector_name" label="行业" min-width="120" sortable>
+            <template #default="{ row }: { row: CandidateItem }">
+              <el-button link type="primary" @click="navigateToSector(row.sector_name)">{{ row.sector_name }}</el-button>
+            </template>
+          </el-table-column>
+          <el-table-column prop="sector_rank" label="行业排名" min-width="110" sortable />
+          <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
+          <el-table-column label="评分" min-width="110" sortable prop="stock_score">
+            <template #default="{ row }: { row: CandidateItem }">{{ row.stock_score }} / {{ row.sector_score }}</template>
+          </el-table-column>
+          <el-table-column label="收盘价" min-width="110" sortable prop="close_price">
+            <template #default="{ row }: { row: CandidateItem }">{{ formatPrice(row.close_price) }}</template>
+          </el-table-column>
+          <el-table-column label="成交额" min-width="130" sortable prop="amount">
+            <template #default="{ row }: { row: CandidateItem }">{{ formatLargeAmount(row.amount) }}</template>
+          </el-table-column>
+          <el-table-column prop="reason" label="入选理由" min-width="300" show-overflow-tooltip />
         </el-table>
       </section>
 
