@@ -44,6 +44,21 @@ export interface MarketHistoryResponse {
   items: MarketLatestResponse[]
 }
 
+export interface IndexTickerItem {
+  name: string
+  index_code: string
+  trade_date: string
+  close: number | null
+  change: number | null
+  pct_chg: number | null
+  amount: number | null
+  available: boolean
+}
+
+export interface IndexTickerResponse {
+  items: IndexTickerItem[]
+}
+
 export interface SectorTopItem {
   rank_no: number
   sector_name: string
@@ -347,6 +362,10 @@ export function fetchMarketLatest(): Promise<MarketLatestResponse> {
 
 export function fetchMarketHistory(): Promise<MarketHistoryResponse> {
   return fetchJson<MarketHistoryResponse>('/api/market/history')
+}
+
+export function fetchIndexTicker(): Promise<IndexTickerResponse> {
+  return fetchJson<IndexTickerResponse>('/api/market/index-ticker')
 }
 
 export function fetchTopSectors(): Promise<SectorTopResponse> {

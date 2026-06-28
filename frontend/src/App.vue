@@ -18,6 +18,7 @@ import {
   fetchLatestTradePlans,
   fetchLatestTradeReviews,
   fetchDatabaseHealth,
+  fetchIndexTicker,
   fetchMarketHistory,
   fetchTradePlanDetail,
   fetchTopSectors,
@@ -31,6 +32,7 @@ import {
   type DataRunsLatestResponse,
   type DatabaseHealthItem,
   type DatabaseHealthResponse,
+  type IndexTickerResponse,
   type MarketLatestResponse,
   type SectorTopItem,
   type SectorTopResponse,
@@ -50,6 +52,7 @@ import {
 const health = ref<HealthResponse | null>(null)
 const marketHistory = ref<MarketLatestResponse[]>([])
 const market = computed(() => marketHistory.value[0] ?? null)
+const indexTicker = ref<IndexTickerResponse | null>(null)
 const sectors = ref<SectorTopResponse | null>(null)
 const candidates = ref<CandidateLatestResponse | null>(null)
 const tradePlans = ref<TradePlansLatestResponse | null>(null)
@@ -238,9 +241,10 @@ async function loadDashboard() {
   error.value = ''
 
   try {
-    const [healthResult, marketHistoryResult, sectorsResult, candidatesResult, initialTradePlansResult, tradeReviewsResult, dataRunsResult, databaseHealthResult] = await Promise.all([
+    const [healthResult, marketHistoryResult, indexTickerResult, sectorsResult, candidatesResult, initialTradePlansResult, tradeReviewsResult, dataRunsResult, databaseHealthResult] = await Promise.all([
       fetchHealth(),
       fetchMarketHistory(),
+      fetchIndexTicker().catch(() => ({ items: [] })),
       fetchTopSectors(),
       fetchLatestCandidates().catch(() => null),
       fetchLatestTradePlans(),
@@ -267,6 +271,7 @@ async function loadDashboard() {
 
     health.value = healthResult
     marketHistory.value = marketHistoryResult.items
+    indexTicker.value = indexTickerResult
     sectors.value = sectorsResult
     candidates.value = candidatesResult
     tradePlans.value = tradePlansResult
@@ -394,9 +399,28 @@ function formatPrice(value: number | null | undefined) {
   return value.toFixed(2)
 }
 
+function formatSignedPrice(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '--'
+  const prefix = value > 0 ? '+' : ''
+  return `${prefix}${value.toFixed(2)}`
+}
+
+function formatSignedPercent(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '--'
+  const prefix = value > 0 ? '+' : ''
+  return `${prefix}${value.toFixed(2)}%`
+}
+
 function formatMoney(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return '-'
   return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatIndexAmount(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '--'
+  if (Math.abs(value) >= 1000000000000) return `${(value / 1000000000000).toFixed(2)} 万亿`
+  if (Math.abs(value) >= 100000000) return `${(value / 100000000).toFixed(2)} 亿`
+  return value.toLocaleString('zh-CN')
 }
 
 function formatTime(value: string | null | undefined) {
@@ -754,6 +778,20 @@ onBeforeUnmount(() => {
         <div>
           <h1>A股短线决策工作台</h1>
           <p>盘后查看市场环境、强势行业和次日条件交易计划。</p>
+        </div>
+        <div class="index-ticker-strip" aria-label="主要指数行情">
+          <span
+            v-for="item in indexTicker?.items ?? []"
+            :key="item.name"
+            class="index-ticker-item"
+            :class="polarityClass(item.pct_chg)"
+          >
+            <strong>{{ item.name }}</strong>
+            <span>{{ item.close === null ? '--' : formatPrice(item.close) }}</span>
+            <span>{{ formatSignedPrice(item.change) }}</span>
+            <span>{{ formatSignedPercent(item.pct_chg) }}</span>
+            <span>{{ formatIndexAmount(item.amount) }}</span>
+          </span>
         </div>
         <div class="toolbar-actions">
           <el-tag :type="statusType" size="large">

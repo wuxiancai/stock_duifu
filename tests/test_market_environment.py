@@ -235,6 +235,81 @@ def test_market_latest_api_returns_empty_state_without_generated_environment() -
     assert "暂无市场建议" in payload["suggestion"]
 
 
+def test_market_index_ticker_api_returns_configured_indices_with_latest_quotes() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        session.add_all(
+            [
+                IndexDaily(
+                    index_code="000001.SH",
+                    trade_date=date(2026, 6, 17),
+                    open=2990,
+                    high=3010,
+                    low=2980,
+                    close=3000,
+                    volume=1000,
+                    amount=9000000000,
+                    source="unit-test",
+                ),
+                IndexDaily(
+                    index_code="000001.SH",
+                    trade_date=date(2026, 6, 18),
+                    open=3001,
+                    high=3030,
+                    low=2995,
+                    close=3020,
+                    volume=1200,
+                    amount=10000000000,
+                    source="unit-test",
+                ),
+                IndexDaily(
+                    index_code="399001.SZ",
+                    trade_date=date(2026, 6, 18),
+                    open=10010,
+                    high=10100,
+                    low=9980,
+                    close=10000,
+                    volume=2000,
+                    amount=21000000000,
+                    source="unit-test",
+                ),
+            ]
+        )
+        session.commit()
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.get("/api/market/index-ticker")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["name"] for item in payload["items"]] == [
+        "沪指",
+        "深指",
+        "创指",
+        "科创",
+        "沪深300",
+        "深证100",
+        "恒生",
+        "纳斯达克",
+        "标普",
+        "道琼斯",
+    ]
+    assert payload["items"][0] == {
+        "name": "沪指",
+        "index_code": "000001.SH",
+        "trade_date": "2026-06-18",
+        "close": 3020.0,
+        "change": 20.0,
+        "pct_chg": 0.6667,
+        "amount": 10000000000.0,
+        "available": True,
+    }
+    assert payload["items"][1]["available"] is True
+    assert payload["items"][1]["change"] is None
+    assert payload["items"][6]["name"] == "恒生"
+    assert payload["items"][6]["available"] is False
+
+
 def test_prd_market_today_api_returns_latest_environment() -> None:
     engine = _engine()
     trade_date = date(2026, 6, 18)

@@ -29,6 +29,32 @@ class MarketEnvironmentResult:
     suggestion: str
 
 
+@dataclass(frozen=True)
+class IndexTickerItem:
+    name: str
+    index_code: str
+    trade_date: Optional[date]
+    close: Optional[float]
+    change: Optional[float]
+    pct_chg: Optional[float]
+    amount: Optional[float]
+    available: bool
+
+
+INDEX_TICKER_ITEMS: tuple[tuple[str, str], ...] = (
+    ("沪指", "000001.SH"),
+    ("深指", "399001.SZ"),
+    ("创指", "399006.SZ"),
+    ("科创", "000688.SH"),
+    ("沪深300", "000300.SH"),
+    ("深证100", "399330.SZ"),
+    ("恒生", "HSI"),
+    ("纳斯达克", "IXIC"),
+    ("标普", "SPX"),
+    ("道琼斯", "DJI"),
+)
+
+
 def generate_market_environment(engine: Engine, trade_date: date) -> MarketEnvironmentResult:
     with Session(engine) as session:
         result = calculate_market_environment(session, trade_date)
@@ -143,6 +169,57 @@ def load_market_environment_history(engine: Engine, limit: int = 5) -> list[Mark
             )
         records = session.scalars(query).all()
         return [_result_from_record(record) for record in records]
+
+
+def load_index_ticker(engine: Engine) -> list[IndexTickerItem]:
+    with Session(engine) as session:
+        return [_index_ticker_item(session, name, index_code) for name, index_code in INDEX_TICKER_ITEMS]
+
+
+def _index_ticker_item(session: Session, name: str, index_code: str) -> IndexTickerItem:
+    record = session.scalar(
+        select(IndexDaily)
+        .where(IndexDaily.index_code == index_code)
+        .order_by(desc(IndexDaily.trade_date))
+        .limit(1)
+    )
+    if record is None:
+        return IndexTickerItem(
+            name=name,
+            index_code=index_code,
+            trade_date=None,
+            close=None,
+            change=None,
+            pct_chg=None,
+            amount=None,
+            available=False,
+        )
+
+    previous_close = _previous_index_close(session, index_code, record.trade_date)
+    close = _number(record.close)
+    change = round(close - previous_close, 4) if close is not None and previous_close else None
+    pct_chg = round((change / previous_close) * 100, 4) if change is not None and previous_close else None
+
+    return IndexTickerItem(
+        name=name,
+        index_code=index_code,
+        trade_date=record.trade_date,
+        close=close,
+        change=change,
+        pct_chg=pct_chg,
+        amount=_number(record.amount),
+        available=True,
+    )
+
+
+def _previous_index_close(session: Session, index_code: str, trade_date: date) -> Optional[float]:
+    value = session.scalar(
+        select(IndexDaily.close)
+        .where(IndexDaily.index_code == index_code, IndexDaily.trade_date < trade_date)
+        .order_by(desc(IndexDaily.trade_date))
+        .limit(1)
+    )
+    return _number(value)
 
 
 def _result_from_record(record: MarketDaily) -> MarketEnvironmentResult:

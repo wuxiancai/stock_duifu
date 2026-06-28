@@ -51,6 +51,40 @@ describe('App', () => {
           }
         ]
       },
+      '/api/market/index-ticker': {
+        items: [
+          {
+            name: '沪指',
+            index_code: '000001.SH',
+            trade_date: '2026-06-18',
+            close: 3020,
+            change: 20,
+            pct_chg: 0.6667,
+            amount: 10000000000,
+            available: true
+          },
+          {
+            name: '深指',
+            index_code: '399001.SZ',
+            trade_date: '2026-06-18',
+            close: 10000,
+            change: -100,
+            pct_chg: -0.99,
+            amount: 21000000000,
+            available: true
+          },
+          {
+            name: '创指',
+            index_code: '399006.SZ',
+            trade_date: '',
+            close: null,
+            change: null,
+            pct_chg: null,
+            amount: null,
+            available: false
+          }
+        ]
+      },
       '/api/sectors/top': {
         trade_date: '2026-06-18',
         items: [
@@ -380,6 +414,12 @@ describe('App', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.text()).toContain('今日决策面板')
+    expect(wrapper.text()).toContain('沪指')
+    expect(wrapper.text()).toContain('3020.00')
+    expect(wrapper.text()).toContain('+20.00')
+    expect(wrapper.text()).toContain('+0.67%')
+    expect(wrapper.text()).toContain('深指')
+    expect(wrapper.text()).toContain('-0.99%')
     expect(wrapper.text()).toContain('最近 2 个交易日')
     expect(wrapper.text()).toContain('2026-06-18')
     expect(wrapper.text()).toContain('2026-06-17')

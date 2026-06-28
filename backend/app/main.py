@@ -17,7 +17,7 @@ from backend.app.data.providers import (
 )
 from backend.app.data.realtime_quotes import backfill_trade_plan_realtime_quotes
 from backend.app.db.session import create_database_engine
-from backend.app.market.service import load_latest_market_environment, load_market_environment_history
+from backend.app.market.service import load_index_ticker, load_latest_market_environment, load_market_environment_history
 from backend.app.sector.service import load_latest_sector_rankings, load_sector_rankings_by_date
 from backend.app.simulation.service import load_latest_simulation, run_simulation, run_simulation_workflow
 from backend.app.system.monitoring import load_database_health, load_latest_data_job_runs
@@ -235,6 +235,19 @@ def _market_payload(result) -> dict:
     }
 
 
+def _index_ticker_payload(item) -> dict:
+    return {
+        "name": item.name,
+        "index_code": item.index_code,
+        "trade_date": item.trade_date.isoformat() if item.trade_date else "",
+        "close": item.close,
+        "change": item.change,
+        "pct_chg": item.pct_chg,
+        "amount": item.amount,
+        "available": item.available,
+    }
+
+
 def _data_job_run_payload(run) -> dict:
     return {
         "id": run.id,
@@ -367,6 +380,10 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
     @app.get("/api/market/today", tags=["market"])
     def today_market_environment() -> dict:
         return latest_market_environment()
+
+    @app.get("/api/market/index-ticker", tags=["market"])
+    def market_index_ticker() -> dict:
+        return {"items": [_index_ticker_payload(item) for item in load_index_ticker(database_engine)]}
 
     @app.get("/api/sectors/top", tags=["sector"])
     def top_sectors() -> dict:
