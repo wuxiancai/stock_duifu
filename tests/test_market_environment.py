@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from backend.app.data.global_index_quotes import GlobalIndexQuote
 from backend.app.db.models import IndexDaily, LimitSnapshot, MarketDaily, StockDaily, TradingCalendar, metadata
 from backend.app.main import create_app
 from backend.app.market.service import generate_market_environment
@@ -235,8 +236,9 @@ def test_market_latest_api_returns_empty_state_without_generated_environment() -
     assert "暂无市场建议" in payload["suggestion"]
 
 
-def test_market_index_ticker_api_returns_configured_indices_with_latest_quotes() -> None:
+def test_market_index_ticker_api_returns_configured_indices_with_latest_quotes(monkeypatch) -> None:
     engine = _engine()
+    monkeypatch.setattr("backend.app.market.service._load_global_index_quotes", lambda: {})
     with Session(engine) as session:
         session.add_all(
             [
@@ -308,6 +310,53 @@ def test_market_index_ticker_api_returns_configured_indices_with_latest_quotes()
     assert payload["items"][1]["change"] is None
     assert payload["items"][6]["name"] == "恒生"
     assert payload["items"][6]["available"] is False
+
+
+def test_market_index_ticker_api_uses_isolated_global_quote_source(monkeypatch) -> None:
+    engine = _engine()
+
+    def fake_global_quotes():
+        return {
+            "HSI": GlobalIndexQuote(
+                name="恒生",
+                index_code="HSI",
+                trade_date=date(2026, 6, 26),
+                close=22671.859,
+                change=-405.05,
+                pct_chg=-1.76,
+                amount=342100755.868,
+            ),
+            "IXIC": GlobalIndexQuote(
+                name="纳斯达克",
+                index_code="IXIC",
+                trade_date=date(2026, 6, 27),
+                close=25297.6177,
+                change=-60.9852,
+                pct_chg=-0.24,
+                amount=16299253327.0,
+            ),
+        }
+
+    monkeypatch.setattr("backend.app.market.service._load_global_index_quotes", fake_global_quotes)
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.get("/api/market/index-ticker")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][6] == {
+        "name": "恒生",
+        "index_code": "HSI",
+        "trade_date": "2026-06-26",
+        "close": 22671.859,
+        "change": -405.05,
+        "pct_chg": -1.76,
+        "amount": 342100755.868,
+        "available": True,
+    }
+    assert payload["items"][7]["name"] == "纳斯达克"
+    assert payload["items"][7]["available"] is True
+    assert payload["items"][8]["name"] == "标普"
+    assert payload["items"][8]["available"] is False
 
 
 def test_prd_market_today_api_returns_latest_environment() -> None:

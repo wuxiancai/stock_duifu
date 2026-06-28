@@ -7,6 +7,7 @@ from sqlalchemy import delete, desc, func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from backend.app.data.global_index_quotes import GlobalIndexQuote, load_global_index_quotes
 from backend.app.db.models import IndexDaily, LimitSnapshot, MarketDaily, StockDaily, TradingCalendar
 
 
@@ -172,11 +173,20 @@ def load_market_environment_history(engine: Engine, limit: int = 5) -> list[Mark
 
 
 def load_index_ticker(engine: Engine) -> list[IndexTickerItem]:
+    global_quotes = _load_global_index_quotes()
     with Session(engine) as session:
-        return [_index_ticker_item(session, name, index_code) for name, index_code in INDEX_TICKER_ITEMS]
+        return [
+            _index_ticker_item(session, name, index_code, global_quotes.get(index_code))
+            for name, index_code in INDEX_TICKER_ITEMS
+        ]
 
 
-def _index_ticker_item(session: Session, name: str, index_code: str) -> IndexTickerItem:
+def _index_ticker_item(
+    session: Session,
+    name: str,
+    index_code: str,
+    global_quote: Optional[GlobalIndexQuote] = None,
+) -> IndexTickerItem:
     record = session.scalar(
         select(IndexDaily)
         .where(IndexDaily.index_code == index_code)
@@ -184,6 +194,17 @@ def _index_ticker_item(session: Session, name: str, index_code: str) -> IndexTic
         .limit(1)
     )
     if record is None:
+        if global_quote is not None:
+            return IndexTickerItem(
+                name=name,
+                index_code=index_code,
+                trade_date=global_quote.trade_date,
+                close=global_quote.close,
+                change=global_quote.change,
+                pct_chg=global_quote.pct_chg,
+                amount=global_quote.amount,
+                available=True,
+            )
         return IndexTickerItem(
             name=name,
             index_code=index_code,
@@ -210,6 +231,13 @@ def _index_ticker_item(session: Session, name: str, index_code: str) -> IndexTic
         amount=_number(record.amount),
         available=True,
     )
+
+
+def _load_global_index_quotes() -> dict[str, GlobalIndexQuote]:
+    try:
+        return load_global_index_quotes(timeout=3.0)
+    except Exception:
+        return {}
 
 
 def _previous_index_close(session: Session, index_code: str, trade_date: date) -> Optional[float]:
