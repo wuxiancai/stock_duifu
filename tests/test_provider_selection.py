@@ -226,5 +226,13 @@ def test_tushare_provider_fetches_index_history_for_ma20() -> None:
 
     snapshot = provider.fetch_snapshot(trade_date=date(2026, 6, 18), sample_size=0)
 
-    assert len(snapshot.index_daily) == 6
+    assert len(snapshot.index_daily) == 12
+    assert {record.index_code for record in snapshot.index_daily} == {
+        "000001.SH",
+        "399001.SZ",
+        "399006.SZ",
+        "000688.SH",
+        "000300.SH",
+        "399330.SZ",
+    }
     assert client.index_daily_kwargs[0]["start_date"] < "20260618"

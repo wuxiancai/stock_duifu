@@ -781,16 +781,20 @@ onBeforeUnmount(() => {
         </div>
         <div class="index-ticker-strip" aria-label="主要指数行情">
           <span
-            v-for="item in indexTicker?.items ?? []"
+            v-for="(item, index) in indexTicker?.items ?? []"
             :key="item.name"
             class="index-ticker-item"
             :class="polarityClass(item.pct_chg)"
           >
             <strong>{{ item.name }}</strong>
-            <span>{{ item.close === null ? '--' : formatPrice(item.close) }}</span>
-            <span>{{ formatSignedPrice(item.change) }}</span>
-            <span>{{ formatSignedPercent(item.pct_chg) }}</span>
-            <span>{{ formatIndexAmount(item.amount) }}</span>
+            <template v-if="item.available">
+              <span>{{ formatPrice(item.close) }}</span>
+              <span>{{ formatSignedPrice(item.change) }}</span>
+              <span>{{ formatSignedPercent(item.pct_chg) }}</span>
+              <span>{{ formatIndexAmount(item.amount) }}</span>
+            </template>
+            <span v-else class="ticker-empty">暂无</span>
+            <span v-if="index < (indexTicker?.items.length ?? 0) - 1" class="ticker-separator">｜</span>
           </span>
         </div>
         <div class="toolbar-actions">

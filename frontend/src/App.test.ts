@@ -82,6 +82,16 @@ describe('App', () => {
             pct_chg: null,
             amount: null,
             available: false
+          },
+          {
+            name: '科创',
+            index_code: '000688.SH',
+            trade_date: '',
+            close: null,
+            change: null,
+            pct_chg: null,
+            amount: null,
+            available: false
           }
         ]
       },
@@ -420,6 +430,8 @@ describe('App', () => {
     expect(wrapper.text()).toContain('+0.67%')
     expect(wrapper.text()).toContain('深指')
     expect(wrapper.text()).toContain('-0.99%')
+    expect(wrapper.text()).toContain('沪指3020.00+20.00+0.67%100.00 亿｜深指')
+    expect(wrapper.text()).toContain('创指暂无')
     expect(wrapper.text()).toContain('最近 2 个交易日')
     expect(wrapper.text()).toContain('2026-06-18')
     expect(wrapper.text()).toContain('2026-06-17')
