@@ -255,6 +255,27 @@ def test_deploy_script_advances_api_and_web_ports_when_base_ports_are_busy() -> 
     assert f"sudo ufw allow {expected_web_port}/tcp" in result.stdout
 
 
+def test_deploy_script_does_not_reuse_stale_api_or_web_ports_as_base_ports() -> None:
+    script = ROOT / "deploy.sh"
+
+    result = run_script(
+        str(script),
+        {
+            "STOCK_DEPLOY_DRY_RUN": "1",
+            "FORCE_INSTALL": "1",
+            "TUSHARE_TOKEN": "token-for-dry-run",
+            "API_PORT": "8002",
+            "WEB_PORT": "5174",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "selected API port: 8000" in result.stdout
+    assert "selected Web port: 5173" in result.stdout
+    assert "API_PORT=8000" in result.stdout
+    assert "WEB_PORT=5173" in result.stdout
+
+
 def test_get_data_script_runs_after_close_workflow_in_dry_run() -> None:
     script = ROOT / "get_data.sh"
 

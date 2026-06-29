@@ -68,6 +68,20 @@
 
 ## 最新验证记录
 
+### 2026-06-29 部署入口残留端口基准修复
+
+- 真实症状：
+  - 日志显示 5173 没有被占用，但部署/启动后 Web 仍顺延到 5174。
+- 根因：
+  - 之前修复的是 `start.sh`：`WEB_BASE_PORT` 已固定默认 `5173`，不会再继承 `.env WEB_PORT`。
+  - 但 `deploy.sh` 会调用 `deploy_ubuntu.sh`，而 `deploy_ubuntu.sh` 仍保留旧写法 `WEB_BASE_PORT="${WEB_BASE_PORT:-${WEB_PORT:-5173}}"`；如果 `.env` 或环境里残留 `WEB_PORT=5174`，部署入口会把 5174 当基准端口，即使 5173 空闲也不会回退。
+- 修复点：
+  - `deploy_ubuntu.sh` 的 `API_BASE_PORT` / `WEB_BASE_PORT` 默认固定为 `8000` / `5173`，与 `start.sh` 保持一致。
+  - 新增回归测试覆盖部署 dry-run 中残留 `API_PORT=8002`、`WEB_PORT=5174` 时仍选择 `8000` / `5173`。
+- 验证：
+  - `.venv/bin/python -m pytest tests/test_deployment_scripts.py -q`：20 passed。
+  - `bash -n start.sh stop.sh deploy_ubuntu.sh deploy.sh`：通过。
+
 ### 2026-06-29 股票池趋势观察误兜底修复
 
 - 真实症状：
