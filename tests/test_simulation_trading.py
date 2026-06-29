@@ -288,6 +288,82 @@ def test_run_simulation_sells_position_when_stop_loss_is_hit() -> None:
     assert summary.risk.max_drawdown > 0
 
 
+def test_run_simulation_does_not_sell_position_bought_on_same_trade_date() -> None:
+    engine = _engine()
+    trade_date = date(2026, 6, 19)
+    with Session(engine) as session:
+        _seed_trade_plan(session, target_trade_date=trade_date)
+        _add_daily(session, "000001", trade_date, 10.2, 10.8, 9.4, 10.5)
+        session.commit()
+
+    first = run_simulation(engine, trade_date)
+    second = run_simulation(engine, trade_date)
+
+    assert [trade.trade_type for trade in first.trades] == ["买入"]
+    assert [trade.trade_type for trade in second.trades] == ["买入"]
+    assert len(second.positions) == 1
+    assert second.positions[0].position_status == "持仓中"
+
+
+def test_run_simulation_does_not_sell_virtual_position_bought_on_same_trade_date() -> None:
+    engine = _engine()
+    trade_date = date(2026, 6, 19)
+    with Session(engine) as session:
+        plan = _seed_trade_plan(session, status="取消", target_trade_date=trade_date)
+        _add_daily(session, "000001", trade_date, 10.2, 10.8, 9.4, 10.5)
+        session.add(
+            VirtualPosition(
+                trade_plan_id=plan.id,
+                stock_code="000001",
+                stock_name="计划内股票",
+                sector_name="科技风格",
+                strategy_type="趋势强势",
+                buy_price=10.2,
+                current_price=10.5,
+                quantity=1000,
+                market_value=10500,
+                cost_amount=10210,
+                unrealized_profit=290,
+                unrealized_return=0.0284,
+                stop_loss_price=9.5,
+                take_profit_price=13.2,
+                position_status="持仓中",
+                buy_reason="目标交易日价格触达计划买入区间",
+                sell_reason="",
+            )
+        )
+        session.add(
+            VirtualTrade(
+                trade_plan_id=plan.id,
+                stock_code="000001",
+                stock_name="计划内股票",
+                trade_date=trade_date,
+                trade_time=datetime(2026, 6, 19, 9, 31, tzinfo=TRADING_TZ),
+                trade_type="买入",
+                price=10.2,
+                quantity=1000,
+                amount=10200,
+                commission=5,
+                stamp_tax=0,
+                transfer_fee=0.102,
+                total_fee=5.102,
+                net_amount=-10205.102,
+                cash_after=989794.898,
+                position_ratio_after=0.0102,
+                profit_loss=None,
+                profit_loss_return=None,
+                reason="目标交易日价格触达计划买入区间",
+            )
+        )
+        session.commit()
+
+    summary = run_simulation(engine, trade_date)
+
+    assert [trade.trade_type for trade in summary.virtual_trades] == ["买入"]
+    assert len(summary.virtual_positions) == 1
+    assert summary.virtual_positions[0].position_status == "持仓中"
+
+
 def test_simulation_fee_rates_are_configurable(monkeypatch) -> None:
     get_settings.cache_clear()
     monkeypatch.setenv("SIMULATION_COMMISSION_RATE", "0.001")

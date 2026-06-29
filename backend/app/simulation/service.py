@@ -294,6 +294,10 @@ def _sell_positions(session: Session, account: SimulationAccount, trade_date: da
         if _number(daily.pct_chg) <= -9.8:
             messages.append(f"{position.stock_code} 目标交易日跌停，按保守成交规则不卖出")
             continue
+        if _bought_on_trade_date(session, position, trade_date):
+            _refresh_position_price(position, _number(daily.close))
+            messages.append(f"{position.stock_code} 当日买入持仓遵守 A 股 T+1，目标交易日不卖出")
+            continue
         sell_action = _sell_action(session, position, daily, trade_date)
         if sell_action is None:
             _refresh_position_price(position, _number(daily.close))
@@ -445,6 +449,10 @@ def _sell_virtual_positions(session: Session, trade_date: date, messages: list[s
             continue
         if _number(daily.pct_chg) <= -9.8:
             messages.append(f"{position.stock_code} 虚拟持仓目标交易日跌停，按保守成交规则不卖出")
+            continue
+        if _virtual_bought_on_trade_date(session, position, trade_date):
+            _refresh_position_price(position, _number(daily.close))
+            messages.append(f"{position.stock_code} 虚拟持仓当日买入遵守 A 股 T+1，目标交易日不卖出")
             continue
         sell_action = _virtual_sell_action(session, position, daily, trade_date)
         if sell_action is None:
@@ -1141,6 +1149,29 @@ def _has_virtual_sell_reason(session: Session, position: VirtualPosition, reason
             VirtualTrade.trade_plan_id == position.trade_plan_id,
             VirtualTrade.trade_type == "卖出",
             VirtualTrade.reason.like(f"{reason_prefix}%"),
+        )
+    )
+    return existing is not None
+
+
+def _bought_on_trade_date(session: Session, position: SimulationPosition, trade_date: date) -> bool:
+    existing = session.scalar(
+        select(SimulationTrade.id).where(
+            SimulationTrade.account_id == position.account_id,
+            SimulationTrade.trade_plan_id == position.trade_plan_id,
+            SimulationTrade.trade_type == "买入",
+            SimulationTrade.trade_date == trade_date,
+        )
+    )
+    return existing is not None
+
+
+def _virtual_bought_on_trade_date(session: Session, position: VirtualPosition, trade_date: date) -> bool:
+    existing = session.scalar(
+        select(VirtualTrade.id).where(
+            VirtualTrade.trade_plan_id == position.trade_plan_id,
+            VirtualTrade.trade_type == "买入",
+            VirtualTrade.trade_date == trade_date,
         )
     )
     return existing is not None

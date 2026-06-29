@@ -68,6 +68,16 @@
 
 ## 最新验证记录
 
+### 2026-06-29 A 股 T+1 模拟交易同日卖出修复
+
+- 修复点：
+  - `run_simulation()` 的真实模拟持仓卖出入口新增买入成交日检查；若持仓在目标交易日当天买入，只更新当日盯市价格并保留持仓，不再进入止损、市场风险、板块退潮、移动止盈、MA5 或持仓超期卖出逻辑。
+  - 虚拟持仓卖出入口同步执行同一条 A 股 T+1 约束，避免资金不足触发的虚拟交易出现当天买入当天卖出。
+  - 新增回归测试覆盖“同一目标交易日第一次买入、第二次盘中刷新触及止损也不能卖出”的真实模拟账户和虚拟账户场景。
+- 验证：
+  - `.venv/bin/python -m pytest tests/test_simulation_trading.py::test_run_simulation_does_not_sell_position_bought_on_same_trade_date tests/test_simulation_trading.py::test_run_simulation_does_not_sell_virtual_position_bought_on_same_trade_date -q`：2 passed。
+  - `.venv/bin/python -m pytest tests/test_simulation_trading.py -q`：29 passed。
+
 ### 2026-06-29 `start.sh` 默认端口复用与 502 刷屏修复
 
 - 修复点：
