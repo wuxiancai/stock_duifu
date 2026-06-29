@@ -14,7 +14,16 @@ from backend.app.data.types import (
     StockDailyRecord,
     TradingCalendarRecord,
 )
-from backend.app.db.models import DataJobRun, MarketDaily, SectorDaily, StockBasic, StockDaily, TradingCalendar, metadata
+from backend.app.db.models import (
+    CandidateStock,
+    DataJobRun,
+    MarketDaily,
+    SectorDaily,
+    StockBasic,
+    StockDaily,
+    TradingCalendar,
+    metadata,
+)
 from backend.app.main import create_app
 from backend.app.system.monitoring import _sector_health_item
 from backend.app.workflow.service import run_after_close_workflow
@@ -139,6 +148,7 @@ def test_after_close_workflow_records_step_logs_and_api_returns_them(monkeypatch
         "生成市场环境",
         "生成强势板块",
         "生成候选股票",
+        "生成交易复盘",
         "生成交易计划",
         "覆盖审计",
     ]
@@ -281,3 +291,40 @@ def test_database_health_treats_excluded_st_and_inactive_stock_daily_gaps_as_ok(
     assert stock_daily["actual"] == "1 / 1"
     assert stock_daily["fix_command"] == ""
     assert "已排除" in stock_daily["expected"]
+
+
+def test_database_health_treats_empty_stock_pool_as_ok_for_trade_plan() -> None:
+    engine = _engine()
+    trade_date = date(2026, 6, 29)
+    with Session(engine) as session:
+        session.add(TradingCalendar(trade_date=trade_date, is_open=True, source="unit-test"))
+        for index in range(12):
+            session.add(
+                CandidateStock(
+                    trade_date=trade_date,
+                    stock_code=f"300{index:03d}",
+                    stock_name=f"趋势观察{index}",
+                    sector_name="医药生物",
+                    sector_rank=2,
+                    sector_category="趋势观察",
+                    stock_pool_rank=None,
+                    strategy_type="趋势强势",
+                    stock_score=100 - index,
+                    sector_score=80,
+                    close_price=20 + index,
+                    amount=1_000_000_000,
+                    reason="行业持续性：趋势观察，不进入股票池",
+                    risk_note="未满足股票池规则",
+                )
+            )
+        session.commit()
+
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+    response = client.get("/api/system/database-health?date=2026-06-29")
+
+    assert response.status_code == 200
+    trade_plan = next(item for item in response.json()["items"] if item["name"] == "交易计划")
+    assert trade_plan["status"] == "ok"
+    assert trade_plan["actual"] == "0"
+    assert trade_plan["fix_command"] == ""
+    assert "股票池规则" in trade_plan["message"]

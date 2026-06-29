@@ -188,6 +188,12 @@ def load_database_health(engine: Engine, trade_date: Optional[date] = None) -> D
             select(func.max(SectorDaily.rank_no)).where(SectorDaily.trade_date == target_date)
         ) or 0
         candidate_rows = _count(session, CandidateStock, CandidateStock.trade_date == target_date)
+        stock_pool_rows = _count(
+            session,
+            CandidateStock,
+            CandidateStock.trade_date == target_date,
+            CandidateStock.stock_pool_rank.is_not(None),
+        )
         trade_plan_rows = _count(session, TradePlan, TradePlan.plan_date == target_date)
         latest_run = session.scalar(
             select(DataJobRun).where(DataJobRun.trade_date == target_date).order_by(desc(DataJobRun.started_at)).limit(1)
@@ -204,7 +210,7 @@ def load_database_health(engine: Engine, trade_date: Optional[date] = None) -> D
                 _health_item("市场环境", market_rows > 0, market_rows, "必须生成 market_daily", f"bash scripts/generate-market-environment.sh --trade-date {target_date.isoformat()}", error=True),
                 _sector_health_item(target_date, sector_rows, max_sector_rank, command),
                 _health_item("候选股票", candidate_rows > 0, candidate_rows, "应生成候选股票或明确为空", f"bash scripts/generate-candidates.sh --trade-date {target_date.isoformat()}", error=False),
-                _health_item("交易计划", trade_plan_rows > 0, trade_plan_rows, "应生成次日交易计划或明确为空", f"bash scripts/generate-trade-plans.sh --plan-date {target_date.isoformat()}", error=False),
+                _trade_plan_health_item(target_date, trade_plan_rows, candidate_rows, stock_pool_rows),
                 _latest_job_health_item(target_date, latest_run, command),
             ]
         )
@@ -395,6 +401,41 @@ def _sector_health_item(target_date: date, sector_rows: int, max_rank: int, comm
         actual=f"rows={sector_rows}, max_rank={max_rank}",
         expected=f"至少 {min_industry_rows} 个东财一级行业，max_rank=rows，且 max_rank <= {max_reasonable_industry_rows}",
         fix_command="" if status == "ok" else command,
+    )
+
+
+def _trade_plan_health_item(
+    target_date: date,
+    trade_plan_rows: int,
+    candidate_rows: int,
+    stock_pool_rows: int,
+) -> DatabaseHealthItem:
+    command = f"bash scripts/generate-trade-plans.sh --plan-date {target_date.isoformat()}"
+    if trade_plan_rows > 0:
+        return DatabaseHealthItem(
+            name="交易计划",
+            status="ok",
+            message="正常",
+            actual=str(trade_plan_rows),
+            expected="生成次日交易计划；若股票池为空则允许明确为空",
+            fix_command="",
+        )
+    if candidate_rows > 0 and stock_pool_rows == 0:
+        return DatabaseHealthItem(
+            name="交易计划",
+            status="ok",
+            message="正常，候选股票未满足股票池规则，按宁缺毋滥口径不生成交易计划。",
+            actual=str(trade_plan_rows),
+            expected="股票池有合格股票时生成计划；股票池为空时明确为空",
+            fix_command="",
+        )
+    return DatabaseHealthItem(
+        name="交易计划",
+        status="warning",
+        message="不完整，请确认是否符合当日市场状态",
+        actual=str(trade_plan_rows),
+        expected="应生成次日交易计划或明确为空",
+        fix_command=command,
     )
 
 
