@@ -335,6 +335,54 @@ def test_generate_trade_plans_skips_risk_market() -> None:
         assert session.query(TradePlan).count() == 0
 
 
+def test_generate_trade_plans_does_not_fallback_to_new_trend_watch_candidates_without_stock_pool() -> None:
+    engine = _engine()
+    plan_date = date(2026, 6, 29)
+    with Session(engine) as session:
+        session.add(
+            MarketDaily(
+                trade_date=plan_date,
+                market_score=65,
+                market_status="中性",
+                up_count=2000,
+                down_count=1800,
+                limit_up_count=45,
+                limit_down_count=5,
+                total_amount=1_000_000_000_000,
+                suggestion="轻仓参与强势板块",
+            )
+        )
+        session.add(TradingCalendar(trade_date=date(2026, 6, 30), is_open=True, source="unit-test"))
+        session.add(
+            CandidateStock(
+                trade_date=plan_date,
+                stock_code="603259",
+                stock_name="药明康德",
+                sector_name="医药生物",
+                sector_rank=2,
+                sector_category="趋势观察",
+                stock_pool_rank=None,
+                strategy_type="趋势强势",
+                stock_score=104,
+                sector_score=80,
+                nine_turn_signal="sell",
+                nine_turn_count=9,
+                nine_turn_score=2,
+                close_price=126.17,
+                amount=12_743_790_053,
+                reason="行业持续性：趋势观察，近5日排名 2/27/6/5/1，均值 8.2，Top10 出现 4 天",
+                risk_note="趋势票避免高开追涨",
+            )
+        )
+        for offset in range(25):
+            _add_daily(session, "603259", plan_date - timedelta(days=24 - offset), 100 + offset * 1.1)
+        session.commit()
+
+    plans = generate_trade_plans(engine, plan_date)
+
+    assert plans == []
+
+
 def test_trade_plans_latest_api_returns_persisted_plans() -> None:
     engine = _engine()
     plan_date = _seed_fixture(engine)

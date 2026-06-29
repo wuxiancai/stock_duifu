@@ -68,6 +68,21 @@
 
 ## 最新验证记录
 
+### 2026-06-29 股票池趋势观察误兜底修复
+
+- 真实症状：
+  - 云端 `GET http://fojing.art:5173/api/candidates/latest` 返回 `trade_date=2026-06-29`，股票池前 10 只全部为 `医药生物`，且 `sector_category=趋势观察`。
+  - 按当前股票池规则，`趋势观察` 行业配额为 0；只有 `核心主升`、`稳定强势`、`强势延续` 才能进入股票池。
+- 根因：
+  - `load_latest_candidates()` 的旧数据展示兜底会在所有候选缺少 `stock_pool_rank` 时，按评分临时补出 Top10 股票池排名；这把新口径但无股票池名额的 `趋势观察` 候选误显示成股票池。
+  - `calculate_trade_plans()` 也保留了无股票池时按候选评分生成计划的旧 fallback，可能把同一批 `趋势观察` 候选继续生成今日交易计划。
+- 修复点：
+  - 候选 latest 接口只对旧口径候选保留展示兜底；只要候选理由包含 `行业持续性`，就不再伪造 `stock_pool_rank`。
+  - 交易计划生成只对旧口径候选保留 fallback；新口径候选必须有真实 `stock_pool_rank` 才能生成交易计划。
+- 验证：
+  - `.venv/bin/python -m pytest tests/test_candidate_screening.py::test_candidates_latest_api_does_not_turn_new_trend_watch_candidates_into_stock_pool tests/test_trade_plan_generation.py::test_generate_trade_plans_does_not_fallback_to_new_trend_watch_candidates_without_stock_pool -q`：2 passed。
+  - `.venv/bin/python -m pytest tests/test_candidate_screening.py tests/test_trade_plan_generation.py -q`：39 passed。
+
 ### 2026-06-29 A 股 T+1 模拟交易同日卖出修复
 
 - 修复点：

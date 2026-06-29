@@ -206,6 +206,41 @@ def test_candidates_latest_api_returns_saved_candidates() -> None:
     assert "nine_turn_score" in payload["items"][0]
 
 
+def test_candidates_latest_api_does_not_turn_new_trend_watch_candidates_into_stock_pool() -> None:
+    engine = _engine()
+    trade_date = date(2026, 6, 29)
+    with Session(engine) as session:
+        session.add(
+            CandidateStock(
+                trade_date=trade_date,
+                stock_code="603259",
+                stock_name="药明康德",
+                sector_name="医药生物",
+                sector_rank=2,
+                sector_category="趋势观察",
+                stock_pool_rank=None,
+                strategy_type="趋势强势",
+                stock_score=104,
+                sector_score=80,
+                nine_turn_signal="sell",
+                nine_turn_count=9,
+                nine_turn_score=2,
+                close_price=126.17,
+                amount=12_743_790_053,
+                reason="行业持续性：趋势观察，近5日排名 2/27/6/5/1，均值 8.2，Top10 出现 4 天",
+                risk_note="趋势票避免高开追涨",
+            )
+        )
+        session.commit()
+    app = create_app(engine=engine)
+
+    response = TestClient(app).get("/api/candidates/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["stock_pool_rank"] is None
+
+
 def test_candidates_latest_api_returns_empty_state_without_candidates() -> None:
     app = create_app(engine=_engine())
 

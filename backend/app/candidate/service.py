@@ -294,6 +294,11 @@ def _ensure_displayable_stock_pool(records: list[CandidateStock]) -> list[Candid
                 item.stock_code,
             ),
         )
+    if any("行业持续性" in (record.reason or "") for record in records):
+        return sorted(
+            records,
+            key=lambda item: (-item.stock_score, -item.sector_score, -_number(item.amount), item.stock_code),
+        )
 
     ordered = sorted(
         records,

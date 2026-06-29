@@ -244,7 +244,7 @@ def calculate_trade_plans(
     if limit is not None:
         query = query.limit(limit)
     selected = session.scalars(query).all()
-    if not selected:
+    if not selected and not _has_new_candidate_pool_semantics(session, plan_date):
         fallback_limit = min(limit, _legacy_market_plan_limit(market.market_status)) if limit is not None else _legacy_market_plan_limit(market.market_status)
         fallback_query = (
             select(CandidateStock)
@@ -267,6 +267,16 @@ def calculate_trade_plans(
         if plan is not None:
             plans.append(plan)
     return plans
+
+
+def _has_new_candidate_pool_semantics(session: Session, plan_date: date) -> bool:
+    return bool(
+        session.scalar(
+            select(CandidateStock.id)
+            .where(CandidateStock.trade_date == plan_date, CandidateStock.reason.like("%行业持续性%"))
+            .limit(1)
+        )
+    )
 
 
 def load_latest_trade_plans(engine: Engine) -> Optional[tuple[date, date, list[TradePlanResult]]]:
