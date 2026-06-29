@@ -423,6 +423,8 @@ describe('App', () => {
     await flushPromises()
     await wrapper.vm.$nextTick()
 
+    expect(wrapper.text()).not.toContain('A股短线决策工作台')
+    expect(wrapper.text()).not.toContain('盘后查看市场环境、强势行业和次日条件交易计划。')
     expect(wrapper.text()).toContain('今日决策面板')
     expect(wrapper.text()).toContain('沪指')
     expect(wrapper.text()).toContain('3020.00')

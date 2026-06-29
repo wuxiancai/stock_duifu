@@ -797,10 +797,6 @@ onBeforeUnmount(() => {
 
     <section class="workspace" v-loading="loading">
       <header class="toolbar">
-        <div>
-          <h1>A股短线决策工作台</h1>
-          <p>盘后查看市场环境、强势行业和次日条件交易计划。</p>
-        </div>
         <div class="index-ticker-strip" aria-label="主要指数行情">
           <span
             v-for="(item, index) in indexTicker?.items ?? []"
