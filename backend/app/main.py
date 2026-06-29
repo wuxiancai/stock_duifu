@@ -14,6 +14,7 @@ from backend.app.data.providers import (
     AkShareRealtimeQuoteProvider,
     AkShareSinaRealtimeQuoteProvider,
     FallbackRealtimeQuoteProvider,
+    SinaDirectRealtimeQuoteProvider,
 )
 from backend.app.data.realtime_quotes import backfill_trade_plan_realtime_quotes
 from backend.app.db.session import create_database_engine
@@ -194,7 +195,7 @@ def _realtime_backfill_payload(backfill) -> dict:
 
 def _realtime_quote_provider():
     return FallbackRealtimeQuoteProvider(
-        [AkShareRealtimeQuoteProvider(), AkShareSinaRealtimeQuoteProvider()]
+        [SinaDirectRealtimeQuoteProvider(), AkShareRealtimeQuoteProvider(), AkShareSinaRealtimeQuoteProvider()]
     )
 
 

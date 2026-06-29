@@ -9,7 +9,9 @@ from backend.app.data.providers import (
     AkShareRealtimeQuoteProvider,
     AkShareSinaRealtimeQuoteProvider,
     FallbackRealtimeQuoteProvider,
+    SinaDirectRealtimeQuoteProvider,
 )
+from backend.app.data.cli import load_realtime_quote_provider
 import backend.app.data.realtime_quotes as realtime_quotes
 from backend.app.data.realtime_quotes import run_realtime_quote_workflow
 from backend.app.data.types import StockDailyRecord
@@ -175,6 +177,34 @@ def test_akshare_sina_realtime_quote_provider_maps_sina_spot_rows() -> None:
     assert record.source == "akshare_sina_realtime"
 
 
+def test_sina_direct_realtime_quote_provider_fetches_only_requested_symbols() -> None:
+    calls = []
+    text = (
+        'var hq_str_sz000001="平安银行,10.10,10.00,10.50,10.80,10.00,'
+        '10.49,10.50,100000,105000000,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,'
+        '2026-06-19,14:59:59,00,";\n'
+        'var hq_str_sh600000="浦发银行,8.80,8.60,8.88,9.00,8.70,'
+        '8.87,8.88,123456,12345678,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,'
+        '2026-06-19,14:59:59,00,";'
+    )
+
+    def fetcher(url: str, timeout: float) -> str:
+        calls.append((url, timeout))
+        return text
+
+    provider = SinaDirectRealtimeQuoteProvider(fetcher=fetcher, timeout=1.5)
+
+    records = provider.fetch_realtime_stock_daily(["000001", "600000"], date(2026, 6, 19))
+
+    assert calls == [("https://hq.sinajs.cn/list=sz000001,sh600000", 1.5)]
+    assert [record.stock_code for record in records] == ["000001", "600000"]
+    assert records[0].close == 10.5
+    assert records[0].pre_close == 10.0
+    assert round(records[0].pct_chg, 2) == 5.0
+    assert records[0].amount == 105000000
+    assert records[0].source == "sina_direct_realtime"
+
+
 def test_fallback_realtime_quote_provider_uses_sina_after_primary_error() -> None:
     primary = FailingRealtimeProvider()
     fallback = FakeRealtimeProvider([_daily("600000")])
@@ -189,6 +219,13 @@ def test_fallback_realtime_quote_provider_uses_sina_after_primary_error() -> Non
     assert provider.last_provider_name == "unit-test-realtime"
     assert provider.name == "unit-test-realtime"
     assert provider.errors == ["failing-realtime: RuntimeError: primary disconnected"]
+
+
+def test_auto_realtime_provider_prefers_direct_sina_before_full_market_sources() -> None:
+    provider = load_realtime_quote_provider("auto")
+
+    assert isinstance(provider, FallbackRealtimeQuoteProvider)
+    assert isinstance(provider.providers[0], SinaDirectRealtimeQuoteProvider)
 
 
 def test_run_realtime_quote_workflow_backfills_quotes_tracks_plan_and_buys() -> None:

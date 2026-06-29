@@ -677,6 +677,12 @@ start_systemd_or_fallback() {
     start_fallback_processes 0 1
     wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT" "Frontend fallback" 60
   fi
+  if ! wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT/api/health" "Frontend API proxy" 20; then
+    print_service_diagnostics "${SERVICE_PREFIX}-web.service" "$LOG_DIR/web.log"
+    print_service_diagnostics "${SERVICE_PREFIX}-api.service" "$LOG_DIR/api.log"
+    warn "前端已启动，但同源 /api 代理无法访问 API；请核对 VITE_DEV_API_PROXY_TARGET=$VITE_DEV_API_PROXY_TARGET 和 API_PORT=$API_PORT。"
+    return 1
+  fi
 }
 
 check_web_page_access() {

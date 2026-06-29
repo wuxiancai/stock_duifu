@@ -1,7 +1,8 @@
 import os
 from contextlib import contextmanager
 from datetime import date, timedelta
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
+from urllib.request import Request, urlopen
 
 import akshare as ak
 import pandas as pd
@@ -320,6 +321,121 @@ class AkShareSinaRealtimeQuoteProvider(AkShareRealtimeQuoteProvider):
 
     def __init__(self, spot_fetcher=None):
         self._spot_fetcher = spot_fetcher or ak.stock_zh_a_spot
+
+
+SinaQuoteFetcher = Callable[[str, float], str]
+
+
+class SinaDirectRealtimeQuoteProvider:
+    name = "sina_direct_realtime"
+
+    def __init__(self, fetcher: Optional[SinaQuoteFetcher] = None, timeout: float = 5.0):
+        self._fetcher = fetcher or self._fetch_sina_quotes
+        self.timeout = timeout
+
+    def fetch_realtime_stock_daily(
+        self,
+        stock_codes: Iterable[str],
+        trade_date: date,
+    ) -> list[StockDailyRecord]:
+        symbol_to_code = {
+            symbol: code
+            for code in (normalize_stock_code(raw_code) for raw_code in stock_codes)
+            if code
+            for symbol in [self._sina_symbol(code)]
+            if symbol
+        }
+        if not symbol_to_code:
+            return []
+
+        records: list[StockDailyRecord] = []
+        symbols = list(symbol_to_code)
+        for start in range(0, len(symbols), 80):
+            batch_symbols = symbols[start : start + 80]
+            url = f"https://hq.sinajs.cn/list={','.join(batch_symbols)}"
+            text = self._fetcher(url, self.timeout)
+            records.extend(self._parse_response(text, symbol_to_code, trade_date))
+        return records
+
+    def _sina_symbol(self, stock_code: str) -> Optional[str]:
+        market = infer_market(stock_code)
+        if market == "SH":
+            return f"sh{stock_code}"
+        if market == "SZ":
+            return f"sz{stock_code}"
+        if market == "BJ":
+            return f"bj{stock_code}"
+        return None
+
+    def _fetch_sina_quotes(self, url: str, timeout: float) -> str:
+        request = Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://finance.sina.com.cn/",
+            },
+        )
+        with without_proxy_env():
+            with urlopen(request, timeout=timeout) as response:
+                return response.read().decode("gbk", errors="replace")
+
+    def _parse_response(
+        self,
+        text: str,
+        symbol_to_code: dict[str, str],
+        trade_date: date,
+    ) -> list[StockDailyRecord]:
+        records: list[StockDailyRecord] = []
+        for statement in text.splitlines():
+            if "=\"" not in statement:
+                continue
+            symbol = statement.split("hq_str_", 1)[-1].split("=", 1)[0]
+            stock_code = symbol_to_code.get(symbol)
+            if not stock_code:
+                continue
+            raw_fields = statement.split("=\"", 1)[-1].rsplit("\"", 1)[0]
+            record = self._fields_to_daily(raw_fields.split(","), stock_code, trade_date)
+            if record is not None:
+                records.append(record)
+        return records
+
+    def _fields_to_daily(
+        self,
+        fields: list[str],
+        stock_code: str,
+        trade_date: date,
+    ) -> Optional[StockDailyRecord]:
+        if len(fields) < 10:
+            return None
+        open_price = as_float(fields[1], default=None)
+        pre_close = as_float(fields[2], default=None)
+        close = as_float(fields[3], default=None)
+        high = as_float(fields[4], default=None)
+        low = as_float(fields[5], default=None)
+        volume = as_float(fields[8], default=0.0)
+        amount = as_float(fields[9], default=0.0)
+        if not close or not open_price or not high or not low:
+            return None
+        if close <= 0 or open_price <= 0 or high <= 0 or low <= 0:
+            return None
+        pre_close = pre_close or close
+        change = close - pre_close
+        pct_chg = (change / pre_close * 100) if pre_close else 0.0
+        return StockDailyRecord(
+            stock_code=stock_code,
+            trade_date=trade_date,
+            open=open_price,
+            high=high,
+            low=low,
+            close=close,
+            pre_close=pre_close,
+            change=change,
+            pct_chg=pct_chg,
+            volume=volume,
+            amount=amount,
+            turnover_rate=None,
+            source=self.name,
+        )
 
 
 class FallbackRealtimeQuoteProvider:

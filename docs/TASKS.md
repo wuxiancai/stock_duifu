@@ -55,6 +55,7 @@
 - [x] 已修复虚拟交易重复买入与盘后补买问题：模拟交易已买入的计划不再进入虚拟交易；非目标交易日盘中交易时间不再新增模拟/虚拟买入；加载或运行模拟交易时会清理已有真实模拟买入对应的冗余虚拟持仓和虚拟交易记录。
 - [x] 已修复旧候选数据导致股票池空白问题：`start.sh` 最新开市日自检新增 `stock_pool_rank` 非空行数检查，旧数据会自动重算；候选池 API 对没有 `stock_pool_rank` 的旧数据按评分前 10 临时兜底，避免页面空白。
 - [x] 已修复目标交易日落到周末问题：交易计划目标日找不到未来交易日历记录时，兜底跳过周六/周日；`start.sh` 最新开市日自检新增“非交易日目标计划行数”，若已有计划目标日为周末或日历明确休市则自动重算。
+- [x] 已修复云服务器盘中跟踪 502 高风险链路：实时行情默认优先按计划股直连新浪轻量接口，AkShare 全市场源降为后备；Vite 代理增加超时和 JSON 错误响应；`start.sh` 启动后验证 Web 同源 `/api/health` 代理穿透。
 
 ## 开发原则
 
@@ -64,6 +65,18 @@
 - 优先做能独立演示的垂直切片，避免先搭复杂平台。
 
 ## 最新验证记录
+
+### 2026-06-29 云服务器 `/api/trade-plans/track-realtime` 502 修复
+
+- 修复点：
+  - 新增 `SinaDirectRealtimeQuoteProvider`，`auto` 实时行情源优先请求计划股代码，不再为少量计划股拉取全市场 AkShare 实时表。
+  - Vite `/api` 代理新增 30 秒 `timeout` / `proxyTimeout` 和 JSON 错误响应，便于页面/日志看到代理目标和底层连接错误。
+  - `start.sh` 启动 API/Web 后新增 `http://127.0.0.1:<WEB_PORT>/api/health` 代理穿透检查，Web 活着但 API 代理断开时直接启动失败并打印诊断。
+- 验证：
+  - `.venv/bin/python -m pytest tests/test_deployment_scripts.py tests/test_realtime_quote_workflow.py -q`：27 passed。
+  - `cd frontend && npm test -- --run`：4 passed。
+  - `cd frontend && npm run build`：通过，仍有既有 VueUse pure annotation 和 chunk size warning。
+  - 临时 API `127.0.0.1:18080` + 临时 Web `127.0.0.1:15174`：`curl http://127.0.0.1:15174/api/health` 返回 200 健康 JSON。
 
 ### 2026-06-22 盘中实时展示与模拟交易修复
 

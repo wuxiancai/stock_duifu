@@ -1,5 +1,6 @@
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
+import type { ProxyOptions } from 'vite'
 
 const apiProxyTarget = process.env.VITE_DEV_API_PROXY_TARGET || 'http://127.0.0.1:8000'
 const allowedHosts = Array.from(
@@ -12,16 +13,35 @@ const allowedHosts = Array.from(
   ])
 )
 
+const apiProxy: ProxyOptions = {
+  target: apiProxyTarget,
+  changeOrigin: true,
+  timeout: 30000,
+  proxyTimeout: 30000,
+  configure(proxy) {
+    proxy.on('error', (error, _request, response) => {
+      if (!response || !('writeHead' in response) || response.headersSent) {
+        return
+      }
+      response.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' })
+      response.end(
+        JSON.stringify({
+          error: 'api_proxy_error',
+          target: apiProxyTarget,
+          message: error.message
+        })
+      )
+    })
+  }
+}
+
 export default defineConfig({
   plugins: [vue()],
   server: {
     port: 5173,
     allowedHosts,
     proxy: {
-      '/api': {
-        target: apiProxyTarget,
-        changeOrigin: true
-      }
+      '/api': apiProxy
     }
   },
   test: {

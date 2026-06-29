@@ -500,7 +500,16 @@ def test_vite_dev_server_proxies_same_origin_api_requests() -> None:
 
     assert "process.env.VITE_DEV_API_PROXY_TARGET" in vite_config
     assert "target: apiProxyTarget" in vite_config
+    assert "proxyTimeout: 30000" in vite_config
+    assert "api_proxy_error" in vite_config
     assert "process.env.VITE_API_BASE_URL" not in vite_config
     assert "VITE_API_BASE_URL" not in env_example
     assert "const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''" in dashboard_api
     assert "const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''" in health_api
+
+
+def test_start_script_checks_frontend_api_proxy_health() -> None:
+    script = (ROOT / "start.sh").read_text()
+
+    assert 'wait_for_url "http://$HEALTHCHECK_HOST:$WEB_PORT/api/health" "Frontend API proxy" 20' in script
+    assert "同源 /api 代理无法访问 API" in script

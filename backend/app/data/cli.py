@@ -15,6 +15,7 @@ from backend.app.data.providers import (
     AkShareSinaRealtimeQuoteProvider,
     FallbackRealtimeQuoteProvider,
     MissingTushareTokenError,
+    SinaDirectRealtimeQuoteProvider,
     TushareMarketDataProvider,
 )
 from backend.app.core.config import get_settings
@@ -57,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
         "run-realtime-workflow",
         help="Fetch delayed realtime quotes for target trade plans, then track and simulate",
     )
-    realtime.add_argument("--provider", choices=["auto", "akshare", "sina"], default="auto")
+    realtime.add_argument("--provider", choices=["auto", "direct-sina", "akshare", "sina"], default="auto")
     realtime.add_argument("--target-trade-date", required=True, help="Target trade date in YYYY-MM-DD format")
     realtime.add_argument(
         "--include-existing",
@@ -86,13 +87,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def load_realtime_quote_provider(provider_name: str):
+    if provider_name == "direct-sina":
+        return SinaDirectRealtimeQuoteProvider()
     if provider_name == "akshare":
         return AkShareRealtimeQuoteProvider()
     if provider_name == "sina":
         return AkShareSinaRealtimeQuoteProvider()
     if provider_name == "auto":
         return FallbackRealtimeQuoteProvider(
-            [AkShareRealtimeQuoteProvider(), AkShareSinaRealtimeQuoteProvider()]
+            [SinaDirectRealtimeQuoteProvider(), AkShareRealtimeQuoteProvider(), AkShareSinaRealtimeQuoteProvider()]
         )
     raise ValueError(f"Unsupported realtime provider: {provider_name}")
 
