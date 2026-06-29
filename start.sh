@@ -14,8 +14,8 @@ fi
 SERVICE_PREFIX="${STOCK_SERVICE_PREFIX:-stock}"
 CONFIGURED_POSTGRES_HOST_PORT="${POSTGRES_HOST_PORT:-}"
 POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-${POSTGRES_HOST_PORT:-15432}}"
-API_BASE_PORT="${API_BASE_PORT:-${API_PORT:-8000}}"
-WEB_BASE_PORT="${WEB_BASE_PORT:-${WEB_PORT:-5173}}"
+API_BASE_PORT="${API_BASE_PORT:-8000}"
+WEB_BASE_PORT="${WEB_BASE_PORT:-5173}"
 API_LISTEN_HOST="${API_LISTEN_HOST:-${API_HOST:-0.0.0.0}}"
 WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-${WEB_HOST:-0.0.0.0}}"
 HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"
@@ -346,6 +346,14 @@ for name in os.listdir("/proc"):
 PY
 }
 
+pid_file_pids() {
+  local file
+  for file in "$RUN_DIR"/*.pid; do
+    [ -f "$file" ] || continue
+    cat "$file"
+  done
+}
+
 port_listener_pids() {
   local port="$1"
   if [ -z "$port" ]; then
@@ -363,7 +371,7 @@ port_listener_pids() {
 
 stop_existing_app_processes() {
   local pids
-  pids="$({ project_process_pids; port_listener_pids "$API_BASE_PORT"; port_listener_pids "$WEB_BASE_PORT"; } | unique_lines)"
+  pids="$({ pid_file_pids; project_process_pids; } | unique_lines)"
   if [ -z "$pids" ]; then
     kill_pids "API/frontend" || true
     return 0
@@ -371,6 +379,7 @@ stop_existing_app_processes() {
   # shellcheck disable=SC2206
   local pid_array=($pids)
   kill_pids "API/frontend" "${pid_array[@]}"
+  rm -f "$RUN_DIR"/*.pid 2>/dev/null || true
 }
 
 stop_existing_docker_services() {

@@ -57,6 +57,7 @@
 - [x] 已修复目标交易日落到周末问题：交易计划目标日找不到未来交易日历记录时，兜底跳过周六/周日；`start.sh` 最新开市日自检新增“非交易日目标计划行数”，若已有计划目标日为周末或日历明确休市则自动重算。
 - [x] 已修复云服务器盘中跟踪 502 高风险链路：实时行情默认优先按计划股直连新浪轻量接口，AkShare 全市场源降为后备；Vite 代理增加超时和 JSON 错误响应；`start.sh` 启动后验证 Web 同源 `/api/health` 代理穿透。
 - [x] 已修复模拟持仓实时盯市缺口：实时行情回补现在同时覆盖今日交易计划股和仍在持仓的模拟/虚拟股票；模拟交易 latest 可识别中国今天缺交易日历行但已有实时资金曲线的场景；Web 只要存在活跃模拟持仓，也会按中国今天每 60 秒刷新实时行情和模拟 workflow。
+- [x] 已修复 `start.sh` 端口顺延粘滞和 502 刷屏问题：API/Web 默认基准端口固定为 `8000/5173`，不再用 `.env` 里上次写入的 `API_PORT/WEB_PORT` 作为下一次启动基准；重启先停本项目进程后复用默认端口，只有其他项目占用默认端口时才顺延；Vite `/api` 代理超时提高到 120 秒，前端自动实时刷新连续失败 3 次后暂停，避免不间断弹出 502。
 
 ## 开发原则
 
@@ -66,6 +67,19 @@
 - 优先做能独立演示的垂直切片，避免先搭复杂平台。
 
 ## 最新验证记录
+
+### 2026-06-29 `start.sh` 默认端口复用与 502 刷屏修复
+
+- 修复点：
+  - `start.sh` 的 `API_BASE_PORT` / `WEB_BASE_PORT` 默认固定为 `8000` / `5173`，不再从 `.env` 的 `API_PORT` / `WEB_PORT` 继承上一次顺延后的端口。
+  - `start.sh` 重启时只停止本项目 systemd、pid 文件和仓库工作目录内的 API/Web 进程；不再无差别杀掉占用 `8000/5173` 的其他项目。其他项目占用默认端口时，后续端口探测才会顺延。
+  - Vite `/api` 代理 `timeout` / `proxyTimeout` 从 30 秒提高到 120 秒，减少实时行情慢请求触发代理 502。
+  - Web 自动盘中刷新连续失败 3 次后暂停定时器，避免同一 502 每 60 秒反复刷屏；用户仍可手动点击“跟踪并模拟交易”重试。
+- 验证：
+  - `.venv/bin/python -m pytest tests/test_deployment_scripts.py -q`：19 passed。
+  - `bash -n start.sh stop.sh deploy_ubuntu.sh deploy.sh`：通过。
+  - `cd frontend && npm test -- --run`：4 passed。
+  - `cd frontend && npm run build`：通过，仍有既有 VueUse pure annotation 和 chunk size warning。
 
 ### 2026-06-29 云服务器模拟持仓实时盯市修复
 

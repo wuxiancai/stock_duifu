@@ -424,8 +424,8 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
 
     assert "CONFIGURED_POSTGRES_HOST_PORT=\"${POSTGRES_HOST_PORT:-}\"" in script
     assert 'POSTGRES_BASE_PORT="${POSTGRES_BASE_PORT:-${POSTGRES_HOST_PORT:-15432}}"' in script
-    assert 'API_BASE_PORT="${API_BASE_PORT:-${API_PORT:-8000}}"' in script
-    assert 'WEB_BASE_PORT="${WEB_BASE_PORT:-${WEB_PORT:-5173}}"' in script
+    assert 'API_BASE_PORT="${API_BASE_PORT:-8000}"' in script
+    assert 'WEB_BASE_PORT="${WEB_BASE_PORT:-5173}"' in script
     assert 'API_LISTEN_HOST="${API_LISTEN_HOST:-${API_HOST:-0.0.0.0}}"' in script
     assert 'WEB_LISTEN_HOST="${WEB_LISTEN_HOST:-${WEB_HOST:-0.0.0.0}}"' in script
     assert 'HEALTHCHECK_HOST="${HEALTHCHECK_HOST:-127.0.0.1}"' in script
@@ -448,6 +448,8 @@ def test_start_script_defaults_to_lan_listen_host() -> None:
     assert "sock.bind((host, port))" in script
     assert 'API_PORT="$(next_available_port "$API_LISTEN_HOST" "$API_BASE_PORT")"' in script
     assert 'WEB_PORT="$(next_available_port "$WEB_LISTEN_HOST" "$WEB_BASE_PORT")"' in script
+    assert 'API_BASE_PORT="${API_BASE_PORT:-${API_PORT:-8000}}"' not in script
+    assert 'WEB_BASE_PORT="${WEB_BASE_PORT:-${WEB_PORT:-5173}}"' not in script
     assert 'POSTGRES_HOST_PORT="$(next_available_port "$DB_HOST" "${CONFIGURED_POSTGRES_HOST_PORT:-$POSTGRES_BASE_PORT}")' in script
     assert "systemd units not installed; falling back to nohup background processes" in script
     assert 'systemctl restart "${SERVICE_PREFIX}-api.service"' in script
@@ -473,8 +475,11 @@ def test_start_script_stops_existing_project_before_restart_and_stop_script_exis
     assert "stop_existing_project" in script
     assert script.index("\n  stop_existing_project") > 0
     assert "stop_systemd_services" in script
+    assert "pid_file_pids" in script
     assert "project_process_pids" in script
     assert "port_listener_pids" in script
+    assert 'pids="$({ pid_file_pids; project_process_pids; } | unique_lines)"' in script
+    assert 'pids="$({ project_process_pids; port_listener_pids "$API_BASE_PORT"; port_listener_pids "$WEB_BASE_PORT"; } | unique_lines)"' not in script
     assert "docker_compose down" in script
     assert "stopping existing project before restart" in script
 
@@ -500,7 +505,7 @@ def test_vite_dev_server_proxies_same_origin_api_requests() -> None:
 
     assert "process.env.VITE_DEV_API_PROXY_TARGET" in vite_config
     assert "target: apiProxyTarget" in vite_config
-    assert "proxyTimeout: 30000" in vite_config
+    assert "proxyTimeout: 120000" in vite_config
     assert "api_proxy_error" in vite_config
     assert "process.env.VITE_API_BASE_URL" not in vite_config
     assert "VITE_API_BASE_URL" not in env_example

@@ -71,7 +71,9 @@ const simulationLoading = ref(false)
 const routePath = ref(window.location.pathname)
 const intradayRefreshTimer = ref<number | null>(null)
 const intradayRefreshRunning = ref(false)
+const intradayRefreshFailureCount = ref(0)
 const INTRADAY_REFRESH_INTERVAL_MS = 60_000
+const MAX_INTRADAY_REFRESH_FAILURES = 3
 
 const statusType = computed(() => {
   if (error.value) return 'danger'
@@ -303,8 +305,16 @@ async function refreshIntradayWorkflow() {
     trackingItems.value = workflowResult.tracking
     simulation.value = workflowResult.simulation
     tradePlans.value = await fetchLatestTradePlans()
+    intradayRefreshFailureCount.value = 0
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '盘中实时刷新失败'
+    intradayRefreshFailureCount.value += 1
+    const message = err instanceof Error ? err.message : '盘中实时刷新失败'
+    if (intradayRefreshFailureCount.value >= MAX_INTRADAY_REFRESH_FAILURES) {
+      stopIntradayRefresh()
+      error.value = `${message}；自动刷新已暂停，请重启服务或手动点击“跟踪并模拟交易”重试`
+    } else {
+      error.value = message
+    }
   } finally {
     intradayRefreshRunning.value = false
   }
@@ -312,6 +322,7 @@ async function refreshIntradayWorkflow() {
 
 function configureIntradayRefresh() {
   stopIntradayRefresh()
+  intradayRefreshFailureCount.value = 0
   if (!intradayRefreshTargetDate(tradePlans.value, simulation.value)) return
   intradayRefreshTimer.value = window.setInterval(() => {
     void refreshIntradayWorkflow()

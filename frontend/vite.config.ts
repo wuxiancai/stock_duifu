@@ -16,8 +16,8 @@ const allowedHosts = Array.from(
 const apiProxy: ProxyOptions = {
   target: apiProxyTarget,
   changeOrigin: true,
-  timeout: 30000,
-  proxyTimeout: 30000,
+  timeout: 120000,
+  proxyTimeout: 120000,
   configure(proxy) {
     proxy.on('error', (error, _request, response) => {
       if (!response || !('writeHead' in response) || response.headersSent) {
