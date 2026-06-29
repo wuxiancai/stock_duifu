@@ -141,6 +141,7 @@ def test_tushare_provider_maps_real_api_frames_to_snapshot_records() -> None:
     assert snapshot.trading_calendar[0].is_open is True
     assert snapshot.stock_basic[0].stock_code == "000001"
     assert snapshot.index_daily[0].index_code == "000001.SH"
+    assert snapshot.index_daily[0].amount == 1560473972700.0
     assert snapshot.stock_daily[0].amount == 1511009564.95
     assert {record.limit_status for record in snapshot.limit_snapshot} == {
         "limit_up",

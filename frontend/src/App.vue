@@ -430,8 +430,8 @@ function formatMoney(value: number | null | undefined) {
 
 function formatIndexAmount(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return '--'
-  if (Math.abs(value) >= 1000000000000) return `${(value / 1000000000000).toFixed(2)} 万亿`
-  if (Math.abs(value) >= 100000000) return `${(value / 100000000).toFixed(2)} 亿`
+  if (Math.abs(value) >= 1000000000000) return `${(value / 1000000000000).toFixed(3)}万亿`
+  if (Math.abs(value) >= 100000000) return `${(value / 100000000).toFixed(2)}亿`
   return value.toLocaleString('zh-CN')
 }
 
@@ -807,8 +807,11 @@ onBeforeUnmount(() => {
             <strong>{{ item.name }}</strong>
             <template v-if="item.available">
               <span>{{ formatPrice(item.close) }}</span>
+              <span class="ticker-value-separator">｜</span>
               <span>{{ formatSignedPrice(item.change) }}</span>
+              <span class="ticker-value-separator">｜</span>
               <span>{{ formatSignedPercent(item.pct_chg) }}</span>
+              <span class="ticker-value-separator">｜</span>
               <span>{{ formatIndexAmount(item.amount) }}</span>
             </template>
             <span v-else class="ticker-empty">暂无</span>

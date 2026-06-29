@@ -261,7 +261,7 @@ def test_market_index_ticker_api_returns_configured_indices_with_latest_quotes(m
                     low=2995,
                     close=3020,
                     volume=1200,
-                    amount=10000000000,
+                    amount=1666000000,
                     source="unit-test",
                 ),
                 IndexDaily(
@@ -303,7 +303,7 @@ def test_market_index_ticker_api_returns_configured_indices_with_latest_quotes(m
         "close": 3020.0,
         "change": 20.0,
         "pct_chg": 0.6667,
-        "amount": 10000000000.0,
+        "amount": 1666000000000.0,
         "available": True,
     }
     assert payload["items"][1]["available"] is True

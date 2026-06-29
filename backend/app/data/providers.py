@@ -69,6 +69,11 @@ def as_float(value, default: Optional[float] = 0.0) -> Optional[float]:
     return float(value)
 
 
+def tushare_amount_to_yuan(value) -> Optional[float]:
+    amount = as_float(value, default=None)
+    return amount * 1000 if amount is not None else None
+
+
 def as_date(value) -> date:
     if isinstance(value, date):
         return value
@@ -585,7 +590,7 @@ class TushareMarketDataProvider:
                         low=as_float(row["low"]),
                         close=as_float(row["close"]),
                         volume=as_float(row["vol"]),
-                        amount=as_float(row.get("amount"), default=None),
+                        amount=tushare_amount_to_yuan(row.get("amount")),
                         source=self.name,
                     )
                 )

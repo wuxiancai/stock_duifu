@@ -54,6 +54,8 @@ INDEX_TICKER_ITEMS: tuple[tuple[str, str], ...] = (
     ("标普", "SPX"),
     ("道琼斯", "DJI"),
 )
+CHINA_INDEX_CODES = {index_code for _, index_code in INDEX_TICKER_ITEMS[:6]}
+TUSHARE_INDEX_AMOUNT_YUAN_FLOOR = 100_000_000_000
 
 
 def generate_market_environment(engine: Engine, trade_date: date) -> MarketEnvironmentResult:
@@ -228,7 +230,7 @@ def _index_ticker_item(
         close=close,
         change=change,
         pct_chg=pct_chg,
-        amount=_number(record.amount),
+        amount=_index_amount_yuan(index_code, record.amount),
         available=True,
     )
 
@@ -390,3 +392,12 @@ def _number(value) -> Optional[float]:
     if isinstance(value, Decimal):
         return float(value)
     return float(value)
+
+
+def _index_amount_yuan(index_code: str, amount) -> Optional[float]:
+    value = _number(amount)
+    if value is None:
+        return None
+    if index_code in CHINA_INDEX_CODES and 0 < value < TUSHARE_INDEX_AMOUNT_YUAN_FLOOR:
+        return value * 1000
+    return value

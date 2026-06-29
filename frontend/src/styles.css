@@ -146,6 +146,13 @@ textarea {
   flex-wrap: wrap;
 }
 
+.toolbar-actions {
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
 .index-ticker-strip {
   display: flex;
   align-content: center;
@@ -164,7 +171,7 @@ textarea {
 .index-ticker-item {
   display: inline-flex;
   align-items: baseline;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
   white-space: nowrap;
   font-weight: 600;
@@ -188,6 +195,11 @@ textarea {
 .index-ticker-item .ticker-separator {
   margin: 0 10px;
   color: #9aa6b8;
+  font-weight: 500;
+}
+
+.index-ticker-item .ticker-value-separator {
+  color: #a4adba;
   font-weight: 500;
 }
 
@@ -558,6 +570,11 @@ textarea {
   .toolbar-actions,
   .table-tools {
     align-items: stretch;
+  }
+
+  .toolbar-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 
   .table-tools .el-input,

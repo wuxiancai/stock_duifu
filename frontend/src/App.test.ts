@@ -60,7 +60,7 @@ describe('App', () => {
             close: 3020,
             change: 20,
             pct_chg: 0.6667,
-            amount: 10000000000,
+            amount: 1666000000000,
             available: true
           },
           {
@@ -70,7 +70,7 @@ describe('App', () => {
             close: 10000,
             change: -100,
             pct_chg: -0.99,
-            amount: 21000000000,
+            amount: 2100000000000,
             available: true
           },
           {
@@ -432,7 +432,7 @@ describe('App', () => {
     expect(wrapper.text()).toContain('+0.67%')
     expect(wrapper.text()).toContain('深指')
     expect(wrapper.text()).toContain('-0.99%')
-    expect(wrapper.text()).toContain('沪指3020.00+20.00+0.67%100.00 亿｜深指')
+    expect(wrapper.text()).toContain('沪指3020.00｜+20.00｜+0.67%｜1.666万亿｜深指')
     expect(wrapper.text()).toContain('创指暂无')
     expect(wrapper.text()).toContain('最近 2 个交易日')
     expect(wrapper.text()).toContain('2026-06-18')
