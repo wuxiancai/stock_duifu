@@ -705,12 +705,13 @@ TuShare 全市场初始化验证：
   2. 计算市场环境。
   3. 计算强势板块。
   4. 筛选候选股票。
-  5. 生成交易计划。
+  5. 生成交易复盘。
+  6. 生成交易计划。
 - 新增 CLI：`python -m backend.app.workflow.cli after-close --trade-date YYYY-MM-DD`。
 - 新增脚本和 Makefile 入口：
   - `scripts/run-after-close-workflow.sh`
   - `make run-after-close-workflow`
-- workflow 返回每一步真实计数摘要，包括 `stock_daily_rows`、`sector_count`、`candidate_count`、`trade_plan_count` 和 `target_trade_date`。
+- workflow 返回每一步真实计数摘要，包括 `stock_daily_rows`、`sector_count`、`candidate_count`、`review_count`、`trade_plan_count` 和 `target_trade_date`。
 
 状态：已完成。
 

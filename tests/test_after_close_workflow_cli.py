@@ -40,6 +40,7 @@ def test_after_close_workflow_cli_outputs_json_summary(monkeypatch, capsys) -> N
             market_status="中性",
             sector_count=10,
             candidate_count=42,
+            review_count=2,
             trade_plan_count=2,
             target_trade_date=date(2026, 6, 19),
         )
@@ -79,4 +80,5 @@ def test_after_close_workflow_cli_outputs_json_summary(monkeypatch, capsys) -> N
     ]
     output = capsys.readouterr().out
     assert '"market_status": "中性"' in output
+    assert '"review_count": 2' in output
     assert '"trade_plan_count": 2' in output

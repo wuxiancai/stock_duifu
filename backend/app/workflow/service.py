@@ -8,7 +8,7 @@ from backend.app.candidate.service import generate_candidate_stocks
 from backend.app.data.ingest import ingest_market_snapshot
 from backend.app.market.service import generate_market_environment
 from backend.app.sector.service import generate_sector_rankings
-from backend.app.trade.service import generate_trade_plans
+from backend.app.trade.service import generate_trade_plans, generate_trade_reviews
 from backend.app.system.monitoring import (
     audit_step_status,
     create_data_job_run,
@@ -31,6 +31,7 @@ class AfterCloseWorkflowResult:
     market_status: str
     sector_count: int
     candidate_count: int
+    review_count: int
     trade_plan_count: int
     target_trade_date: Optional[date]
 
@@ -108,6 +109,19 @@ def run_after_close_workflow(
                 lambda items: {"candidate_count": len(items)},
                 lambda items: len(items),
             )
+            reviews = record_data_job_step(
+                engine,
+                run_id,
+                "生成交易复盘",
+                lambda: generate_trade_reviews(engine, trade_date),
+                lambda item: {
+                    "review_date": item.review_date,
+                    "review_count": item.total_count,
+                    "triggered_count": item.triggered_count,
+                    "win_rate": item.win_rate,
+                },
+                lambda item: item.total_count,
+            )
             plans = record_data_job_step(
                 engine,
                 run_id,
@@ -132,6 +146,7 @@ def run_after_close_workflow(
             market = generate_market_environment(engine, trade_date)
             sectors = generate_sector_rankings(engine, trade_date, sector_provider)
             candidates = generate_candidate_stocks(engine, trade_date, candidate_provider, limit=candidate_limit)
+            reviews = generate_trade_reviews(engine, trade_date)
             plans = generate_trade_plans(engine, trade_date, limit=trade_plan_limit)
     except Exception as exc:
         if record_job and run_id is not None:
@@ -152,6 +167,7 @@ def run_after_close_workflow(
         market_status=market.market_status,
         sector_count=len(sectors),
         candidate_count=len(candidates),
+        review_count=reviews.total_count,
         trade_plan_count=len(plans),
         target_trade_date=target_trade_date,
     )

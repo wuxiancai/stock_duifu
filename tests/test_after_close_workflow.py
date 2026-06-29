@@ -43,6 +43,10 @@ def test_after_close_workflow_runs_prd_steps_in_order(monkeypatch) -> None:
         calls.append(("candidates", engine, trade_date, provider.source, limit))
         return [SimpleNamespace(stock_code="000001"), SimpleNamespace(stock_code="000002")]
 
+    def fake_reviews(engine, trade_date):
+        calls.append(("reviews", engine, trade_date))
+        return SimpleNamespace(review_date=trade_date, total_count=2, triggered_count=1, win_rate=0.5)
+
     def fake_plans(engine, plan_date, limit=None):
         calls.append(("plans", engine, plan_date, limit))
         return [SimpleNamespace(stock_code="000001", target_trade_date=date(2026, 6, 19))]
@@ -51,6 +55,7 @@ def test_after_close_workflow_runs_prd_steps_in_order(monkeypatch) -> None:
     monkeypatch.setattr("backend.app.workflow.service.generate_market_environment", fake_market)
     monkeypatch.setattr("backend.app.workflow.service.generate_sector_rankings", fake_sectors)
     monkeypatch.setattr("backend.app.workflow.service.generate_candidate_stocks", fake_candidates)
+    monkeypatch.setattr("backend.app.workflow.service.generate_trade_reviews", fake_reviews)
     monkeypatch.setattr("backend.app.workflow.service.generate_trade_plans", fake_plans)
 
     result = run_after_close_workflow(
@@ -68,6 +73,7 @@ def test_after_close_workflow_runs_prd_steps_in_order(monkeypatch) -> None:
         ("market", "engine", date(2026, 6, 18)),
         ("sectors", "engine", date(2026, 6, 18), "sector-test"),
         ("candidates", "engine", date(2026, 6, 18), "candidate-test", 50),
+        ("reviews", "engine", date(2026, 6, 18)),
         ("plans", "engine", date(2026, 6, 18), 2),
     ]
     assert result.trade_date == date(2026, 6, 18)
@@ -76,5 +82,6 @@ def test_after_close_workflow_runs_prd_steps_in_order(monkeypatch) -> None:
     assert result.market_status == "中性"
     assert result.sector_count == 1
     assert result.candidate_count == 2
+    assert result.review_count == 2
     assert result.trade_plan_count == 1
     assert result.target_trade_date == date(2026, 6, 19)
