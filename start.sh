@@ -131,7 +131,6 @@ import sys
 host = sys.argv[1]
 port = int(sys.argv[2])
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind((host, port))
     except OSError:
@@ -146,6 +145,19 @@ next_available_port() {
     port=$((port + 1))
   done
   printf '%s' "$port"
+}
+
+print_port_selection() {
+  local name="$1"
+  local base_port="$2"
+  local selected_port="$3"
+  local listen_host="$4"
+
+  if [ "$selected_port" != "$base_port" ]; then
+    info "$name base port $base_port is busy on $listen_host; selected available port: $selected_port"
+  else
+    info "selected $name port: $selected_port"
+  fi
 }
 
 wait_for_url() {
@@ -389,6 +401,10 @@ select_runtime_ports() {
   DATABASE_URL="postgresql+psycopg://stock:stock@$DB_HOST:$POSTGRES_HOST_PORT/stock"
   VITE_DEV_API_PROXY_TARGET="http://$HEALTHCHECK_HOST:$API_PORT"
   export POSTGRES_HOST_PORT API_PORT WEB_PORT DATABASE_URL VITE_DEV_API_PROXY_TARGET
+  print_port_selection "PostgreSQL host" "${CONFIGURED_POSTGRES_HOST_PORT:-$POSTGRES_BASE_PORT}" "$POSTGRES_HOST_PORT" "$DB_HOST"
+  print_port_selection "API" "$API_BASE_PORT" "$API_PORT" "$API_LISTEN_HOST"
+  print_port_selection "Web" "$WEB_BASE_PORT" "$WEB_PORT" "$WEB_LISTEN_HOST"
+  info "browser API requests use same-origin /api -> $VITE_DEV_API_PROXY_TARGET"
 }
 
 ensure_dependencies() {
@@ -678,6 +694,7 @@ check_web_page_access() {
 
   info "局域网访问地址：$lan_url"
   info "如果局域网无法访问，请执行：sudo ufw allow $WEB_PORT/tcp"
+  info "API 默认只给前端本机代理使用，通常无需对外放通；如需直接调试 API，可临时放通 $API_PORT/tcp。"
 }
 
 main() {
@@ -713,6 +730,9 @@ main() {
 
 如果局域网其他电脑打不开页面，请在 Ubuntu 放通 Web 端口：
   sudo ufw allow $WEB_PORT/tcp
+API 默认只给 Web 服务在服务器本机代理使用，通常不需要对外放通。
+如需直接从外部调试 API，再临时执行：
+  sudo ufw allow $API_PORT/tcp
 
 常用命令：
   重新启动系统：bash start.sh

@@ -136,7 +136,7 @@ def test_deploy_script_advances_postgres_port_when_base_port_is_busy() -> None:
         busy_socket.close()
 
     assert result.returncode == 0, result.stderr
-    assert f"selected PostgreSQL host port: {expected_port}" in result.stdout
+    assert f"PostgreSQL host base port {busy_port} is busy on 127.0.0.1; selected available port: {expected_port}" in result.stdout
     assert f"POSTGRES_HOST_PORT={expected_port} docker compose up -d postgres" in result.stdout
     assert f"127.0.0.1:{expected_port}/stock" in result.stdout
 
@@ -177,11 +177,82 @@ def test_deploy_script_overrides_stale_local_database_url_when_port_advances() -
         busy_socket.close()
 
     assert result.returncode == 0, result.stderr
-    assert f"selected PostgreSQL host port: {expected_port}" in result.stdout
+    assert f"PostgreSQL host base port {busy_port} is busy on 127.0.0.1; selected available port: {expected_port}" in result.stdout
     assert (
         f"DATABASE_URL='postgresql+psycopg://stock:stock@127.0.0.1:{expected_port}/stock' "
         "scripts/db-upgrade.sh"
     ) in result.stdout
+
+
+def test_deploy_script_advances_api_and_web_ports_when_base_ports_are_busy() -> None:
+    api_socket: Optional[socket.socket] = None
+    web_socket: Optional[socket.socket] = None
+    try:
+        for candidate_port in range(62000, 64000, 4):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as api_probe:
+                api_probe.settimeout(0.1)
+                if api_probe.connect_ex(("127.0.0.1", candidate_port + 1)) == 0:
+                    continue
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as web_probe:
+                web_probe.settimeout(0.1)
+                if web_probe.connect_ex(("127.0.0.1", candidate_port + 3)) == 0:
+                    continue
+            candidate_api_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            candidate_web_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                candidate_api_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                candidate_web_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                candidate_api_socket.bind(("127.0.0.1", candidate_port))
+                candidate_web_socket.bind(("127.0.0.1", candidate_port + 2))
+                api_socket = candidate_api_socket
+                web_socket = candidate_web_socket
+                break
+            except OSError:
+                candidate_api_socket.close()
+                candidate_web_socket.close()
+                continue
+        else:
+            raise AssertionError("No suitable adjacent ports found for API/Web port test")
+
+        assert api_socket is not None
+        assert web_socket is not None
+        api_socket.listen(1)
+        web_socket.listen(1)
+        busy_api_port = api_socket.getsockname()[1]
+        busy_web_port = web_socket.getsockname()[1]
+        expected_api_port = busy_api_port + 1
+        expected_web_port = busy_web_port + 1
+
+        script = ROOT / "deploy.sh"
+        result = run_script(
+            str(script),
+            {
+                "STOCK_DEPLOY_DRY_RUN": "1",
+                "FORCE_INSTALL": "1",
+                "TUSHARE_TOKEN": "token-for-dry-run",
+                "API_BASE_PORT": str(busy_api_port),
+                "WEB_BASE_PORT": str(busy_web_port),
+            },
+        )
+    finally:
+        if api_socket is not None:
+            api_socket.close()
+        if web_socket is not None:
+            web_socket.close()
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        f"API base port {busy_api_port} is busy on 0.0.0.0; "
+        f"selected available port: {expected_api_port}"
+    ) in result.stdout
+    assert (
+        f"Web base port {busy_web_port} is busy on 0.0.0.0; "
+        f"selected available port: {expected_web_port}"
+    ) in result.stdout
+    assert f"API_PORT={expected_api_port}" in result.stdout
+    assert f"WEB_PORT={expected_web_port}" in result.stdout
+    assert f"API 代理： /api -> http://127.0.0.1:{expected_api_port}" in result.stdout
+    assert f"sudo ufw allow {expected_web_port}/tcp" in result.stdout
 
 
 def test_get_data_script_runs_after_close_workflow_in_dry_run() -> None:

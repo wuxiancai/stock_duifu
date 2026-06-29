@@ -142,7 +142,6 @@ import sys
 host = sys.argv[1]
 port = int(sys.argv[2])
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind((host, port))
     except OSError:
@@ -157,6 +156,19 @@ next_available_port() {
     port=$((port + 1))
   done
   printf '%s' "$port"
+}
+
+print_port_selection() {
+  local name="$1"
+  local base_port="$2"
+  local selected_port="$3"
+  local listen_host="$4"
+
+  if [ "$selected_port" != "$base_port" ]; then
+    info "$name base port $base_port is busy on $listen_host; selected available port: $selected_port"
+  else
+    info "selected $name port: $selected_port"
+  fi
 }
 
 is_local_stock_database_url() {
@@ -529,9 +541,9 @@ select_runtime_ports() {
   POSTGRES_HOST_PORT="$(next_available_port "$DB_HOST" "$pg_base")"
   API_PORT="$(next_available_port "$API_LISTEN_HOST" "$API_BASE_PORT")"
   WEB_PORT="$(next_available_port "$WEB_LISTEN_HOST" "$WEB_BASE_PORT")"
-  info "selected PostgreSQL host port: $POSTGRES_HOST_PORT"
-  info "selected API port: $API_PORT"
-  info "selected Web port: $WEB_PORT"
+  print_port_selection "PostgreSQL host" "$pg_base" "$POSTGRES_HOST_PORT" "$DB_HOST"
+  print_port_selection "API" "$API_BASE_PORT" "$API_PORT" "$API_LISTEN_HOST"
+  print_port_selection "Web" "$WEB_BASE_PORT" "$WEB_PORT" "$WEB_LISTEN_HOST"
   export POSTGRES_HOST_PORT API_PORT WEB_PORT
 }
 
@@ -792,6 +804,16 @@ main() {
 
 部署演练完成：没有真正修改文件、安装软件、启动容器、写入服务或拉取行情数据。
 
+演练选择的端口：
+  Web 页面端口：      $WEB_PORT
+  API 服务端口：      $API_PORT
+  PostgreSQL 宿主端口：$POSTGRES_HOST_PORT
+  API 代理： /api -> http://$HEALTHCHECK_HOST:$API_PORT
+
+防火墙：
+  对外访问页面只需要放通 Web 端口：sudo ufw allow $WEB_PORT/tcp
+  API 默认只给 Web 服务在服务器本机代理使用，通常不需要对外放通。
+
 真实部署会执行以下动作：
   1. 自适应检查 Linux/macOS 依赖、Docker、Node.js 和 Python 环境。
   2. 创建或复用 .env，并在需要时询问 TuShare Token；回车可跳过。
@@ -825,6 +847,11 @@ EOF
 访问地址：
   本机 Web： http://$HEALTHCHECK_HOST:$WEB_PORT
   API 健康： http://$HEALTHCHECK_HOST:$API_PORT/api/health
+  API 代理： /api -> http://$HEALTHCHECK_HOST:$API_PORT
+
+防火墙：
+  对外访问页面只需要放通 Web 端口：sudo ufw allow $WEB_PORT/tcp
+  API 默认只给 Web 服务在服务器本机代理使用，通常不需要对外放通。
 
 数据说明：
   - deploy.sh 只负责部署、迁移和启动；deploy_ubuntu.sh 仅保留为兼容旧命令的入口。
