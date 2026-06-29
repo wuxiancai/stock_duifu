@@ -56,6 +56,7 @@
 - [x] 已修复旧候选数据导致股票池空白问题：`start.sh` 最新开市日自检新增 `stock_pool_rank` 非空行数检查，旧数据会自动重算；候选池 API 对没有 `stock_pool_rank` 的旧数据按评分前 10 临时兜底，避免页面空白。
 - [x] 已修复目标交易日落到周末问题：交易计划目标日找不到未来交易日历记录时，兜底跳过周六/周日；`start.sh` 最新开市日自检新增“非交易日目标计划行数”，若已有计划目标日为周末或日历明确休市则自动重算。
 - [x] 已修复云服务器盘中跟踪 502 高风险链路：实时行情默认优先按计划股直连新浪轻量接口，AkShare 全市场源降为后备；Vite 代理增加超时和 JSON 错误响应；`start.sh` 启动后验证 Web 同源 `/api/health` 代理穿透。
+- [x] 已修复模拟持仓实时盯市缺口：实时行情回补现在同时覆盖今日交易计划股和仍在持仓的模拟/虚拟股票；模拟交易 latest 可识别中国今天缺交易日历行但已有实时资金曲线的场景；Web 只要存在活跃模拟持仓，也会按中国今天每 60 秒刷新实时行情和模拟 workflow。
 
 ## 开发原则
 
@@ -65,6 +66,24 @@
 - 优先做能独立演示的垂直切片，避免先搭复杂平台。
 
 ## 最新验证记录
+
+### 2026-06-29 云服务器模拟持仓实时盯市修复
+
+- 云端真实症状：
+  - `curl http://fojing.art:5174/api/trade-plans/latest` 返回 `target_trade_date=2026-06-29`，今日计划股 `688502` 当前价已更新为 `578.0`。
+  - `curl http://fojing.art:5174/api/simulation/latest` 仍返回 `as_of_date=2026-06-26`，持仓 `000725/301308/688502` 的 `current_price` 停留在旧快照，导致浮盈亏和止损/止盈卖出判断不会按今日实时价运行。
+- 根因：
+  - `backfill_trade_plan_realtime_quotes()` 只按目标交易日 `trade_plan` 股票拉实时行情，漏掉已经买入但不在今日计划里的活跃模拟/虚拟持仓。
+  - `load_latest_simulation()` 在已有交易日历表时只接受 `trading_calendar.is_open=true` 的资金曲线日；若中国今天工作日的日历行暂缺，今日实时资金曲线会被 latest 过滤掉。
+  - 前端自动轮询只看最新交易计划目标日是否等于中国今天，没有把“仍有活跃模拟持仓”作为独立实时盯市条件。
+- 修复点：
+  - 实时回补股票集合改为“今日交易计划股 + 活跃模拟持仓股 + 活跃虚拟持仓股”，并继续写入 `stock_daily` 后运行模拟 workflow。
+  - 模拟 latest 的资金曲线过滤允许中国今天工作日且交易日历暂缺的实时资金点进入结果。
+  - Web 存在活跃模拟/虚拟持仓时，用中国今天作为实时刷新目标，每 60 秒执行实时行情回补和模拟 workflow。
+- 验证：
+  - `.venv/bin/python -m pytest tests/test_realtime_quote_workflow.py tests/test_simulation_trading.py -q`：36 passed。
+  - `cd frontend && npm test -- --run`：4 passed。
+  - `cd frontend && npm run build`：通过，仍有既有 VueUse pure annotation 和 chunk size warning。
 
 ### 2026-06-29 云服务器 `/api/trade-plans/track-realtime` 502 修复
 

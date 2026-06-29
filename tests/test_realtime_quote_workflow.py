@@ -15,7 +15,7 @@ from backend.app.data.cli import load_realtime_quote_provider
 import backend.app.data.realtime_quotes as realtime_quotes
 from backend.app.data.realtime_quotes import run_realtime_quote_workflow
 from backend.app.data.types import StockDailyRecord
-from backend.app.db.models import SimulationTrade, StockDaily, TradePlan, TradingCalendar, metadata
+from backend.app.db.models import SimulationAccount, SimulationPosition, SimulationTrade, StockDaily, TradePlan, TradingCalendar, metadata
 
 
 def _engine():
@@ -259,6 +259,104 @@ def test_run_realtime_quote_workflow_backfills_quotes_tracks_plan_and_buys() -> 
         assert plan.trigger_price is not None
         assert session.scalar(select(StockDaily).where(StockDaily.stock_code == "000001"))
         assert session.scalar(select(SimulationTrade).where(SimulationTrade.stock_code == "000001"))
+
+
+def test_run_realtime_quote_workflow_backfills_active_position_quotes() -> None:
+    engine = _engine()
+    with Session(engine) as session:
+        _seed_plan(session)
+        old_plan = TradePlan(
+            plan_date=date(2026, 6, 17),
+            target_trade_date=date(2026, 6, 18),
+            stock_code="300308",
+            stock_name="持仓股票",
+            sector_name="科技风格",
+            strategy_type="趋势强势",
+            stock_score=88,
+            sector_score=90,
+            market_status="中性",
+            buy_condition="目标交易日价格触达计划买入区间",
+            buy_price_low=100,
+            buy_price_high=110,
+            stop_loss_price=95,
+            take_profit_price=132,
+            position_ratio=0.2,
+            status="已触发",
+            trigger_price=100,
+            tracking_note="历史持仓",
+            risk_note="严格执行止损",
+        )
+        session.add(old_plan)
+        account = SimulationAccount(
+            account_name="默认模拟账户",
+            initial_cash=1000000,
+            available_cash=800000,
+            frozen_cash=0,
+            market_value=100000,
+            total_assets=900000,
+            total_profit=-100000,
+            total_return=-0.1,
+            max_drawdown=0.1,
+        )
+        session.add(account)
+        session.flush()
+        session.add(
+            SimulationPosition(
+                account_id=account.id,
+                trade_plan_id=old_plan.id,
+                stock_code="300308",
+                stock_name="持仓股票",
+                sector_name="科技风格",
+                strategy_type="趋势强势",
+                buy_price=100,
+                current_price=100,
+                quantity=1000,
+                market_value=100000,
+                cost_amount=100000,
+                unrealized_profit=0,
+                unrealized_return=0,
+                stop_loss_price=95,
+                take_profit_price=132,
+                position_status="持仓中",
+                buy_reason="历史持仓",
+                sell_reason="",
+            )
+        )
+        session.commit()
+
+    position_daily = StockDailyRecord(
+        stock_code="300308",
+        trade_date=date(2026, 6, 19),
+        open=101,
+        high=106,
+        low=99,
+        close=105,
+        pre_close=100,
+        change=5,
+        pct_chg=5,
+        volume=100000,
+        amount=105000000,
+        turnover_rate=3.0,
+        source="unit-test-realtime",
+    )
+    provider = FakeRealtimeProvider([_daily(), position_daily])
+
+    result = run_realtime_quote_workflow(
+        engine,
+        date(2026, 6, 19),
+        provider,
+        allow_date_mismatch=True,
+    )
+
+    assert provider.calls == [(["000001", "300308"], date(2026, 6, 19))]
+    assert result.backfill.planned_stock_count == 1
+    assert result.backfill.requested_stock_count == 2
+    assert result.backfill.fetched_stock_daily_rows == 2
+    assert result.workflow is not None
+    with Session(engine) as session:
+        position = session.scalar(select(SimulationPosition).where(SimulationPosition.stock_code == "300308"))
+        assert float(position.current_price) == 105.0
+        assert float(position.market_value) == 105000.0
 
 
 def test_run_realtime_quote_workflow_refreshes_when_stock_daily_already_exists() -> None:

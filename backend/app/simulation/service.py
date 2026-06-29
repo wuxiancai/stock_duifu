@@ -5,7 +5,7 @@ from time import sleep
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, desc, func, select
+from sqlalchemy import and_, delete, desc, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -685,8 +685,8 @@ def _latest_open_equity_date(session: Session, account_id: int) -> Optional[date
     query = select(func.max(SimulationEquity.trade_date)).select_from(SimulationEquity).where(SimulationEquity.account_id == account_id)
     if _calendar_has_rows(session):
         query = (
-            query.join(TradingCalendar, TradingCalendar.trade_date == SimulationEquity.trade_date)
-            .where(TradingCalendar.is_open.is_(True))
+            query.outerjoin(TradingCalendar, TradingCalendar.trade_date == SimulationEquity.trade_date)
+            .where(_open_or_live_missing_calendar_condition())
         )
     return session.scalar(query)
 
@@ -694,14 +694,24 @@ def _latest_open_equity_date(session: Session, account_id: int) -> Optional[date
 def _simulation_equity_query(session: Session, account_id: int):
     query = select(SimulationEquity).where(SimulationEquity.account_id == account_id)
     if _calendar_has_rows(session):
-        query = query.join(TradingCalendar, TradingCalendar.trade_date == SimulationEquity.trade_date).where(
-            TradingCalendar.is_open.is_(True)
+        query = query.outerjoin(TradingCalendar, TradingCalendar.trade_date == SimulationEquity.trade_date).where(
+            _open_or_live_missing_calendar_condition()
         )
     return query.order_by(SimulationEquity.trade_date).limit(30)
 
 
 def _calendar_has_rows(session: Session) -> bool:
     return bool(session.scalar(select(func.count()).select_from(TradingCalendar)))
+
+
+def _open_or_live_missing_calendar_condition():
+    live_date = datetime.now(TRADING_TZ).date()
+    if live_date.weekday() >= 5:
+        return TradingCalendar.is_open.is_(True)
+    return or_(
+        TradingCalendar.is_open.is_(True),
+        and_(SimulationEquity.trade_date == live_date, TradingCalendar.trade_date.is_(None)),
+    )
 
 
 def _refresh_position_price(position: SimulationPosition, price: float) -> None:

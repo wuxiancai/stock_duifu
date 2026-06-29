@@ -256,11 +256,12 @@ async function loadDashboard() {
     let simulationResult = await fetchLatestSimulation().catch(() => null)
     let realtimeTrackingItems: TradePlanTrackingResponse['items'] = []
 
-    if (isTodayInChina(tradePlansResult.target_trade_date)) {
-      const realtimeResult = await trackRealtimeTradePlans(tradePlansResult.target_trade_date).catch(() => null)
+    const realtimeTargetDate = intradayRefreshTargetDate(tradePlansResult, simulationResult)
+    if (realtimeTargetDate) {
+      const realtimeResult = await trackRealtimeTradePlans(realtimeTargetDate).catch(() => null)
       if (realtimeResult) {
         realtimeTrackingItems = realtimeResult.items
-        const workflowResult = await runSimulationWorkflow(tradePlansResult.target_trade_date).catch(() => null)
+        const workflowResult = await runSimulationWorkflow(realtimeTargetDate).catch(() => null)
         if (workflowResult) {
           realtimeTrackingItems = workflowResult.tracking
           simulationResult = workflowResult.simulation
@@ -290,8 +291,8 @@ async function loadDashboard() {
 }
 
 async function refreshIntradayWorkflow() {
-  const targetTradeDate = tradePlans.value?.target_trade_date
-  if (!targetTradeDate || !isTodayInChina(targetTradeDate) || intradayRefreshRunning.value) return
+  const targetTradeDate = intradayRefreshTargetDate(tradePlans.value, simulation.value)
+  if (!targetTradeDate || intradayRefreshRunning.value) return
 
   intradayRefreshRunning.value = true
 
@@ -311,7 +312,7 @@ async function refreshIntradayWorkflow() {
 
 function configureIntradayRefresh() {
   stopIntradayRefresh()
-  if (!isTodayInChina(tradePlans.value?.target_trade_date)) return
+  if (!intradayRefreshTargetDate(tradePlans.value, simulation.value)) return
   intradayRefreshTimer.value = window.setInterval(() => {
     void refreshIntradayWorkflow()
   }, INTRADAY_REFRESH_INTERVAL_MS)
@@ -464,6 +465,16 @@ function chinaToday() {
 
 function isTodayInChina(value: string | null | undefined) {
   return Boolean(value) && value === chinaToday()
+}
+
+function intradayRefreshTargetDate(
+  plans: TradePlansLatestResponse | null | undefined,
+  simulationResult: SimulationLatestResponse | null | undefined
+) {
+  if (isTodayInChina(plans?.target_trade_date)) return plans?.target_trade_date ?? null
+  if ((simulationResult?.positions.length ?? 0) > 0) return chinaToday()
+  if ((simulationResult?.virtual_positions?.length ?? 0) > 0) return chinaToday()
+  return null
 }
 
 function sectorRankForDate(row: SectorTopItem, tradeDate: string) {

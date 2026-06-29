@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from backend.app.data.ingest import ingest_market_snapshot
 from backend.app.data.types import IngestSummary, MarketDataSnapshot, StockDailyRecord
-from backend.app.db.models import StockDaily, TradePlan, TradingCalendar
-from backend.app.simulation.service import SimulationWorkflowSummary, run_simulation_workflow
+from backend.app.db.models import SimulationPosition, StockDaily, TradePlan, TradingCalendar, VirtualPosition
+from backend.app.simulation.service import ACTIVE_POSITION_STATUSES, SimulationWorkflowSummary, run_simulation_workflow
 
 
 class RealtimeQuoteProvider(Protocol):
@@ -54,15 +54,16 @@ def backfill_trade_plan_realtime_quotes(
 ) -> RealtimeQuoteBackfillResult:
     china_today = _china_today()
     planned_codes = _planned_stock_codes(engine, target_trade_date)
-    existing_codes = _existing_daily_codes(engine, target_trade_date, planned_codes)
-    requested_codes = planned_codes if include_existing else [code for code in planned_codes if code not in existing_codes]
+    quote_codes = _quote_stock_codes(engine, target_trade_date)
+    existing_codes = _existing_daily_codes(engine, target_trade_date, quote_codes)
+    requested_codes = quote_codes if include_existing else [code for code in quote_codes if code not in existing_codes]
     target_is_open = _calendar_open_status(engine, target_trade_date)
 
     skipped_reason = _skip_reason(
         target_trade_date=target_trade_date,
         china_today=china_today,
         target_is_open=target_is_open,
-        planned_codes=planned_codes,
+        quote_codes=quote_codes,
         requested_codes=requested_codes,
         allow_date_mismatch=allow_date_mismatch,
     )
@@ -141,7 +142,10 @@ def run_realtime_quote_workflow(
         include_existing=include_existing,
         allow_date_mismatch=allow_date_mismatch,
     )
-    if backfill.skipped_reason and backfill.skipped_reason != "目标交易日计划股已有 stock_daily，无需拉取实时行情":
+    if backfill.skipped_reason and backfill.skipped_reason not in {
+        "目标交易日计划股已有 stock_daily，无需拉取实时行情",
+        "目标交易日计划股和模拟持仓已有 stock_daily，无需拉取实时行情",
+    }:
         return RealtimeQuoteWorkflowResult(backfill=backfill, workflow=None)
     workflow = run_simulation_workflow(
         engine,
@@ -155,18 +159,18 @@ def _skip_reason(
     target_trade_date: date,
     china_today: date,
     target_is_open: Optional[bool],
-    planned_codes: list[str],
+    quote_codes: list[str],
     requested_codes: list[str],
     allow_date_mismatch: bool,
 ) -> str:
-    if not planned_codes:
-        return "目标交易日没有交易计划，无需拉取实时行情"
+    if not quote_codes:
+        return "目标交易日没有交易计划或模拟持仓，无需拉取实时行情"
     if target_is_open is False:
         return "目标交易日不是开市日，不写入实时行情"
     if target_is_open is None and not _can_fetch_live_without_calendar(target_trade_date, china_today):
         return "目标交易日缺少交易日历，需先采集或回补交易日历"
     if not requested_codes:
-        return "目标交易日计划股已有 stock_daily，无需拉取实时行情"
+        return "目标交易日计划股和模拟持仓已有 stock_daily，无需拉取实时行情"
     if target_trade_date != china_today and not allow_date_mismatch:
         return "实时行情只能默认写入中国当前自然日；如确认数据日期匹配，请显式使用 allow_date_mismatch"
     return ""
@@ -189,6 +193,24 @@ def _planned_stock_codes(engine: Engine, target_trade_date: date) -> list[str]:
             .order_by(TradePlan.stock_code)
         ).all()
         return list(rows)
+
+
+def _quote_stock_codes(engine: Engine, target_trade_date: date) -> list[str]:
+    codes = set(_planned_stock_codes(engine, target_trade_date))
+    with Session(engine) as session:
+        active_simulation_codes = session.scalars(
+            select(SimulationPosition.stock_code)
+            .where(SimulationPosition.position_status.in_(ACTIVE_POSITION_STATUSES))
+            .distinct()
+        ).all()
+        active_virtual_codes = session.scalars(
+            select(VirtualPosition.stock_code)
+            .where(VirtualPosition.position_status.in_(ACTIVE_POSITION_STATUSES))
+            .distinct()
+        ).all()
+    codes.update(active_simulation_codes)
+    codes.update(active_virtual_codes)
+    return sorted(codes)
 
 
 def _existing_daily_codes(engine: Engine, target_trade_date: date, stock_codes: list[str]) -> set[str]:

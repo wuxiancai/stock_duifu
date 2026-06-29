@@ -669,6 +669,90 @@ def test_load_latest_simulation_refreshes_position_price_from_latest_daily() -> 
     assert summary.account.total_assets == 976466.0
 
 
+def test_load_latest_simulation_uses_today_equity_when_calendar_row_is_missing(monkeypatch) -> None:
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 6, 29, 10, 0, tzinfo=TRADING_TZ)
+            return value if tz is None else value.astimezone(tz)
+
+    monkeypatch.setattr("backend.app.simulation.service.datetime", FrozenDateTime)
+    engine = _engine()
+    old_date = date(2026, 6, 26)
+    live_date = date(2026, 6, 29)
+    with Session(engine) as session:
+        session.add(TradingCalendar(trade_date=old_date, is_open=True, source="unit-test"))
+        plan = _seed_trade_plan(session, stock_code="000725", target_trade_date=old_date)
+        account = SimulationAccount(
+            account_name="默认模拟账户",
+            initial_cash=1000000,
+            available_cash=600000,
+            frozen_cash=0,
+            market_value=400000,
+            total_assets=1000000,
+            total_profit=0,
+            total_return=0,
+            max_drawdown=0,
+        )
+        session.add(account)
+        session.flush()
+        session.add(
+            SimulationPosition(
+                account_id=account.id,
+                trade_plan_id=plan.id,
+                stock_code="000725",
+                stock_name="京东方A",
+                sector_name="电子",
+                strategy_type="趋势强势",
+                buy_price=7.5,
+                current_price=7.79,
+                quantity=1000,
+                market_value=7790,
+                cost_amount=7500,
+                unrealized_profit=290,
+                unrealized_return=0.0387,
+                stop_loss_price=7.1,
+                take_profit_price=9.0,
+                position_status="持仓中",
+                buy_reason="目标交易日价格触达计划买入区间",
+                sell_reason="",
+            )
+        )
+        session.add(
+            SimulationEquity(
+                account_id=account.id,
+                trade_date=old_date,
+                available_cash=600000,
+                market_value=7790,
+                total_assets=607790,
+                daily_profit=-392210,
+                daily_return=-0.3922,
+                max_drawdown=0.3922,
+            )
+        )
+        session.add(
+            SimulationEquity(
+                account_id=account.id,
+                trade_date=live_date,
+                available_cash=600000,
+                market_value=7950,
+                total_assets=607950,
+                daily_profit=-392050,
+                daily_return=-0.3921,
+                max_drawdown=0.3922,
+            )
+        )
+        _add_daily(session, "000725", live_date, 7.8, 8.0, 7.7, 7.95)
+        session.commit()
+
+    summary = load_latest_simulation(engine)
+
+    assert summary is not None
+    assert summary.as_of_date == live_date
+    assert summary.positions[0].current_price == 7.95
+    assert [point.trade_date for point in summary.equity_curve] == [old_date, live_date]
+
+
 def test_load_latest_simulation_keeps_unsold_pending_positions_visible() -> None:
     engine = _engine()
     trade_date = date(2026, 6, 22)
