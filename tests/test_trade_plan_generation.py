@@ -594,7 +594,7 @@ def test_track_trade_plans_triggers_when_gap_up_later_pulls_back_into_buy_range(
     assert item.status == "已触发"
 
 
-def test_track_trade_plans_cancels_gap_up_that_never_pulls_back_into_buy_range() -> None:
+def test_track_trade_plans_keeps_waiting_intraday_when_gap_up_has_not_pulled_back() -> None:
     engine = _engine()
     plan_date = _seed_fixture(engine)
     generate_trade_plans(engine, plan_date)
@@ -623,8 +623,49 @@ def test_track_trade_plans_cancels_gap_up_that_never_pulls_back_into_buy_range()
     results = track_trade_plans(engine, date(2026, 6, 19))
 
     item = next(row for row in results if row.stock_code == "000001")
-    assert item.status == "取消"
-    assert "盘中未回落触达买入区间" in item.tracking_note
+    assert item.status == "待触发"
+    assert "继续等待" in item.tracking_note
+
+    close_results = track_trade_plans(engine, date(2026, 6, 19), mark_untriggered_at_close=True)
+
+    close_item = next(row for row in close_results if row.stock_code == "000001")
+    assert close_item.status == "取消"
+    assert "当日没有成交" in close_item.tracking_note
+
+
+def test_track_trade_plans_reopens_legacy_intraday_auto_cancel_before_close() -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+    with Session(engine) as session:
+        plan = session.scalar(select(TradePlan).where(TradePlan.stock_code == "000001"))
+        plan.status = "取消"
+        plan.tracking_note = "目标交易日高开超过计划买入上限 3%，且盘中未回落触达买入区间，按纪律取消追高"
+        price = float(plan.buy_price_high) * 1.05
+        session.add(
+            StockDaily(
+                stock_code="000001",
+                trade_date=date(2026, 6, 19),
+                open=price,
+                high=price * 1.01,
+                low=price,
+                close=price,
+                pre_close=float(plan.buy_price_low),
+                change=1.0,
+                pct_chg=5.0,
+                volume=1000,
+                amount=1000000000,
+                turnover_rate=3.0,
+                source="unit-test-realtime",
+            )
+        )
+        session.commit()
+
+    results = track_trade_plans(engine, date(2026, 6, 19))
+
+    item = next(row for row in results if row.stock_code == "000001")
+    assert item.status == "待触发"
+    assert "继续等待" in item.tracking_note
 
 
 def test_track_trade_plans_triggers_when_stop_break_later_recovers_into_buy_range() -> None:
@@ -658,7 +699,7 @@ def test_track_trade_plans_triggers_when_stop_break_later_recovers_into_buy_rang
     assert item.status == "已触发"
 
 
-def test_track_trade_plans_cancels_when_price_remains_below_stop_without_recovery() -> None:
+def test_track_trade_plans_keeps_waiting_intraday_when_price_remains_below_stop() -> None:
     engine = _engine()
     plan_date = _seed_fixture(engine)
     generate_trade_plans(engine, plan_date)
@@ -687,8 +728,14 @@ def test_track_trade_plans_cancels_when_price_remains_below_stop_without_recover
     results = track_trade_plans(engine, date(2026, 6, 19))
 
     item = next(row for row in results if row.stock_code == "000001")
-    assert item.status == "取消"
-    assert "仍低于计划止损价" in item.tracking_note
+    assert item.status == "待触发"
+    assert "继续等待" in item.tracking_note
+
+    close_results = track_trade_plans(engine, date(2026, 6, 19), mark_untriggered_at_close=True)
+
+    close_item = next(row for row in close_results if row.stock_code == "000001")
+    assert close_item.status == "取消"
+    assert "当日没有成交" in close_item.tracking_note
 
 
 def test_track_trade_plans_can_mark_untriggered_after_close() -> None:
@@ -720,7 +767,8 @@ def test_track_trade_plans_can_mark_untriggered_after_close() -> None:
     results = track_trade_plans(engine, date(2026, 6, 19), mark_untriggered_at_close=True)
 
     item = next(row for row in results if row.stock_code == "000001")
-    assert item.status == "未触发"
+    assert item.status == "取消"
+    assert "当日没有成交" in item.tracking_note
 
 
 def test_track_trade_plans_reports_closed_target_date_without_daily_data() -> None:

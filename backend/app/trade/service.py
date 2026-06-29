@@ -368,7 +368,14 @@ def track_trade_plans(
             current_price = _number(display_daily.close) if display_daily else None
             pct_chg = _number(display_daily.pct_chg) if display_daily else None
 
-            if daily and plan.status in {"待触发", "未触发"}:
+            if daily and (
+                plan.status in {"待触发", "未触发"}
+                or (
+                    plan.status == "取消"
+                    and not mark_untriggered_at_close
+                    and _is_intraday_auto_cancel_note(plan.tracking_note)
+                )
+            ):
                 if can_live_trigger or str(daily.source).startswith("unit-test"):
                     status, trigger_price, note = _evaluate_plan_tracking(plan, daily, mark_untriggered_at_close)
                     plan.status = status
@@ -377,8 +384,8 @@ def track_trade_plans(
                         plan.trigger_price = trigger_price
                         plan.trigger_time = now
                 elif mark_untriggered_at_close and plan.status == "待触发":
-                    plan.status = "未触发"
-                    plan.tracking_note = "非盘中实时轮询窗口，收盘后不回放触发；按纪律标记为未触发"
+                    plan.status = "取消"
+                    plan.tracking_note = "非盘中实时轮询窗口，收盘后不回放触发；当日没有成交，按纪律取消计划"
                 elif not plan.tracking_note:
                     plan.tracking_note = "等待盘中实时行情轮询触发；收盘后不回放触发"
             elif daily is None and (
@@ -718,15 +725,23 @@ def _evaluate_plan_tracking(
 
     touched_buy_range = low <= buy_high and high >= buy_low
     if open_price > buy_high * 1.03 and not touched_buy_range:
-        return "取消", None, "目标交易日高开超过计划买入上限 3%，且盘中未回落触达买入区间，按纪律取消追高"
+        if mark_untriggered_at_close:
+            return "取消", None, "收盘仍未回落触达买入区间，当日没有成交，按纪律取消计划"
+        return "待触发", None, "目标交易日高开超过计划买入上限 3%，盘中暂未回落触达买入区间，继续等待"
     if close < stop_loss and not touched_buy_range:
-        return "取消", None, "目标交易日当前/收盘仍低于计划止损价，且未重新触达买入区间，按纪律取消计划"
+        if mark_untriggered_at_close:
+            return "取消", None, "收盘仍低于计划止损价且未重新触达买入区间，当日没有成交，按纪律取消计划"
+        return "待触发", None, "目标交易日当前仍低于计划止损价且未重新触达买入区间，继续等待"
     if touched_buy_range:
         trigger_price = round(min(max(open_price, buy_low), buy_high), 4)
         return "已触发", trigger_price, "目标交易日价格触达计划买入区间"
     if mark_untriggered_at_close:
-        return "未触发", None, f"收盘价 {close:.2f} 未触达计划买入区间"
+        return "取消", None, f"收盘价 {close:.2f} 未触达计划买入区间，当日没有成交，按纪律取消计划"
     return "待触发", None, "目标交易日尚未触达计划买入区间"
+
+
+def _is_intraday_auto_cancel_note(note: str) -> bool:
+    return "盘中未回落触达买入区间" in note or "仍低于计划止损价" in note
 
 
 def _plan_result(record: TradePlan, current_daily: Optional[StockDaily] = None) -> TradePlanResult:
