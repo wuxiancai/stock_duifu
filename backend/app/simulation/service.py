@@ -70,6 +70,7 @@ class SimulationPositionSnapshot:
     stop_loss_price: float
     take_profit_price: float
     position_status: str
+    holding_days: int
     buy_reason: str
     sell_reason: str
 
@@ -95,6 +96,7 @@ class SimulationTradeSnapshot:
     position_ratio_after: float
     profit_loss: Optional[float]
     profit_loss_return: Optional[float]
+    holding_days: int
     reason: str
 
 
@@ -653,8 +655,8 @@ def _load_summary(session: Session, account_id: int, as_of_date: date, messages:
     return SimulationSummary(
         as_of_date=as_of_date,
         account=_account_snapshot(account),
-        positions=[_position_snapshot(item) for item in positions],
-        trades=[_trade_snapshot(item) for item in trades],
+        positions=[_position_snapshot(item, _position_holding_days_inclusive(session, item, as_of_date)) for item in positions],
+        trades=[_trade_snapshot(item, _trade_holding_days_inclusive(session, item)) for item in trades],
         equity_curve=[_equity_point(item) for item in equity],
         risk=SimulationRiskSnapshot(
             max_drawdown=_number(account.max_drawdown),
@@ -664,8 +666,11 @@ def _load_summary(session: Session, account_id: int, as_of_date: date, messages:
             profit_loss_ratio=risk_stats["profit_loss_ratio"],
         ),
         messages=messages,
-        virtual_positions=[_position_snapshot(item) for item in virtual_positions],
-        virtual_trades=[_trade_snapshot(item) for item in virtual_trades],
+        virtual_positions=[
+            _position_snapshot(item, _virtual_position_holding_days_inclusive(session, item, as_of_date))
+            for item in virtual_positions
+        ],
+        virtual_trades=[_trade_snapshot(item, _virtual_trade_holding_days_inclusive(session, item)) for item in virtual_trades],
         virtual_risk=SimulationRiskSnapshot(
             max_drawdown=0,
             position_count=len(virtual_positions),
@@ -1052,7 +1057,7 @@ def _account_snapshot(record: SimulationAccount) -> SimulationAccountSnapshot:
     )
 
 
-def _position_snapshot(record) -> SimulationPositionSnapshot:
+def _position_snapshot(record, holding_days: int = 0) -> SimulationPositionSnapshot:
     return SimulationPositionSnapshot(
         id=record.id,
         stock_code=record.stock_code,
@@ -1069,12 +1074,13 @@ def _position_snapshot(record) -> SimulationPositionSnapshot:
         stop_loss_price=_number(record.stop_loss_price),
         take_profit_price=_number(record.take_profit_price),
         position_status=record.position_status,
+        holding_days=holding_days,
         buy_reason=record.buy_reason,
         sell_reason=record.sell_reason,
     )
 
 
-def _trade_snapshot(record) -> SimulationTradeSnapshot:
+def _trade_snapshot(record, holding_days: int = 0) -> SimulationTradeSnapshot:
     return SimulationTradeSnapshot(
         id=record.id,
         trade_plan_id=record.trade_plan_id,
@@ -1095,6 +1101,7 @@ def _trade_snapshot(record) -> SimulationTradeSnapshot:
         position_ratio_after=_number(record.position_ratio_after),
         profit_loss=_optional_number(record.profit_loss),
         profit_loss_return=_optional_number(record.profit_loss_return),
+        holding_days=holding_days,
         reason=record.reason,
     )
 
@@ -1235,6 +1242,56 @@ def _virtual_holding_days(session: Session, position: VirtualPosition, trade_dat
     if first_buy_date is None:
         return 0
     return (trade_date - first_buy_date).days
+
+
+def _position_holding_days_inclusive(session: Session, position: SimulationPosition, as_of_date: date) -> int:
+    first_buy_date = session.scalar(
+        select(func.min(SimulationTrade.trade_date)).where(
+            SimulationTrade.account_id == position.account_id,
+            SimulationTrade.trade_plan_id == position.trade_plan_id,
+            SimulationTrade.trade_type == "买入",
+        )
+    )
+    return _inclusive_holding_days(first_buy_date, as_of_date)
+
+
+def _virtual_position_holding_days_inclusive(session: Session, position: VirtualPosition, as_of_date: date) -> int:
+    first_buy_date = session.scalar(
+        select(func.min(VirtualTrade.trade_date)).where(
+            VirtualTrade.trade_plan_id == position.trade_plan_id,
+            VirtualTrade.trade_type == "买入",
+        )
+    )
+    return _inclusive_holding_days(first_buy_date, as_of_date)
+
+
+def _trade_holding_days_inclusive(session: Session, trade: SimulationTrade) -> int:
+    first_buy_date = session.scalar(
+        select(func.min(SimulationTrade.trade_date)).where(
+            SimulationTrade.account_id == trade.account_id,
+            SimulationTrade.trade_plan_id == trade.trade_plan_id,
+            SimulationTrade.trade_type == "买入",
+            SimulationTrade.trade_date <= trade.trade_date,
+        )
+    )
+    return _inclusive_holding_days(first_buy_date, trade.trade_date)
+
+
+def _virtual_trade_holding_days_inclusive(session: Session, trade: VirtualTrade) -> int:
+    first_buy_date = session.scalar(
+        select(func.min(VirtualTrade.trade_date)).where(
+            VirtualTrade.trade_plan_id == trade.trade_plan_id,
+            VirtualTrade.trade_type == "买入",
+            VirtualTrade.trade_date <= trade.trade_date,
+        )
+    )
+    return _inclusive_holding_days(first_buy_date, trade.trade_date)
+
+
+def _inclusive_holding_days(first_buy_date: Optional[date], current_date: date) -> int:
+    if first_buy_date is None:
+        return 0
+    return max((current_date - first_buy_date).days + 1, 1)
 
 
 def _can_open_new_position(trade_date: date) -> bool:

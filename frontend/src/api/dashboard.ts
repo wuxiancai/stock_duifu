@@ -246,6 +246,7 @@ export interface SimulationPosition {
   stop_loss_price: number
   take_profit_price: number
   position_status: string
+  holding_days: number
   buy_reason: string
   sell_reason: string
 }
@@ -270,6 +271,7 @@ export interface SimulationTrade {
   position_ratio_after: number
   profit_loss: number | null
   profit_loss_return: number | null
+  holding_days: number
   reason: string
 }
 

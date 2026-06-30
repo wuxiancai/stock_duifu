@@ -229,6 +229,7 @@ describe('App', () => {
             stop_loss_price: 1299.486,
             take_profit_price: 1641.456,
             position_status: '持仓中',
+            holding_days: 1,
             buy_reason: '目标交易日价格触达计划买入区间',
             sell_reason: ''
           }
@@ -254,6 +255,7 @@ describe('App', () => {
             position_ratio_after: 0.39,
             profit_loss: null,
             profit_loss_return: null,
+            holding_days: 1,
             reason: '目标交易日价格触达计划买入区间'
           },
           {
@@ -276,6 +278,7 @@ describe('App', () => {
             position_ratio_after: 0.13,
             profit_loss: null,
             profit_loss_return: null,
+            holding_days: 1,
             reason: '历史模拟买入记录'
           }
         ],
@@ -464,6 +467,7 @@ describe('App', () => {
     expect(wrapper.text()).toContain('当前总资产')
     expect(wrapper.text()).toContain('当日盈亏')
     expect(wrapper.text()).toContain('模拟持仓')
+    expect(wrapper.text()).toContain('持仓天数')
     expect(wrapper.text()).toContain('模拟交易记录')
     expect(wrapper.text()).toContain('资金曲线')
     expect(wrapper.text()).toContain('10:01')
@@ -679,6 +683,7 @@ describe('App', () => {
           stop_loss_price: 1299.49,
           take_profit_price: 1641.46,
           position_status: '持仓中',
+          holding_days: 4,
           buy_reason: '目标交易日价格触达计划买入区间',
           sell_reason: ''
         }

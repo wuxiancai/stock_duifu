@@ -1390,6 +1390,9 @@ onBeforeUnmount(() => {
                 <span :class="polarityClass(row.unrealized_return)">{{ formatReturn(row.unrealized_return) }}</span>
               </template>
             </el-table-column>
+            <el-table-column label="持仓天数" min-width="110" sortable prop="holding_days">
+              <template #default="{ row }: { row: SimulationPosition }">{{ row.holding_days || '-' }}</template>
+            </el-table-column>
             <el-table-column label="止损/第一止盈" min-width="150">
               <template #default="{ row }: { row: SimulationPosition }">
                 {{ formatPrice(row.stop_loss_price) }} / {{ formatPrice(row.take_profit_price) }}
@@ -1436,6 +1439,9 @@ onBeforeUnmount(() => {
                 /
                 <span :class="polarityClass(row.display_profit_loss_return)">{{ formatReturn(row.display_profit_loss_return) }}</span>
               </template>
+            </el-table-column>
+            <el-table-column label="持仓天数" min-width="110" sortable prop="holding_days">
+              <template #default="{ row }: { row: SimulationTrade }">{{ row.holding_days || '-' }}</template>
             </el-table-column>
             <el-table-column prop="reason" label="原因" min-width="260" show-overflow-tooltip />
           </el-table>
@@ -1500,6 +1506,9 @@ onBeforeUnmount(() => {
                 <span :class="polarityClass(row.unrealized_return)">{{ formatReturn(row.unrealized_return) }}</span>
               </template>
             </el-table-column>
+            <el-table-column label="持仓天数" min-width="110" sortable prop="holding_days">
+              <template #default="{ row }: { row: SimulationPosition }">{{ row.holding_days || '-' }}</template>
+            </el-table-column>
             <el-table-column label="止损/第一止盈" min-width="150">
               <template #default="{ row }: { row: SimulationPosition }">
                 {{ formatPrice(row.stop_loss_price) }} / {{ formatPrice(row.take_profit_price) }}
@@ -1539,6 +1548,9 @@ onBeforeUnmount(() => {
                 /
                 <span :class="polarityClass(row.display_profit_loss_return)">{{ formatReturn(row.display_profit_loss_return) }}</span>
               </template>
+            </el-table-column>
+            <el-table-column label="持仓天数" min-width="110" sortable prop="holding_days">
+              <template #default="{ row }: { row: SimulationTrade }">{{ row.holding_days || '-' }}</template>
             </el-table-column>
             <el-table-column prop="reason" label="原因" min-width="260" show-overflow-tooltip />
           </el-table>
