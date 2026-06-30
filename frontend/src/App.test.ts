@@ -469,6 +469,7 @@ describe('App', () => {
     expect(wrapper.text()).toContain('模拟持仓')
     expect(wrapper.text()).toContain('持仓天数')
     expect(wrapper.text()).toContain('模拟交易记录')
+    expect(wrapper.findAll('.value-fit-table')).toHaveLength(4)
     expect(wrapper.text()).toContain('资金曲线')
     expect(wrapper.text()).toContain('10:01')
     expect(wrapper.text()).toContain('14:30')

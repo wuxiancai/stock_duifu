@@ -1364,86 +1364,86 @@ onBeforeUnmount(() => {
           <div class="table-subheading">
             <h3>模拟持仓</h3>
           </div>
-          <el-table :data="simulation.positions" border stripe max-height="260" empty-text="暂无模拟持仓">
-            <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+          <el-table class="value-fit-table" :data="simulation.positions" border stripe max-height="260" empty-text="暂无模拟持仓">
+            <el-table-column label="股票" width="104" sortable prop="stock_name">
               <template #default="{ row }: { row: SimulationPosition }">
                 <strong>{{ row.stock_name }}</strong>
                 <small class="muted-code">{{ row.stock_code }}</small>
               </template>
             </el-table-column>
-            <el-table-column prop="sector_name" label="板块" min-width="120" sortable />
-            <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
-            <el-table-column prop="quantity" label="数量" min-width="100" sortable />
-            <el-table-column label="成本/现价" min-width="130">
+            <el-table-column prop="sector_name" label="板块" width="78" sortable />
+            <el-table-column prop="strategy_type" label="策略" width="92" sortable />
+            <el-table-column prop="quantity" label="数量" width="74" sortable />
+            <el-table-column label="成本/现价" width="112">
               <template #default="{ row }: { row: SimulationPosition }">
                 {{ formatPrice(row.buy_price) }} /
                 <span :class="priceVsClass(row.current_price, row.buy_price)">{{ formatPrice(row.current_price) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="市值" min-width="120" sortable prop="market_value">
+            <el-table-column label="市值" width="112" sortable prop="market_value">
               <template #default="{ row }: { row: SimulationPosition }">{{ formatMoney(row.market_value) }}</template>
             </el-table-column>
-            <el-table-column label="浮盈亏" min-width="130" sortable prop="unrealized_profit">
+            <el-table-column label="浮盈亏" width="120" sortable prop="unrealized_profit">
               <template #default="{ row }: { row: SimulationPosition }">
                 <span :class="polarityClass(row.unrealized_profit)">{{ formatMoney(row.unrealized_profit) }}</span>
                 /
                 <span :class="polarityClass(row.unrealized_return)">{{ formatReturn(row.unrealized_return) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="持仓天数" min-width="110" sortable prop="holding_days">
+            <el-table-column label="持仓天数" width="76" sortable prop="holding_days">
               <template #default="{ row }: { row: SimulationPosition }">{{ row.holding_days || '-' }}</template>
             </el-table-column>
-            <el-table-column label="止损/第一止盈" min-width="150">
+            <el-table-column label="止损/第一止盈" width="112">
               <template #default="{ row }: { row: SimulationPosition }">
                 {{ formatPrice(row.stop_loss_price) }} / {{ formatPrice(row.take_profit_price) }}
               </template>
             </el-table-column>
-            <el-table-column prop="buy_reason" label="买入原因" min-width="240" show-overflow-tooltip />
-            <el-table-column prop="position_status" label="状态" min-width="100" sortable />
+            <el-table-column prop="buy_reason" label="买入原因" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="position_status" label="状态" width="82" sortable />
           </el-table>
 
           <div class="table-subheading">
             <h3>模拟交易记录</h3>
           </div>
-          <el-table :data="simulationTrades" border stripe max-height="300" empty-text="暂无模拟交易记录">
-            <el-table-column label="时间" min-width="90" sortable prop="trade_time">
+          <el-table class="value-fit-table" :data="simulationTrades" border stripe max-height="300" empty-text="暂无模拟交易记录">
+            <el-table-column label="时间" width="74" sortable prop="trade_time">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatTime(row.trade_time) }}</template>
             </el-table-column>
-            <el-table-column prop="trade_type" label="方向" width="90" sortable />
-            <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+            <el-table-column prop="trade_type" label="方向" width="64" sortable />
+            <el-table-column label="股票" width="104" sortable prop="stock_name">
               <template #default="{ row }: { row: SimulationTrade }">
                 <strong>{{ row.stock_name }}</strong>
                 <small class="muted-code">{{ row.stock_code }}</small>
               </template>
             </el-table-column>
-            <el-table-column label="价格/数量" min-width="130">
+            <el-table-column label="价格/数量" width="104">
               <template #default="{ row }: { row: SimulationTrade }">
                 {{ formatPrice(row.price) }} / {{ row.quantity }}
               </template>
             </el-table-column>
-            <el-table-column label="成交金额" min-width="120" sortable prop="amount">
+            <el-table-column label="成交金额" width="108" sortable prop="amount">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.amount) }}</template>
             </el-table-column>
-            <el-table-column label="费用" min-width="110" sortable prop="total_fee">
+            <el-table-column label="费用" width="78" sortable prop="total_fee">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.total_fee) }}</template>
             </el-table-column>
-            <el-table-column label="交易后现金" min-width="130" sortable prop="cash_after">
+            <el-table-column label="交易后现金" width="112" sortable prop="cash_after">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.cash_after) }}</template>
             </el-table-column>
-            <el-table-column label="交易后仓位" min-width="120" sortable prop="position_ratio_after">
+            <el-table-column label="交易后仓位" width="84" sortable prop="position_ratio_after">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatPosition(row.position_ratio_after) }}</template>
             </el-table-column>
-            <el-table-column label="盈亏" min-width="130" sortable prop="display_profit_loss">
+            <el-table-column label="盈亏" width="120" sortable prop="display_profit_loss">
               <template #default="{ row }: { row: SimulationTrade & { display_profit_loss: number | null, display_profit_loss_return: number | null } }">
                 <span :class="polarityClass(row.display_profit_loss)">{{ formatMoney(row.display_profit_loss) }}</span>
                 /
                 <span :class="polarityClass(row.display_profit_loss_return)">{{ formatReturn(row.display_profit_loss_return) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="持仓天数" min-width="110" sortable prop="holding_days">
+            <el-table-column label="持仓天数" width="76" sortable prop="holding_days">
               <template #default="{ row }: { row: SimulationTrade }">{{ row.holding_days || '-' }}</template>
             </el-table-column>
-            <el-table-column prop="reason" label="原因" min-width="260" show-overflow-tooltip />
+            <el-table-column prop="reason" label="原因" min-width="200" show-overflow-tooltip />
           </el-table>
 
           <div class="table-subheading">
@@ -1480,79 +1480,79 @@ onBeforeUnmount(() => {
           <div class="table-subheading">
             <h3>虚拟持仓</h3>
           </div>
-          <el-table :data="simulation.virtual_positions ?? []" border stripe max-height="260" empty-text="暂无虚拟持仓">
-            <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+          <el-table class="value-fit-table" :data="simulation.virtual_positions ?? []" border stripe max-height="260" empty-text="暂无虚拟持仓">
+            <el-table-column label="股票" width="104" sortable prop="stock_name">
               <template #default="{ row }: { row: SimulationPosition }">
                 <strong>{{ row.stock_name }}</strong>
                 <small class="muted-code">{{ row.stock_code }}</small>
               </template>
             </el-table-column>
-            <el-table-column prop="sector_name" label="板块" min-width="120" sortable />
-            <el-table-column prop="strategy_type" label="策略" min-width="120" sortable />
-            <el-table-column prop="quantity" label="数量" min-width="100" sortable />
-            <el-table-column label="成本/现价" min-width="130">
+            <el-table-column prop="sector_name" label="板块" width="78" sortable />
+            <el-table-column prop="strategy_type" label="策略" width="92" sortable />
+            <el-table-column prop="quantity" label="数量" width="74" sortable />
+            <el-table-column label="成本/现价" width="112">
               <template #default="{ row }: { row: SimulationPosition }">
                 {{ formatPrice(row.buy_price) }} /
                 <span :class="priceVsClass(row.current_price, row.buy_price)">{{ formatPrice(row.current_price) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="市值" min-width="120" sortable prop="market_value">
+            <el-table-column label="市值" width="112" sortable prop="market_value">
               <template #default="{ row }: { row: SimulationPosition }">{{ formatMoney(row.market_value) }}</template>
             </el-table-column>
-            <el-table-column label="浮盈亏" min-width="130" sortable prop="unrealized_profit">
+            <el-table-column label="浮盈亏" width="120" sortable prop="unrealized_profit">
               <template #default="{ row }: { row: SimulationPosition }">
                 <span :class="polarityClass(row.unrealized_profit)">{{ formatMoney(row.unrealized_profit) }}</span>
                 /
                 <span :class="polarityClass(row.unrealized_return)">{{ formatReturn(row.unrealized_return) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="持仓天数" min-width="110" sortable prop="holding_days">
+            <el-table-column label="持仓天数" width="76" sortable prop="holding_days">
               <template #default="{ row }: { row: SimulationPosition }">{{ row.holding_days || '-' }}</template>
             </el-table-column>
-            <el-table-column label="止损/第一止盈" min-width="150">
+            <el-table-column label="止损/第一止盈" width="112">
               <template #default="{ row }: { row: SimulationPosition }">
                 {{ formatPrice(row.stop_loss_price) }} / {{ formatPrice(row.take_profit_price) }}
               </template>
             </el-table-column>
-            <el-table-column prop="buy_reason" label="买入原因" min-width="240" show-overflow-tooltip />
-            <el-table-column prop="position_status" label="状态" min-width="100" sortable />
+            <el-table-column prop="buy_reason" label="买入原因" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="position_status" label="状态" width="82" sortable />
           </el-table>
 
           <div class="table-subheading">
             <h3>虚拟交易记录</h3>
             <span>胜率 {{ formatReturn(simulation.virtual_risk?.win_rate ?? 0) }} / 盈亏比 {{ simulation.virtual_risk?.profit_loss_ratio ?? '-' }}</span>
           </div>
-          <el-table :data="virtualTrades" border stripe max-height="300" empty-text="暂无虚拟交易记录">
-            <el-table-column label="时间" min-width="90" sortable prop="trade_time">
+          <el-table class="value-fit-table" :data="virtualTrades" border stripe max-height="300" empty-text="暂无虚拟交易记录">
+            <el-table-column label="时间" width="74" sortable prop="trade_time">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatTime(row.trade_time) }}</template>
             </el-table-column>
-            <el-table-column prop="trade_type" label="方向" width="90" sortable />
-            <el-table-column label="股票" min-width="150" sortable prop="stock_name">
+            <el-table-column prop="trade_type" label="方向" width="64" sortable />
+            <el-table-column label="股票" width="104" sortable prop="stock_name">
               <template #default="{ row }: { row: SimulationTrade }">
                 <strong>{{ row.stock_name }}</strong>
                 <small class="muted-code">{{ row.stock_code }}</small>
               </template>
             </el-table-column>
-            <el-table-column label="价格/数量" min-width="130">
+            <el-table-column label="价格/数量" width="104">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatPrice(row.price) }} / {{ row.quantity }}</template>
             </el-table-column>
-            <el-table-column label="成交金额" min-width="120" sortable prop="amount">
+            <el-table-column label="成交金额" width="108" sortable prop="amount">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.amount) }}</template>
             </el-table-column>
-            <el-table-column label="费用" min-width="110" sortable prop="total_fee">
+            <el-table-column label="费用" width="78" sortable prop="total_fee">
               <template #default="{ row }: { row: SimulationTrade }">{{ formatMoney(row.total_fee) }}</template>
             </el-table-column>
-            <el-table-column label="盈亏" min-width="130" sortable prop="display_profit_loss">
+            <el-table-column label="盈亏" width="120" sortable prop="display_profit_loss">
               <template #default="{ row }: { row: SimulationTrade & { display_profit_loss: number | null, display_profit_loss_return: number | null } }">
                 <span :class="polarityClass(row.display_profit_loss)">{{ formatMoney(row.display_profit_loss) }}</span>
                 /
                 <span :class="polarityClass(row.display_profit_loss_return)">{{ formatReturn(row.display_profit_loss_return) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="持仓天数" min-width="110" sortable prop="holding_days">
+            <el-table-column label="持仓天数" width="76" sortable prop="holding_days">
               <template #default="{ row }: { row: SimulationTrade }">{{ row.holding_days || '-' }}</template>
             </el-table-column>
-            <el-table-column prop="reason" label="原因" min-width="260" show-overflow-tooltip />
+            <el-table-column prop="reason" label="原因" min-width="200" show-overflow-tooltip />
           </el-table>
         </template>
         <el-empty v-else description="暂无模拟交易数据，请先运行模拟交易" />

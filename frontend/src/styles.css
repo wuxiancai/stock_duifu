@@ -513,6 +513,27 @@ textarea {
   word-break: break-word;
 }
 
+.value-fit-table .cell {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.value-fit-table .el-table__header .cell {
+  white-space: normal;
+  word-break: keep-all;
+  line-height: 1.22;
+}
+
+.value-fit-table .el-table__body .cell {
+  white-space: nowrap;
+  word-break: keep-all;
+}
+
+.value-fit-table .muted-code {
+  display: block;
+  margin-top: 4px;
+}
+
 .stock-pool-table .cell {
   padding-left: 8px;
   padding-right: 8px;
