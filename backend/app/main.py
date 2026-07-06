@@ -18,6 +18,7 @@ from backend.app.data.providers import (
     EastmoneyDirectRealtimeQuoteProvider,
     FallbackRealtimeQuoteProvider,
     SinaDirectRealtimeQuoteProvider,
+    TencentDirectRealtimeQuoteProvider,
 )
 from backend.app.data.realtime_quotes import RealtimeQuoteBackfillResult, backfill_trade_plan_realtime_quotes
 from backend.app.db.session import create_database_engine
@@ -202,18 +203,23 @@ _realtime_tracking_lock = threading.Lock()
 def _realtime_quote_provider():
     provider_name = os.environ.get("STOCK_API_REALTIME_PROVIDER", "auto").strip().lower()
     if provider_name in {"auto", "auto-lite"}:
-        return FallbackRealtimeQuoteProvider([SinaDirectRealtimeQuoteProvider(), EastmoneyDirectRealtimeQuoteProvider()])
+        return FallbackRealtimeQuoteProvider(
+            [SinaDirectRealtimeQuoteProvider(), EastmoneyDirectRealtimeQuoteProvider(), TencentDirectRealtimeQuoteProvider()]
+        )
     if provider_name in {"auto-full", "legacy-auto"}:
         return FallbackRealtimeQuoteProvider(
             [
                 SinaDirectRealtimeQuoteProvider(),
                 EastmoneyDirectRealtimeQuoteProvider(),
+                TencentDirectRealtimeQuoteProvider(),
                 AkShareRealtimeQuoteProvider(),
                 AkShareSinaRealtimeQuoteProvider(),
             ]
         )
     if provider_name in {"eastmoney", "direct-eastmoney"}:
         return EastmoneyDirectRealtimeQuoteProvider()
+    if provider_name in {"tencent", "direct-tencent"}:
+        return TencentDirectRealtimeQuoteProvider()
     if provider_name == "akshare":
         return AkShareRealtimeQuoteProvider()
     if provider_name == "sina":

@@ -11,6 +11,7 @@ from backend.app.data.providers import (
     EastmoneyDirectRealtimeQuoteProvider,
     FallbackRealtimeQuoteProvider,
     SinaDirectRealtimeQuoteProvider,
+    TencentDirectRealtimeQuoteProvider,
 )
 from backend.app.data.cli import load_realtime_quote_provider
 import backend.app.data.realtime_quotes as realtime_quotes
@@ -206,9 +207,57 @@ def test_sina_direct_realtime_quote_provider_fetches_only_requested_symbols() ->
     assert records[0].source == "sina_direct_realtime"
 
 
+def test_tencent_direct_realtime_quote_provider_fetches_only_requested_symbols() -> None:
+    calls = []
+    fields_000001 = [""] * 40
+    fields_000001[1] = "平安银行"
+    fields_000001[2] = "000001"
+    fields_000001[3] = "10.50"
+    fields_000001[4] = "10.00"
+    fields_000001[5] = "10.10"
+    fields_000001[6] = "100000"
+    fields_000001[31] = "0.50"
+    fields_000001[32] = "5.00"
+    fields_000001[33] = "10.80"
+    fields_000001[34] = "10.00"
+    fields_000001[37] = "105000000"
+    fields_000001[38] = "3.00"
+    fields_600000 = fields_000001.copy()
+    fields_600000[1] = "浦发银行"
+    fields_600000[2] = "600000"
+    fields_600000[3] = "8.88"
+    fields_600000[4] = "8.60"
+    fields_600000[5] = "8.80"
+    fields_600000[31] = "0.28"
+    fields_600000[32] = "3.26"
+    fields_600000[33] = "9.00"
+    fields_600000[34] = "8.70"
+    text = (
+        f'v_sz000001="{"~".join(fields_000001)}";\n'
+        f'v_sh600000="{"~".join(fields_600000)}";'
+    )
+
+    def fetcher(url: str, timeout: float) -> str:
+        calls.append((url, timeout))
+        return text
+
+    provider = TencentDirectRealtimeQuoteProvider(fetcher=fetcher, timeout=1.3)
+
+    records = provider.fetch_realtime_stock_daily(["000001", "600000"], date(2026, 6, 19))
+
+    assert calls == [("https://qt.gtimg.cn/q=sz000001,sh600000", 1.3)]
+    assert [record.stock_code for record in records] == ["000001", "600000"]
+    assert records[0].close == 10.5
+    assert records[0].pre_close == 10.0
+    assert records[0].pct_chg == 5.0
+    assert records[0].amount == 105000000
+    assert records[0].turnover_rate == 3.0
+    assert records[0].source == "tencent_direct_realtime"
+
+
 def test_eastmoney_direct_realtime_quote_provider_fetches_only_requested_secids() -> None:
     calls = []
-    text = json_text = (
+    text = (
         '{"data":{"diff":[{"f12":"000001","f43":10.5,"f44":10.8,"f45":10.0,'
         '"f46":10.1,"f47":100000,"f48":105000000,"f60":10.0,"f170":5.0},'
         '{"f12":"600000","f43":8.88,"f44":9.0,"f45":8.7,"f46":8.8,'
@@ -256,6 +305,7 @@ def test_auto_realtime_provider_uses_light_direct_sources_before_full_market_sou
     assert [type(item) for item in provider.providers] == [
         SinaDirectRealtimeQuoteProvider,
         EastmoneyDirectRealtimeQuoteProvider,
+        TencentDirectRealtimeQuoteProvider,
     ]
 
 
@@ -266,6 +316,7 @@ def test_auto_full_realtime_provider_keeps_akshare_as_last_resort() -> None:
     assert [type(item) for item in provider.providers] == [
         SinaDirectRealtimeQuoteProvider,
         EastmoneyDirectRealtimeQuoteProvider,
+        TencentDirectRealtimeQuoteProvider,
         AkShareRealtimeQuoteProvider,
         AkShareSinaRealtimeQuoteProvider,
     ]

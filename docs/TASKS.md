@@ -62,6 +62,7 @@
 - [x] 已修复 `start.sh` 端口顺延粘滞和 502 刷屏问题：API/Web 默认基准端口固定为 `8000/5173`，不再用 `.env` 里上次写入的 `API_PORT/WEB_PORT` 作为下一次启动基准；重启先停本项目进程后复用默认端口，只有其他项目占用默认端口时才顺延；Vite `/api` 代理超时提高到 120 秒，前端自动实时刷新连续失败 3 次后暂停，避免不间断弹出 502。
 - [x] 已加固 `/api/trade-plans/track-realtime` 高频 502 链路：API 默认只使用计划股新浪直连实时源，不再默认回退到 AkShare 全市场实时表；接口增加非阻塞并发锁，已有实时回补正在执行时后续请求快速返回跳过回补并继续返回跟踪结果，避免自动刷新并发堆积拖垮 Vite 代理。
 - [x] 已补齐实时行情轻量备用源：新增东方财富 direct 实时行情 provider，默认 API/CLI 实时源改为 `auto` 轻量链路 `sina_direct_realtime -> eastmoney_direct_realtime`；AkShare 全市场实时源保留为 `auto-full` 最后兜底，不进入默认路径，避免无备用源导致今日交易计划无法触发，同时避免默认全市场慢请求引发 502。
+- [x] 已新增腾讯 direct 实时行情 provider：默认轻量链路升级为 `sina_direct_realtime -> eastmoney_direct_realtime -> tencent_direct_realtime`，三者都只按交易计划股/持仓股请求，不拉全市场；AkShare 仍保持不改，只在 `auto-full` 中作为最后兜底。
 
 ## 开发原则
 

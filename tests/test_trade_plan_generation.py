@@ -516,7 +516,11 @@ def test_api_realtime_provider_defaults_to_light_auto_fallback(monkeypatch) -> N
     provider = app_main._realtime_quote_provider()
 
     assert provider.name == "auto_realtime"
-    assert [item.name for item in provider.providers] == ["sina_direct_realtime", "eastmoney_direct_realtime"]
+    assert [item.name for item in provider.providers] == [
+        "sina_direct_realtime",
+        "eastmoney_direct_realtime",
+        "tencent_direct_realtime",
+    ]
 
 
 def test_track_realtime_api_returns_fast_when_realtime_refresh_is_already_running(monkeypatch) -> None:

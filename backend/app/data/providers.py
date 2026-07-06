@@ -454,6 +454,120 @@ class SinaDirectRealtimeQuoteProvider:
         )
 
 
+class TencentDirectRealtimeQuoteProvider:
+    name = "tencent_direct_realtime"
+
+    def __init__(self, fetcher: Optional[SinaQuoteFetcher] = None, timeout: float = 5.0):
+        self._fetcher = fetcher or self._fetch_tencent_quotes
+        self.timeout = timeout
+
+    def fetch_realtime_stock_daily(
+        self,
+        stock_codes: Iterable[str],
+        trade_date: date,
+    ) -> list[StockDailyRecord]:
+        symbol_to_code = {
+            symbol: code
+            for code in (normalize_stock_code(raw_code) for raw_code in stock_codes)
+            if code
+            for symbol in [self._tencent_symbol(code)]
+            if symbol
+        }
+        if not symbol_to_code:
+            return []
+
+        records: list[StockDailyRecord] = []
+        symbols = list(symbol_to_code)
+        for start in range(0, len(symbols), 80):
+            batch_symbols = symbols[start : start + 80]
+            url = f"https://qt.gtimg.cn/q={','.join(batch_symbols)}"
+            text = self._fetcher(url, self.timeout)
+            records.extend(self._parse_response(text, symbol_to_code, trade_date))
+        return records
+
+    def _tencent_symbol(self, stock_code: str) -> Optional[str]:
+        market = infer_market(stock_code)
+        if market == "SH":
+            return f"sh{stock_code}"
+        if market == "SZ":
+            return f"sz{stock_code}"
+        if market == "BJ":
+            return f"bj{stock_code}"
+        return None
+
+    def _fetch_tencent_quotes(self, url: str, timeout: float) -> str:
+        request = Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://stockapp.finance.qq.com/",
+            },
+        )
+        with without_proxy_env():
+            with urlopen(request, timeout=timeout) as response:
+                return response.read().decode("gbk", errors="replace")
+
+    def _parse_response(
+        self,
+        text: str,
+        symbol_to_code: dict[str, str],
+        trade_date: date,
+    ) -> list[StockDailyRecord]:
+        records: list[StockDailyRecord] = []
+        for statement in text.splitlines():
+            if "=\"" not in statement:
+                continue
+            symbol = statement.split("v_", 1)[-1].split("=", 1)[0]
+            stock_code = symbol_to_code.get(symbol)
+            if not stock_code:
+                continue
+            raw_fields = statement.split("=\"", 1)[-1].rsplit("\"", 1)[0]
+            record = self._fields_to_daily(raw_fields.split("~"), stock_code, trade_date)
+            if record is not None:
+                records.append(record)
+        return records
+
+    def _fields_to_daily(
+        self,
+        fields: list[str],
+        stock_code: str,
+        trade_date: date,
+    ) -> Optional[StockDailyRecord]:
+        if len(fields) < 35:
+            return None
+        close = as_float(fields[3], default=None)
+        pre_close = as_float(fields[4], default=None)
+        open_price = as_float(fields[5], default=None)
+        volume = as_float(fields[6], default=0.0)
+        change = as_float(fields[31] if len(fields) > 31 else None, default=None)
+        pct_chg = as_float(fields[32] if len(fields) > 32 else None, default=None)
+        high = as_float(fields[33], default=None)
+        low = as_float(fields[34], default=None)
+        amount = as_float(fields[37] if len(fields) > 37 else None, default=0.0)
+        turnover_rate = as_float(fields[38] if len(fields) > 38 else None, default=None)
+        if not close or not open_price or not high or not low:
+            return None
+        if close <= 0 or open_price <= 0 or high <= 0 or low <= 0:
+            return None
+        pre_close = pre_close or close
+        computed_change = close - pre_close
+        return StockDailyRecord(
+            stock_code=stock_code,
+            trade_date=trade_date,
+            open=open_price,
+            high=high,
+            low=low,
+            close=close,
+            pre_close=pre_close,
+            change=change if change is not None else computed_change,
+            pct_chg=pct_chg if pct_chg is not None else ((computed_change / pre_close * 100) if pre_close else 0.0),
+            volume=volume,
+            amount=amount,
+            turnover_rate=turnover_rate,
+            source=self.name,
+        )
+
+
 class EastmoneyDirectRealtimeQuoteProvider:
     name = "eastmoney_direct_realtime"
 

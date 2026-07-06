@@ -17,6 +17,7 @@ from backend.app.data.providers import (
     FallbackRealtimeQuoteProvider,
     MissingTushareTokenError,
     SinaDirectRealtimeQuoteProvider,
+    TencentDirectRealtimeQuoteProvider,
     TushareMarketDataProvider,
 )
 from backend.app.core.config import get_settings
@@ -61,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     realtime.add_argument(
         "--provider",
-        choices=["auto", "auto-lite", "auto-full", "direct-sina", "eastmoney", "akshare", "sina"],
+        choices=["auto", "auto-lite", "auto-full", "direct-sina", "eastmoney", "tencent", "akshare", "sina"],
         default="auto",
     )
     realtime.add_argument("--target-trade-date", required=True, help="Target trade date in YYYY-MM-DD format")
@@ -96,17 +97,22 @@ def load_realtime_quote_provider(provider_name: str):
         return SinaDirectRealtimeQuoteProvider()
     if provider_name == "eastmoney":
         return EastmoneyDirectRealtimeQuoteProvider()
+    if provider_name == "tencent":
+        return TencentDirectRealtimeQuoteProvider()
     if provider_name == "akshare":
         return AkShareRealtimeQuoteProvider()
     if provider_name == "sina":
         return AkShareSinaRealtimeQuoteProvider()
     if provider_name in {"auto", "auto-lite"}:
-        return FallbackRealtimeQuoteProvider([SinaDirectRealtimeQuoteProvider(), EastmoneyDirectRealtimeQuoteProvider()])
+        return FallbackRealtimeQuoteProvider(
+            [SinaDirectRealtimeQuoteProvider(), EastmoneyDirectRealtimeQuoteProvider(), TencentDirectRealtimeQuoteProvider()]
+        )
     if provider_name == "auto-full":
         return FallbackRealtimeQuoteProvider(
             [
                 SinaDirectRealtimeQuoteProvider(),
                 EastmoneyDirectRealtimeQuoteProvider(),
+                TencentDirectRealtimeQuoteProvider(),
                 AkShareRealtimeQuoteProvider(),
                 AkShareSinaRealtimeQuoteProvider(),
             ]
