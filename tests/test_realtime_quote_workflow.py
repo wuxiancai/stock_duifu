@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 from backend.app.data.providers import (
     AkShareRealtimeQuoteProvider,
     AkShareSinaRealtimeQuoteProvider,
+    EastmoneyDirectRealtimeQuoteProvider,
     FallbackRealtimeQuoteProvider,
     SinaDirectRealtimeQuoteProvider,
 )
@@ -205,6 +206,33 @@ def test_sina_direct_realtime_quote_provider_fetches_only_requested_symbols() ->
     assert records[0].source == "sina_direct_realtime"
 
 
+def test_eastmoney_direct_realtime_quote_provider_fetches_only_requested_secids() -> None:
+    calls = []
+    text = json_text = (
+        '{"data":{"diff":[{"f12":"000001","f43":10.5,"f44":10.8,"f45":10.0,'
+        '"f46":10.1,"f47":100000,"f48":105000000,"f60":10.0,"f170":5.0},'
+        '{"f12":"600000","f43":8.88,"f44":9.0,"f45":8.7,"f46":8.8,'
+        '"f47":123456,"f48":12345678,"f60":8.6,"f170":3.26}]}}'
+    )
+
+    def fetcher(url: str, timeout: float) -> str:
+        calls.append((url, timeout))
+        return text
+
+    provider = EastmoneyDirectRealtimeQuoteProvider(fetcher=fetcher, timeout=1.2)
+
+    records = provider.fetch_realtime_stock_daily(["000001", "600000"], date(2026, 6, 19))
+
+    assert len(calls) == 1
+    assert calls[0][1] == 1.2
+    assert "secids=0.000001%2C1.600000" in calls[0][0]
+    assert [record.stock_code for record in records] == ["000001", "600000"]
+    assert records[0].close == 10.5
+    assert records[0].pre_close == 10.0
+    assert records[0].pct_chg == 5.0
+    assert records[0].source == "eastmoney_direct_realtime"
+
+
 def test_fallback_realtime_quote_provider_uses_sina_after_primary_error() -> None:
     primary = FailingRealtimeProvider()
     fallback = FakeRealtimeProvider([_daily("600000")])
@@ -221,11 +249,26 @@ def test_fallback_realtime_quote_provider_uses_sina_after_primary_error() -> Non
     assert provider.errors == ["failing-realtime: RuntimeError: primary disconnected"]
 
 
-def test_auto_realtime_provider_prefers_direct_sina_before_full_market_sources() -> None:
+def test_auto_realtime_provider_uses_light_direct_sources_before_full_market_sources() -> None:
     provider = load_realtime_quote_provider("auto")
 
     assert isinstance(provider, FallbackRealtimeQuoteProvider)
-    assert isinstance(provider.providers[0], SinaDirectRealtimeQuoteProvider)
+    assert [type(item) for item in provider.providers] == [
+        SinaDirectRealtimeQuoteProvider,
+        EastmoneyDirectRealtimeQuoteProvider,
+    ]
+
+
+def test_auto_full_realtime_provider_keeps_akshare_as_last_resort() -> None:
+    provider = load_realtime_quote_provider("auto-full")
+
+    assert isinstance(provider, FallbackRealtimeQuoteProvider)
+    assert [type(item) for item in provider.providers] == [
+        SinaDirectRealtimeQuoteProvider,
+        EastmoneyDirectRealtimeQuoteProvider,
+        AkShareRealtimeQuoteProvider,
+        AkShareSinaRealtimeQuoteProvider,
+    ]
 
 
 def test_run_realtime_quote_workflow_backfills_quotes_tracks_plan_and_buys() -> None:

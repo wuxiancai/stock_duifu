@@ -13,6 +13,7 @@ from backend.app.data.providers import (
     AkShareRealtimeQuoteProvider,
     AkShareSinaMarketDataProvider,
     AkShareSinaRealtimeQuoteProvider,
+    EastmoneyDirectRealtimeQuoteProvider,
     FallbackRealtimeQuoteProvider,
     MissingTushareTokenError,
     SinaDirectRealtimeQuoteProvider,
@@ -58,7 +59,11 @@ def build_parser() -> argparse.ArgumentParser:
         "run-realtime-workflow",
         help="Fetch delayed realtime quotes for target trade plans, then track and simulate",
     )
-    realtime.add_argument("--provider", choices=["auto", "direct-sina", "akshare", "sina"], default="auto")
+    realtime.add_argument(
+        "--provider",
+        choices=["auto", "auto-lite", "auto-full", "direct-sina", "eastmoney", "akshare", "sina"],
+        default="auto",
+    )
     realtime.add_argument("--target-trade-date", required=True, help="Target trade date in YYYY-MM-DD format")
     realtime.add_argument(
         "--include-existing",
@@ -89,13 +94,22 @@ def build_parser() -> argparse.ArgumentParser:
 def load_realtime_quote_provider(provider_name: str):
     if provider_name == "direct-sina":
         return SinaDirectRealtimeQuoteProvider()
+    if provider_name == "eastmoney":
+        return EastmoneyDirectRealtimeQuoteProvider()
     if provider_name == "akshare":
         return AkShareRealtimeQuoteProvider()
     if provider_name == "sina":
         return AkShareSinaRealtimeQuoteProvider()
-    if provider_name == "auto":
+    if provider_name in {"auto", "auto-lite"}:
+        return FallbackRealtimeQuoteProvider([SinaDirectRealtimeQuoteProvider(), EastmoneyDirectRealtimeQuoteProvider()])
+    if provider_name == "auto-full":
         return FallbackRealtimeQuoteProvider(
-            [SinaDirectRealtimeQuoteProvider(), AkShareRealtimeQuoteProvider(), AkShareSinaRealtimeQuoteProvider()]
+            [
+                SinaDirectRealtimeQuoteProvider(),
+                EastmoneyDirectRealtimeQuoteProvider(),
+                AkShareRealtimeQuoteProvider(),
+                AkShareSinaRealtimeQuoteProvider(),
+            ]
         )
     raise ValueError(f"Unsupported realtime provider: {provider_name}")
 

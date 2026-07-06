@@ -1,7 +1,9 @@
+import json
 import os
 from contextlib import contextmanager
 from datetime import date, timedelta
 from typing import Callable, Iterable, Optional
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import akshare as ak
@@ -94,6 +96,15 @@ def normalize_stock_code(value) -> str:
     if "." in text:
         text = text.split(".", 1)[0]
     return text.zfill(6) if text else ""
+
+
+def _strip_jsonp(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("{"):
+        return stripped
+    if "(" in stripped and stripped.endswith(")"):
+        return stripped.split("(", 1)[1].rsplit(")", 1)[0]
+    return stripped
 
 
 class AkShareSinaMarketDataProvider:
@@ -443,10 +454,121 @@ class SinaDirectRealtimeQuoteProvider:
         )
 
 
+class EastmoneyDirectRealtimeQuoteProvider:
+    name = "eastmoney_direct_realtime"
+
+    def __init__(self, fetcher: Optional[SinaQuoteFetcher] = None, timeout: float = 5.0):
+        self._fetcher = fetcher or self._fetch_eastmoney_quotes
+        self.timeout = timeout
+
+    def fetch_realtime_stock_daily(
+        self,
+        stock_codes: Iterable[str],
+        trade_date: date,
+    ) -> list[StockDailyRecord]:
+        secid_to_code = {
+            secid: code
+            for code in (normalize_stock_code(raw_code) for raw_code in stock_codes)
+            if code
+            for secid in [self._eastmoney_secid(code)]
+            if secid
+        }
+        if not secid_to_code:
+            return []
+
+        records: list[StockDailyRecord] = []
+        secids = list(secid_to_code)
+        for start in range(0, len(secids), 80):
+            batch_secids = secids[start : start + 80]
+            query = urlencode(
+                {
+                    "fltt": "2",
+                    "invt": "2",
+                    "fields": "f12,f43,f44,f45,f46,f47,f48,f60,f170",
+                    "secids": ",".join(batch_secids),
+                }
+            )
+            url = f"https://push2.eastmoney.com/api/qt/ulist.np/get?{query}"
+            text = self._fetcher(url, self.timeout)
+            records.extend(self._parse_response(text, secid_to_code, trade_date))
+        return records
+
+    def _eastmoney_secid(self, stock_code: str) -> Optional[str]:
+        market = infer_market(stock_code)
+        if market == "SH":
+            return f"1.{stock_code}"
+        if market in {"SZ", "BJ"}:
+            return f"0.{stock_code}"
+        return None
+
+    def _fetch_eastmoney_quotes(self, url: str, timeout: float) -> str:
+        request = Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://quote.eastmoney.com/",
+            },
+        )
+        with without_proxy_env():
+            with urlopen(request, timeout=timeout) as response:
+                return response.read().decode("utf-8", errors="replace")
+
+    def _parse_response(
+        self,
+        text: str,
+        secid_to_code: dict[str, str],
+        trade_date: date,
+    ) -> list[StockDailyRecord]:
+        payload = json.loads(_strip_jsonp(text))
+        rows = payload.get("data", {}).get("diff") or []
+        records: list[StockDailyRecord] = []
+        for row in rows:
+            code = normalize_stock_code(str(row.get("f12") or ""))
+            secid = self._eastmoney_secid(code) if code else None
+            stock_code = secid_to_code.get(secid or "")
+            if not stock_code:
+                continue
+            record = self._row_to_daily(row, stock_code, trade_date)
+            if record is not None:
+                records.append(record)
+        return records
+
+    def _row_to_daily(self, row: dict, stock_code: str, trade_date: date) -> Optional[StockDailyRecord]:
+        close = as_float(row.get("f43"), default=None)
+        high = as_float(row.get("f44"), default=None)
+        low = as_float(row.get("f45"), default=None)
+        open_price = as_float(row.get("f46"), default=None)
+        volume = as_float(row.get("f47"), default=0.0)
+        amount = as_float(row.get("f48"), default=0.0)
+        pre_close = as_float(row.get("f60"), default=None)
+        pct_chg = as_float(row.get("f170"), default=0.0)
+        if not close or not open_price or not high or not low:
+            return None
+        if close <= 0 or open_price <= 0 or high <= 0 or low <= 0:
+            return None
+        pre_close = pre_close or close
+        change = close - pre_close
+        return StockDailyRecord(
+            stock_code=stock_code,
+            trade_date=trade_date,
+            open=open_price,
+            high=high,
+            low=low,
+            close=close,
+            pre_close=pre_close,
+            change=change,
+            pct_chg=pct_chg or ((change / pre_close * 100) if pre_close else 0.0),
+            volume=volume,
+            amount=amount,
+            turnover_rate=None,
+            source=self.name,
+        )
+
+
 class FallbackRealtimeQuoteProvider:
     name = "auto_realtime"
 
-    def __init__(self, providers: Iterable[AkShareRealtimeQuoteProvider]):
+    def __init__(self, providers: Iterable[object]):
         self.providers = list(providers)
         self.last_provider_name: Optional[str] = None
         self.errors: list[str] = []
