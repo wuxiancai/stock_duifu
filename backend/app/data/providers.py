@@ -68,7 +68,15 @@ def akshare_daily_symbol(stock_code: str) -> Optional[str]:
 def as_float(value, default: Optional[float] = 0.0) -> Optional[float]:
     if value is None or pd.isna(value):
         return default
-    return float(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or text in {"-", "--", "None", "null", "NaN"}:
+            return default
+        value = text.replace(",", "")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def tushare_amount_to_yuan(value) -> Optional[float]:
@@ -105,6 +113,33 @@ def _strip_jsonp(text: str) -> str:
     if "(" in stripped and stripped.endswith(")"):
         return stripped.split("(", 1)[1].rsplit(")", 1)[0]
     return stripped
+
+
+def is_plausible_realtime_daily(record: StockDailyRecord) -> bool:
+    prices = [record.open, record.high, record.low, record.close, record.pre_close]
+    if any(value is None for value in prices):
+        return False
+    if any(value <= 0 or value >= 100000 for value in prices):
+        return False
+    if record.low > record.high:
+        return False
+    if record.open > record.high or record.open < record.low:
+        return False
+    if record.close > record.high or record.close < record.low:
+        return False
+    if abs(record.change) >= 100000:
+        return False
+    if abs(record.pct_chg) >= 200:
+        return False
+    if record.volume < 0 or record.amount < 0:
+        return False
+    return True
+
+
+def valid_realtime_daily(record: Optional[StockDailyRecord]) -> Optional[StockDailyRecord]:
+    if record is None:
+        return None
+    return record if is_plausible_realtime_daily(record) else None
 
 
 class AkShareSinaMarketDataProvider:
@@ -315,20 +350,22 @@ class AkShareRealtimeQuoteProvider:
         pre_close = pre_close or close
         change = as_float(_row_value(row, "涨跌额", "change", "pricechange"), default=close - pre_close)
         pct_chg = as_float(_row_value(row, "涨跌幅", "pct_chg", "changepercent"), default=0.0)
-        return StockDailyRecord(
-            stock_code=stock_code,
-            trade_date=trade_date,
-            open=open_price,
-            high=high,
-            low=low,
-            close=close,
-            pre_close=pre_close,
-            change=change,
-            pct_chg=pct_chg,
-            volume=as_float(_row_value(row, "成交量", "volume"), default=0.0),
-            amount=as_float(_row_value(row, "成交额", "amount"), default=0.0),
-            turnover_rate=as_float(_row_value(row, "换手率", "turnover_rate", "turnoverratio"), default=None),
-            source=self.name,
+        return valid_realtime_daily(
+            StockDailyRecord(
+                stock_code=stock_code,
+                trade_date=trade_date,
+                open=open_price,
+                high=high,
+                low=low,
+                close=close,
+                pre_close=pre_close,
+                change=change,
+                pct_chg=pct_chg,
+                volume=as_float(_row_value(row, "成交量", "volume"), default=0.0),
+                amount=as_float(_row_value(row, "成交额", "amount"), default=0.0),
+                turnover_rate=as_float(_row_value(row, "换手率", "turnover_rate", "turnoverratio"), default=None),
+                source=self.name,
+            )
         )
 
 
@@ -437,20 +474,22 @@ class SinaDirectRealtimeQuoteProvider:
         pre_close = pre_close or close
         change = close - pre_close
         pct_chg = (change / pre_close * 100) if pre_close else 0.0
-        return StockDailyRecord(
-            stock_code=stock_code,
-            trade_date=trade_date,
-            open=open_price,
-            high=high,
-            low=low,
-            close=close,
-            pre_close=pre_close,
-            change=change,
-            pct_chg=pct_chg,
-            volume=volume,
-            amount=amount,
-            turnover_rate=None,
-            source=self.name,
+        return valid_realtime_daily(
+            StockDailyRecord(
+                stock_code=stock_code,
+                trade_date=trade_date,
+                open=open_price,
+                high=high,
+                low=low,
+                close=close,
+                pre_close=pre_close,
+                change=change,
+                pct_chg=pct_chg,
+                volume=volume,
+                amount=amount,
+                turnover_rate=None,
+                source=self.name,
+            )
         )
 
 
@@ -551,20 +590,22 @@ class TencentDirectRealtimeQuoteProvider:
             return None
         pre_close = pre_close or close
         computed_change = close - pre_close
-        return StockDailyRecord(
-            stock_code=stock_code,
-            trade_date=trade_date,
-            open=open_price,
-            high=high,
-            low=low,
-            close=close,
-            pre_close=pre_close,
-            change=change if change is not None else computed_change,
-            pct_chg=pct_chg if pct_chg is not None else ((computed_change / pre_close * 100) if pre_close else 0.0),
-            volume=volume,
-            amount=amount,
-            turnover_rate=turnover_rate,
-            source=self.name,
+        return valid_realtime_daily(
+            StockDailyRecord(
+                stock_code=stock_code,
+                trade_date=trade_date,
+                open=open_price,
+                high=high,
+                low=low,
+                close=close,
+                pre_close=pre_close,
+                change=change if change is not None else computed_change,
+                pct_chg=pct_chg if pct_chg is not None else ((computed_change / pre_close * 100) if pre_close else 0.0),
+                volume=volume,
+                amount=amount,
+                turnover_rate=turnover_rate,
+                source=self.name,
+            )
         )
 
 
@@ -662,20 +703,22 @@ class EastmoneyDirectRealtimeQuoteProvider:
             return None
         pre_close = pre_close or close
         change = close - pre_close
-        return StockDailyRecord(
-            stock_code=stock_code,
-            trade_date=trade_date,
-            open=open_price,
-            high=high,
-            low=low,
-            close=close,
-            pre_close=pre_close,
-            change=change,
-            pct_chg=pct_chg or ((change / pre_close * 100) if pre_close else 0.0),
-            volume=volume,
-            amount=amount,
-            turnover_rate=None,
-            source=self.name,
+        return valid_realtime_daily(
+            StockDailyRecord(
+                stock_code=stock_code,
+                trade_date=trade_date,
+                open=open_price,
+                high=high,
+                low=low,
+                close=close,
+                pre_close=pre_close,
+                change=change,
+                pct_chg=pct_chg or ((change / pre_close * 100) if pre_close else 0.0),
+                volume=volume,
+                amount=amount,
+                turnover_rate=None,
+                source=self.name,
+            )
         )
 
 

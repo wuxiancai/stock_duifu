@@ -255,6 +255,55 @@ def test_tencent_direct_realtime_quote_provider_fetches_only_requested_symbols()
     assert records[0].source == "tencent_direct_realtime"
 
 
+def test_realtime_quote_provider_drops_implausible_daily_records() -> None:
+    text = (
+        '{"data":{"diff":[{"f12":"002317","f43":3457821.09,"f44":117692336.37,'
+        '"f45":99822991.5,"f46":20.83376013354,"f47":1090139397.67,'
+        '"f48":1.08262184634,"f60":1819056271.57,"f170":109659728.0}]}}'
+    )
+    provider = EastmoneyDirectRealtimeQuoteProvider(fetcher=lambda url, timeout: text)
+
+    records = provider.fetch_realtime_stock_daily(["002317"], date(2026, 7, 6))
+
+    assert records == []
+
+
+def test_fallback_realtime_quote_provider_uses_next_source_after_implausible_records() -> None:
+    bad_eastmoney_text = (
+        '{"data":{"diff":[{"f12":"002317","f43":3457821.09,"f44":117692336.37,'
+        '"f45":99822991.5,"f46":20.83376013354,"f47":1090139397.67,'
+        '"f48":1.08262184634,"f60":1819056271.57,"f170":109659728.0}]}}'
+    )
+    tencent_fields = [""] * 40
+    tencent_fields[1] = "众生药业"
+    tencent_fields[2] = "002317"
+    tencent_fields[3] = "28.99"
+    tencent_fields[4] = "27.44"
+    tencent_fields[5] = "28.20"
+    tencent_fields[6] = "100000"
+    tencent_fields[31] = "1.55"
+    tencent_fields[32] = "5.65"
+    tencent_fields[33] = "29.50"
+    tencent_fields[34] = "27.80"
+    tencent_fields[37] = "105000000"
+    tencent_text = f'v_sz002317="{"~".join(tencent_fields)}";'
+    provider = FallbackRealtimeQuoteProvider(
+        [
+            EastmoneyDirectRealtimeQuoteProvider(fetcher=lambda url, timeout: bad_eastmoney_text),
+            TencentDirectRealtimeQuoteProvider(fetcher=lambda url, timeout: tencent_text),
+        ]
+    )
+
+    records = provider.fetch_realtime_stock_daily(["002317"], date(2026, 7, 6))
+
+    assert provider.name == "tencent_direct_realtime"
+    assert provider.errors == ["eastmoney_direct_realtime: 返回 0 行实时行情"]
+    assert len(records) == 1
+    assert records[0].stock_code == "002317"
+    assert records[0].close == 28.99
+    assert records[0].source == "tencent_direct_realtime"
+
+
 def test_eastmoney_direct_realtime_quote_provider_fetches_only_requested_secids() -> None:
     calls = []
     text = (

@@ -63,6 +63,7 @@
 - [x] 已加固 `/api/trade-plans/track-realtime` 高频 502 链路：API 默认只使用计划股新浪直连实时源，不再默认回退到 AkShare 全市场实时表；接口增加非阻塞并发锁，已有实时回补正在执行时后续请求快速返回跳过回补并继续返回跟踪结果，避免自动刷新并发堆积拖垮 Vite 代理。
 - [x] 已补齐实时行情轻量备用源：新增东方财富 direct 实时行情 provider，默认 API/CLI 实时源改为 `auto` 轻量链路 `sina_direct_realtime -> eastmoney_direct_realtime`；AkShare 全市场实时源保留为 `auto-full` 最后兜底，不进入默认路径，避免无备用源导致今日交易计划无法触发，同时避免默认全市场慢请求引发 502。
 - [x] 已新增腾讯 direct 实时行情 provider：默认轻量链路升级为 `sina_direct_realtime -> eastmoney_direct_realtime -> tencent_direct_realtime`，三者都只按交易计划股/持仓股请求，不拉全市场；AkShare 仍保持不改，只在 `auto-full` 中作为最后兜底。
+- [x] 已修复实时行情异常数值写库失败：东方财富 direct 在部分网络环境下可能返回畸形字段，现已增加统一实时行情合理性校验，价格、涨跌幅、开高低收关系异常的记录会被丢弃，并继续降级到后续数据源；`as_float` 同步兼容空字符串、`--` 和非法数字，避免脏字段中断降级链。
 
 ## 开发原则
 
