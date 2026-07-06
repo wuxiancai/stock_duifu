@@ -1,10 +1,35 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
+async function responseErrorMessage(path: string, response: Response): Promise<string> {
+  let detail = ''
+
+  try {
+    const contentType = response.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const payload = await response.json()
+      if (payload && typeof payload === 'object') {
+        const error = 'error' in payload ? String(payload.error ?? '') : ''
+        const message = 'message' in payload ? String(payload.message ?? '') : ''
+        const target = 'target' in payload ? String(payload.target ?? '') : ''
+        const parts = [error, message, target ? `target=${target}` : ''].filter(Boolean)
+        detail = parts.length ? ` (${parts.join('; ')})` : ''
+      }
+    } else {
+      const text = await response.text()
+      detail = text ? ` (${text.slice(0, 200)})` : ''
+    }
+  } catch {
+    detail = ''
+  }
+
+  return `${path} failed: ${response.status}${detail}`
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`)
 
   if (!response.ok) {
-    throw new Error(`${path} failed: ${response.status}`)
+    throw new Error(await responseErrorMessage(path, response))
   }
 
   return response.json() as Promise<T>
@@ -20,7 +45,7 @@ async function sendJson<T>(path: string, method: string, body: unknown): Promise
   })
 
   if (!response.ok) {
-    throw new Error(`${path} failed: ${response.status}`)
+    throw new Error(await responseErrorMessage(path, response))
   }
 
   return response.json() as Promise<T>

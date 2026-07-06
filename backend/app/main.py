@@ -1,7 +1,9 @@
 from dataclasses import asdict
 from datetime import date
+import logging
 import os
 import threading
+import time
 from typing import Optional
 
 from fastapi import FastAPI
@@ -37,6 +39,9 @@ from backend.app.trade.service import (
     update_trade_review,
     update_trade_plan_status,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class TradePlanTrackingRequest(BaseModel):
@@ -486,15 +491,32 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
 
     @app.get("/api/trade-plans/latest", tags=["trade"])
     def latest_trade_plans() -> dict:
-        result = load_latest_trade_plans(database_engine)
-        if result is None:
-            return {"plan_date": "", "target_trade_date": "", "items": []}
-        plan_date, target_trade_date, items = result
-        return {
-            "plan_date": plan_date.isoformat(),
-            "target_trade_date": target_trade_date.isoformat(),
-            "items": [_trade_plan_payload(item) for item in items],
-        }
+        started_at = time.perf_counter()
+        logger.info("GET /api/trade-plans/latest started")
+        try:
+            result = load_latest_trade_plans(database_engine)
+            if result is None:
+                duration_ms = int((time.perf_counter() - started_at) * 1000)
+                logger.info("GET /api/trade-plans/latest completed empty duration_ms=%s", duration_ms)
+                return {"plan_date": "", "target_trade_date": "", "items": []}
+            plan_date, target_trade_date, items = result
+            duration_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.info(
+                "GET /api/trade-plans/latest completed plan_date=%s target_trade_date=%s items=%s duration_ms=%s",
+                plan_date,
+                target_trade_date,
+                len(items),
+                duration_ms,
+            )
+            return {
+                "plan_date": plan_date.isoformat(),
+                "target_trade_date": target_trade_date.isoformat(),
+                "items": [_trade_plan_payload(item) for item in items],
+            }
+        except Exception:
+            duration_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.exception("GET /api/trade-plans/latest failed duration_ms=%s", duration_ms)
+            raise
 
     @app.get("/api/trade-plans", tags=["trade"])
     def trade_plans_by_date(date: str) -> dict:

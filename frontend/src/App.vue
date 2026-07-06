@@ -306,6 +306,7 @@ async function refreshIntradayWorkflow() {
     simulation.value = workflowResult.simulation
     tradePlans.value = await fetchLatestTradePlans()
     intradayRefreshFailureCount.value = 0
+    error.value = ''
   } catch (err) {
     intradayRefreshFailureCount.value += 1
     const message = err instanceof Error ? err.message : '盘中实时刷新失败'

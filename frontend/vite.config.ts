@@ -19,7 +19,10 @@ const apiProxy: ProxyOptions = {
   timeout: 120000,
   proxyTimeout: 120000,
   configure(proxy) {
-    proxy.on('error', (error, _request, response) => {
+    proxy.on('error', (error, request, response) => {
+      console.error(
+        `[api-proxy] ${request.method} ${request.url} -> ${apiProxyTarget} failed: ${error.message}`
+      )
       if (!response || !('writeHead' in response) || response.headersSent) {
         return
       }
