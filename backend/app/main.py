@@ -1,5 +1,7 @@
 from dataclasses import asdict
 from datetime import date
+import os
+import threading
 from typing import Optional
 
 from fastapi import FastAPI
@@ -16,7 +18,7 @@ from backend.app.data.providers import (
     FallbackRealtimeQuoteProvider,
     SinaDirectRealtimeQuoteProvider,
 )
-from backend.app.data.realtime_quotes import backfill_trade_plan_realtime_quotes
+from backend.app.data.realtime_quotes import RealtimeQuoteBackfillResult, backfill_trade_plan_realtime_quotes
 from backend.app.db.session import create_database_engine
 from backend.app.market.service import load_index_ticker, load_latest_market_environment, load_market_environment_history
 from backend.app.sector.service import load_latest_sector_rankings, load_sector_rankings_by_date
@@ -193,9 +195,35 @@ def _realtime_backfill_payload(backfill) -> dict:
     }
 
 
+_realtime_tracking_lock = threading.Lock()
+
+
 def _realtime_quote_provider():
-    return FallbackRealtimeQuoteProvider(
-        [SinaDirectRealtimeQuoteProvider(), AkShareRealtimeQuoteProvider(), AkShareSinaRealtimeQuoteProvider()]
+    provider_name = os.environ.get("STOCK_API_REALTIME_PROVIDER", "direct-sina").strip().lower()
+    if provider_name == "auto":
+        return FallbackRealtimeQuoteProvider(
+            [SinaDirectRealtimeQuoteProvider(), AkShareRealtimeQuoteProvider(), AkShareSinaRealtimeQuoteProvider()]
+        )
+    if provider_name == "akshare":
+        return AkShareRealtimeQuoteProvider()
+    if provider_name == "sina":
+        return AkShareSinaRealtimeQuoteProvider()
+    return SinaDirectRealtimeQuoteProvider()
+
+
+def _busy_realtime_backfill(target_trade_date: date) -> RealtimeQuoteBackfillResult:
+    return RealtimeQuoteBackfillResult(
+        target_trade_date=target_trade_date,
+        china_today=target_trade_date,
+        provider="skipped_busy_realtime",
+        planned_stock_count=0,
+        existing_stock_count=0,
+        requested_stock_count=0,
+        fetched_stock_daily_rows=0,
+        target_is_open=None,
+        missing_stock_codes=[],
+        skipped_reason="已有 /api/trade-plans/track-realtime 请求正在执行，本次跳过实时行情回补，避免并发堆积导致 502",
+        ingest_summary=None,
     )
 
 
@@ -488,13 +516,20 @@ def create_app(database_url: Optional[str] = None, engine: Optional[Engine] = No
     @app.post("/api/trade-plans/track-realtime", tags=["trade"])
     def track_trade_plans_with_realtime_api(payload: TradePlanRealtimeTrackingRequest) -> dict:
         target_trade_date = _parse_iso_date(payload.target_trade_date, "target_trade_date")
-        backfill = backfill_trade_plan_realtime_quotes(
-            database_engine,
-            target_trade_date,
-            _realtime_quote_provider(),
-            include_existing=payload.include_existing,
-            allow_date_mismatch=payload.allow_date_mismatch,
-        )
+        lock_acquired = _realtime_tracking_lock.acquire(blocking=False)
+        if not lock_acquired:
+            backfill = _busy_realtime_backfill(target_trade_date)
+        else:
+            try:
+                backfill = backfill_trade_plan_realtime_quotes(
+                    database_engine,
+                    target_trade_date,
+                    _realtime_quote_provider(),
+                    include_existing=payload.include_existing,
+                    allow_date_mismatch=payload.allow_date_mismatch,
+                )
+            finally:
+                _realtime_tracking_lock.release()
         items = track_trade_plans(
             database_engine,
             target_trade_date,

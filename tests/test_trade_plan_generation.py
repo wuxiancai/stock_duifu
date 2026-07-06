@@ -510,6 +510,44 @@ def test_track_trade_plans_marks_triggered_from_target_day_daily_data() -> None:
         assert saved.tracking_note == "目标交易日价格触达计划买入区间"
 
 
+def test_api_realtime_provider_defaults_to_direct_sina(monkeypatch) -> None:
+    monkeypatch.delenv("STOCK_API_REALTIME_PROVIDER", raising=False)
+
+    provider = app_main._realtime_quote_provider()
+
+    assert provider.name == "sina_direct_realtime"
+
+
+def test_track_realtime_api_returns_fast_when_realtime_refresh_is_already_running(monkeypatch) -> None:
+    engine = _engine()
+    plan_date = _seed_fixture(engine)
+    generate_trade_plans(engine, plan_date)
+
+    class FailingIfCalledProvider:
+        name = "should-not-be-called"
+
+        def fetch_realtime_stock_daily(self, stock_codes, trade_date):
+            raise AssertionError("busy realtime request must not fetch quotes again")
+
+    monkeypatch.setattr(app_main, "_realtime_quote_provider", lambda: FailingIfCalledProvider())
+    client = TestClient(create_app(database_url="sqlite+pysqlite://", engine=engine))
+
+    assert app_main._realtime_tracking_lock.acquire(blocking=False)
+    try:
+        response = client.post(
+            "/api/trade-plans/track-realtime",
+            json={"target_trade_date": "2026-06-19", "allow_date_mismatch": True},
+        )
+    finally:
+        app_main._realtime_tracking_lock.release()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["realtime"]["provider"] == "skipped_busy_realtime"
+    assert "避免并发堆积导致 502" in payload["realtime"]["skipped_reason"]
+    assert "items" in payload
+
+
 def test_track_realtime_trade_plans_api_backfills_quotes_and_returns_current_price(monkeypatch) -> None:
     engine = _engine()
     plan_date = _seed_fixture(engine)
