@@ -21,6 +21,8 @@ from backend.app.data.providers import (
     TushareMarketDataProvider,
 )
 from backend.app.core.config import get_settings
+from backend.app.data_source_router import DataDomain, DataRequest, DataSourceRouter, DomainPolicy
+from backend.app.data_source_router import market_snapshot_adapter, realtime_quote_adapter
 from backend.app.db.session import create_database_engine
 
 
@@ -92,6 +94,76 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+class RouterMarketDataProvider:
+    name = "auto_market_snapshot"
+
+    def __init__(self, providers: list[object]):
+        self.providers = providers
+        self.name = getattr(providers[0], "name", self.name) if providers else self.name
+        self.router = DataSourceRouter(
+            [market_snapshot_adapter(provider) for provider in providers],
+            policies=[
+                DomainPolicy(
+                    domain=DataDomain.MARKET_SNAPSHOT,
+                    ordered_sources=[getattr(provider, "name", provider.__class__.__name__) for provider in providers],
+                    min_rows=1,
+                )
+            ],
+        )
+
+    @property
+    def errors(self) -> list[str]:
+        return self.router.errors
+
+    def fetch_snapshot(self, trade_date=None, sample_size: int = 30, stock_codes=None):
+        response = self.router.fetch(
+            DataRequest(
+                domain=DataDomain.MARKET_SNAPSHOT,
+                trade_date=trade_date,
+                sample_size=sample_size,
+                stock_codes=list(stock_codes or []),
+                min_rows=1,
+            )
+        )
+        self.name = response.source
+        return response.records
+
+
+class RouterRealtimeQuoteProvider(FallbackRealtimeQuoteProvider):
+    name = "auto_realtime"
+
+    def __init__(self, providers: list[object]):
+        self.providers = providers
+        self.router = DataSourceRouter(
+            [realtime_quote_adapter(provider) for provider in providers],
+            policies=[
+                DomainPolicy(
+                    domain=DataDomain.REALTIME_QUOTE,
+                    ordered_sources=[getattr(provider, "name", provider.__class__.__name__) for provider in providers],
+                    min_rows=1,
+                )
+            ],
+        )
+        self.last_provider_name: Optional[str] = None
+
+    @property
+    def errors(self) -> list[str]:
+        return self.router.errors
+
+    def fetch_realtime_stock_daily(self, stock_codes, trade_date):
+        response = self.router.fetch(
+            DataRequest(
+                domain=DataDomain.REALTIME_QUOTE,
+                trade_date=trade_date,
+                stock_codes=list(stock_codes or []),
+                min_rows=1,
+            )
+        )
+        self.last_provider_name = response.source
+        self.name = response.source
+        return response.records
+
+
 def load_realtime_quote_provider(provider_name: str):
     if provider_name == "direct-sina":
         return SinaDirectRealtimeQuoteProvider()
@@ -104,11 +176,11 @@ def load_realtime_quote_provider(provider_name: str):
     if provider_name == "sina":
         return AkShareSinaRealtimeQuoteProvider()
     if provider_name in {"auto", "auto-lite"}:
-        return FallbackRealtimeQuoteProvider(
+        return RouterRealtimeQuoteProvider(
             [SinaDirectRealtimeQuoteProvider(), EastmoneyDirectRealtimeQuoteProvider(), TencentDirectRealtimeQuoteProvider()]
         )
     if provider_name == "auto-full":
-        return FallbackRealtimeQuoteProvider(
+        return RouterRealtimeQuoteProvider(
             [
                 SinaDirectRealtimeQuoteProvider(),
                 EastmoneyDirectRealtimeQuoteProvider(),
@@ -131,9 +203,10 @@ def load_provider(provider_name: str, tushare_token: Optional[str] = None):
     if provider_name == "akshare":
         return AkShareSinaMarketDataProvider()
     if provider_name == "auto":
+        providers = [AkShareSinaMarketDataProvider()]
         if token:
-            return TushareMarketDataProvider(token=token)
-        return AkShareSinaMarketDataProvider()
+            providers.insert(0, TushareMarketDataProvider(token=token))
+        return RouterMarketDataProvider(providers)
     raise ValueError(f"Unsupported provider: {provider_name}")
 
 

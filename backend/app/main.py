@@ -14,14 +14,7 @@ from sqlalchemy.engine import Engine
 
 from backend.app.candidate.service import load_latest_candidates
 from backend.app.core.config import get_settings
-from backend.app.data.providers import (
-    AkShareRealtimeQuoteProvider,
-    AkShareSinaRealtimeQuoteProvider,
-    EastmoneyDirectRealtimeQuoteProvider,
-    FallbackRealtimeQuoteProvider,
-    SinaDirectRealtimeQuoteProvider,
-    TencentDirectRealtimeQuoteProvider,
-)
+from backend.app.data.cli import load_realtime_quote_provider
 from backend.app.data.realtime_quotes import RealtimeQuoteBackfillResult, backfill_trade_plan_realtime_quotes
 from backend.app.db.session import create_database_engine
 from backend.app.market.service import load_index_ticker, load_latest_market_environment, load_market_environment_history
@@ -207,29 +200,12 @@ _realtime_tracking_lock = threading.Lock()
 
 def _realtime_quote_provider():
     provider_name = os.environ.get("STOCK_API_REALTIME_PROVIDER", "auto").strip().lower()
-    if provider_name in {"auto", "auto-lite"}:
-        return FallbackRealtimeQuoteProvider(
-            [SinaDirectRealtimeQuoteProvider(), EastmoneyDirectRealtimeQuoteProvider(), TencentDirectRealtimeQuoteProvider()]
-        )
-    if provider_name in {"auto-full", "legacy-auto"}:
-        return FallbackRealtimeQuoteProvider(
-            [
-                SinaDirectRealtimeQuoteProvider(),
-                EastmoneyDirectRealtimeQuoteProvider(),
-                TencentDirectRealtimeQuoteProvider(),
-                AkShareRealtimeQuoteProvider(),
-                AkShareSinaRealtimeQuoteProvider(),
-            ]
-        )
-    if provider_name in {"eastmoney", "direct-eastmoney"}:
-        return EastmoneyDirectRealtimeQuoteProvider()
-    if provider_name in {"tencent", "direct-tencent"}:
-        return TencentDirectRealtimeQuoteProvider()
-    if provider_name == "akshare":
-        return AkShareRealtimeQuoteProvider()
-    if provider_name == "sina":
-        return AkShareSinaRealtimeQuoteProvider()
-    return SinaDirectRealtimeQuoteProvider()
+    alias_map = {
+        "legacy-auto": "auto-full",
+        "direct-eastmoney": "eastmoney",
+        "direct-tencent": "tencent",
+    }
+    return load_realtime_quote_provider(alias_map.get(provider_name, provider_name))
 
 
 def _busy_realtime_backfill(target_trade_date: date) -> RealtimeQuoteBackfillResult:

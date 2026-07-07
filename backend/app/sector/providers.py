@@ -8,6 +8,7 @@ import requests
 import tushare as ts
 
 from backend.app.data.providers import as_float, normalize_stock_code, without_proxy_env
+from backend.app.data_source_router import DataDomain, DataRequest, DataSourceRouter, DomainPolicy, sector_window_adapter
 from backend.app.sector.service import SectorRawRecord
 
 
@@ -23,19 +24,35 @@ class FallbackSectorDataProvider:
             EastmoneyIndustrySectorDataProvider(member_fetch_limit=member_fetch_limit),
             ThsIndustrySectorDataProvider(member_fetch_limit=member_fetch_limit),
         ]
+        self.router = DataSourceRouter(
+            [sector_window_adapter(provider) for provider in self.providers],
+            policies=[
+                DomainPolicy(
+                    domain=DataDomain.SECTOR_DAILY,
+                    ordered_sources=[provider.source for provider in self.providers],
+                    min_rows=1,
+                )
+            ],
+        )
+
+    @property
+    def errors(self) -> list[str]:
+        return self.router.errors
 
     def fetch_sector_window(self, trade_date: date, lookback_days: int = 5) -> list[SectorRawRecord]:
-        errors: list[str] = []
-        for provider in self.providers:
-            try:
-                records = provider.fetch_sector_window(trade_date=trade_date, lookback_days=lookback_days)
-            except Exception as exc:
-                errors.append(f"{provider.source}: {exc.__class__.__name__}: {exc}")
-                continue
-            if records:
-                return records
-            errors.append(f"{provider.source}: empty result")
-        raise RuntimeError("所有免费行业数据源均失败：" + "；".join(errors))
+        try:
+            response = self.router.fetch(
+                DataRequest(
+                    domain=DataDomain.SECTOR_DAILY,
+                    trade_date=trade_date,
+                    lookback_days=lookback_days,
+                    min_rows=1,
+                )
+            )
+        except RuntimeError as exc:
+            errors = "；".join(self.router.errors or [str(exc)])
+            raise RuntimeError("所有免费行业数据源均失败：" + errors) from exc
+        return response.records
 
 
 class EastmoneyIndustrySectorDataProvider:

@@ -2,6 +2,7 @@
 
 ## 当前状态
 
+- [x] 2026-07-07 已新增统一多源切换系统：`backend/app/data_source_router.py`，并接入历史行情、实时行情、行业、行业成分等拉取入口。新增 `docs/DATA_SOURCE_POLICY.md` 固化 10 个主流源和数据域策略。验证：相关测试 34 passed；盘后 workflow 测试 3 passed。
 - [x] 已创建 MVP PRD：`PRD_MVP.md`
 - [x] 已明确本仓库为全新系统，旧 `stock` 项目作废
 - [x] 已创建任务 1 的项目骨架与健康检查

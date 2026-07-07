@@ -6,6 +6,7 @@ import pandas as pd
 import tushare as ts
 
 from backend.app.data.providers import normalize_stock_code, without_proxy_env
+from backend.app.data_source_router import DataDomain, DataRequest, DataSourceRouter, DomainPolicy, sector_membership_adapter
 from backend.app.sector.providers import ThsIndustryMemberFetcher, _filter_industry_sector_universe
 
 
@@ -30,10 +31,28 @@ class FallbackIndustrySectorMembershipProvider:
         for provider in self.providers:
             if not remaining:
                 break
+            router = DataSourceRouter(
+                [sector_membership_adapter(provider)],
+                policies=[
+                    DomainPolicy(
+                        domain=DataDomain.SECTOR_MEMBERSHIP,
+                        ordered_sources=[provider.source],
+                        min_rows=0,
+                        allow_empty=True,
+                    )
+                ],
+            )
             try:
-                provider_result = provider.sector_members(remaining)
+                response = router.fetch(
+                    DataRequest(
+                        domain=DataDomain.SECTOR_MEMBERSHIP,
+                        sector_names=remaining,
+                        min_rows=0,
+                    )
+                )
+                provider_result = response.records
             except Exception as exc:
-                errors.append(f"{provider.source}: {exc.__class__.__name__}: {exc}")
+                errors.extend(router.errors or [f"{provider.source}: {exc.__class__.__name__}: {exc}"])
                 continue
             for sector_name, codes in provider_result.items():
                 if codes:

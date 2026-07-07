@@ -3,6 +3,7 @@
 ## 当前状态
 
 - 日期：2026-06-24
+- 2026-07-07 已新增统一多源切换系统：`backend/app/data_source_router.py`；历史行情、实时行情、行业、行业成分入口已接入 router。新增 `tests/test_data_source_router.py` 和 `docs/DATA_SOURCE_POLICY.md`。验证：数据源相关 34 passed，盘后 workflow 3 passed；全量 pytest 触发 document 连接器 503，未取得完整输出。
 - 2026-07-07 已新增统一多源切换系统设计文档 `docs/DATA_SOURCE_FAILOVER_DESIGN.md`：覆盖 TuShare、AkShare、东方财富、腾讯、新浪、网易、同花顺、Baostock、巨潮、交易所/指数官方源等；按数据域定义交易日历、股票基础信息、日线、指数、涨跌停池、强势行业、行业成分、实时行情、公告资料的源优先级、质量校验、熔断、审计表、页面展示和迁移计划。后续所有拉数逻辑应逐步迁移到统一 DataSourceRouter，禁止业务模块直接绑定单一源。
 - 2026-07-07 已给强势行业和候选行业成分股增加多源切换。东方财富失败后自动切到同花顺。验证：fallback 相关测试 15 passed，完整后端相关链路 109 passed。
 - 2026-07-07 已加固免费东方财富涨跌停池网络失败降级：云端 AkShare `stock_zt_pool_em` / `push2ex.eastmoney.com` 出现 `ConnectTimeout` 时，不再中断“拉取行情快照”；`TushareMarketDataProvider` 会基于已成功拉取的全市场 `stock_daily.pct_chg` 推导涨停/跌停快照，source 标记为 `inferred_from_stock_daily`。2026-07-07 复核：当前系统只使用 `limit_snapshot` 的涨跌停状态、数量、连板高度、板块内涨停数、一字涨停过滤和成交额，不使用封单额/首次封板时间/炸板次数/主力资金等涨停池专用字段；推导仅作为兜底，已收紧 ST 5%、主板 10%、创业板/科创板 20%、北交所 30% 阈值，并排除明显超过阈值的新股/无涨跌幅限制异常涨跌幅。验证：数据/provider/workflow/health/deployment 相关测试 107 passed。
