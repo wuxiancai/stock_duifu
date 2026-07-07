@@ -111,6 +111,7 @@ def test_after_close_workflow_reuses_existing_sectors_when_provider_fails(monkey
         "backend.app.workflow.service._load_existing_sector_rankings_or_raise",
         lambda engine, trade_date, exc: [SimpleNamespace(sector_name="半导体")],
     )
+    monkeypatch.setattr("backend.app.workflow.service.record_recoverable_data_job_step", lambda engine, run_id, step_name, operation, recovery, summary_builder, rows_counter, recovery_message: recovery(Exception("sector source failed")))
     monkeypatch.setattr(
         "backend.app.workflow.service.generate_candidate_stocks",
         lambda engine, trade_date, provider, limit: [SimpleNamespace(stock_code="000001")],
@@ -134,6 +135,7 @@ def test_after_close_workflow_reuses_existing_sectors_when_provider_fails(monkey
 
     assert result.sector_count == 1
     assert result.candidate_count == 1
+
 
 
 def test_after_close_workflow_reuses_existing_candidates_when_membership_fails(monkeypatch) -> None:
@@ -164,6 +166,7 @@ def test_after_close_workflow_reuses_existing_candidates_when_membership_fails(m
         "backend.app.workflow.service._load_existing_candidates_or_raise",
         lambda engine, trade_date, exc: [SimpleNamespace(stock_code="000001"), SimpleNamespace(stock_code="000002")],
     )
+    monkeypatch.setattr("backend.app.workflow.service.record_recoverable_data_job_step", lambda engine, run_id, step_name, operation, recovery, summary_builder, rows_counter, recovery_message: recovery(Exception("member source failed")))
     monkeypatch.setattr(
         "backend.app.workflow.service.generate_trade_reviews",
         lambda engine, trade_date: SimpleNamespace(review_date=trade_date, total_count=0, triggered_count=0, win_rate=0),

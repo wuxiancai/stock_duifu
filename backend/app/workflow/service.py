@@ -17,6 +17,7 @@ from backend.app.system.monitoring import (
     create_data_job_run,
     finish_data_job_run,
     record_data_job_step,
+    record_recoverable_data_job_step,
     run_coverage_audit_step,
 )
 
@@ -96,28 +97,30 @@ def run_after_close_workflow(
                 lambda item: {"market_score": item.market_score, "market_status": item.market_status},
                 lambda item: 1,
             )
-            try:
-                sectors = record_data_job_step(
-                    engine,
-                    run_id,
-                    "生成强势板块",
-                    lambda: generate_sector_rankings(engine, trade_date, sector_provider),
-                    lambda items: {"sector_count": len(items), "top_sector": items[0].sector_name if items else ""},
-                    lambda items: len(items),
-                )
-            except Exception as exc:
-                sectors = _load_existing_sector_rankings_or_raise(engine, trade_date, exc)
-            try:
-                candidates = record_data_job_step(
-                    engine,
-                    run_id,
-                    "生成候选股票",
-                    lambda: generate_candidate_stocks(engine, trade_date, candidate_provider, limit=candidate_limit),
-                    lambda items: {"candidate_count": len(items)},
-                    lambda items: len(items),
-                )
-            except Exception as exc:
-                candidates = _load_existing_candidates_or_raise(engine, trade_date, exc)
+            sectors = record_recoverable_data_job_step(
+                engine,
+                run_id,
+                "生成强势板块",
+                lambda: generate_sector_rankings(engine, trade_date, sector_provider),
+                lambda exc: _load_existing_sector_rankings_or_raise(engine, trade_date, exc),
+                lambda items: {
+                    "sector_count": len(items),
+                    "top_sector": items[0].sector_name if items else "",
+                    "fallback": "reuse_existing_sector_daily" if items else "",
+                },
+                lambda items: len(items),
+                lambda exc: f"免费行业源失败，已复用同日缓存：{exc}",
+            )
+            candidates = record_recoverable_data_job_step(
+                engine,
+                run_id,
+                "生成候选股票",
+                lambda: generate_candidate_stocks(engine, trade_date, candidate_provider, limit=candidate_limit),
+                lambda exc: _load_existing_candidates_or_raise(engine, trade_date, exc),
+                lambda items: {"candidate_count": len(items), "fallback": "reuse_existing_candidate_stock" if items else ""},
+                lambda items: len(items),
+                lambda exc: f"免费行业成分股源失败，已复用同日缓存：{exc}",
+            )
             reviews = record_data_job_step(
                 engine,
                 run_id,

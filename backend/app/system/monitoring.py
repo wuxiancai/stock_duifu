@@ -100,6 +100,29 @@ def record_data_job_step(
     return result
 
 
+def record_recoverable_data_job_step(
+    engine: Engine,
+    run_id: int,
+    step_name: str,
+    operation: Callable[[], Any],
+    recovery: Callable[[Exception], Any],
+    summary_builder: Callable[[Any], dict[str, Any]],
+    rows_counter: Callable[[Any], int],
+    recovery_message: Callable[[Exception], str],
+) -> Any:
+    step_id = _start_step(engine, run_id, step_name)
+    try:
+        result = operation()
+    except Exception as exc:
+        result = recovery(exc)
+        summary = summary_builder(result)
+        _finish_step(engine, step_id, "warning", summary, rows_counter(result), recovery_message(exc))
+        return result
+    summary = summary_builder(result)
+    _finish_step(engine, step_id, "success", summary, rows_counter(result), "")
+    return result
+
+
 def finish_data_job_run(engine: Engine, run_id: int, status: str, message: str) -> None:
     with Session(engine) as session:
         run = session.get(DataJobRun, run_id)
