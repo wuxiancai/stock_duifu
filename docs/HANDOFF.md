@@ -3,7 +3,7 @@
 ## 当前状态
 
 - 日期：2026-06-24
-- 2026-07-07 已加固免费东方财富涨跌停池网络失败降级：云端 AkShare `stock_zt_pool_em` / `push2ex.eastmoney.com` 出现 `ConnectTimeout` 时，不再中断“拉取行情快照”；`TushareMarketDataProvider` 会基于已成功拉取的全市场 `stock_daily.pct_chg` 推导涨停/跌停快照，source 标记为 `inferred_from_stock_daily`。验证：数据/provider/workflow/health/deployment 相关测试 107 passed。
+- 2026-07-07 已加固免费东方财富涨跌停池网络失败降级：云端 AkShare `stock_zt_pool_em` / `push2ex.eastmoney.com` 出现 `ConnectTimeout` 时，不再中断“拉取行情快照”；`TushareMarketDataProvider` 会基于已成功拉取的全市场 `stock_daily.pct_chg` 推导涨停/跌停快照，source 标记为 `inferred_from_stock_daily`。2026-07-07 复核：当前系统只使用 `limit_snapshot` 的涨跌停状态、数量、连板高度、板块内涨停数、一字涨停过滤和成交额，不使用封单额/首次封板时间/炸板次数/主力资金等涨停池专用字段；推导仅作为兜底，已收紧 ST 5%、主板 10%、创业板/科创板 20%、北交所 30% 阈值，并排除明显超过阈值的新股/无涨跌幅限制异常涨跌幅。验证：数据/provider/workflow/health/deployment 相关测试 107 passed。
 - 2026-07-07 已加固免费东方财富行业源网络失败降级：云端 AkShare `stock_board_industry_name_em` 出现 `RemoteDisconnected` 时，盘后 workflow 会复用数据库中同一交易日已有强势行业继续生成后续步骤；行业成分股接口若全部失败会抛错，workflow 再复用同一交易日已有候选股票，避免把候选覆盖为空。2026-07-07 二次修正：可恢复步骤不再先记录红色 failed 再追加恢复记录，而是同一 data_job_step 直接以 warning 结束，并在 error_message 写明已复用缓存，避免数据健康页误导用户。验证：`tests/test_after_close_workflow.py`、`tests/test_system_monitoring.py`、`tests/test_free_data_provider_fallback.py` 共 14 passed。
 - 2026-07-07 数据源降级改造：默认行情辅助链路已减少对受限数据接口的依赖，相关后端测试 109 个通过，前端单测 4 个通过；前端 build 命令被工具拦截，未取得输出。
 - 仓库路径：`/Users/wuxiancai/Documents/stock`

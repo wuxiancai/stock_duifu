@@ -86,11 +86,15 @@ def test_infers_limit_snapshot_from_full_market_daily_when_limit_pool_fails() ->
         StockBasicRecord("000001", "平安银行", "主板", None, False, "active", "tushare"),
         StockBasicRecord("300001", "特锐德", "创业板", None, False, "active", "tushare"),
         StockBasicRecord("600001", "邯郸钢铁", "主板", None, False, "active", "tushare"),
+        StockBasicRecord("000002", "ST测试", "主板", None, True, "active", "tushare"),
+        StockBasicRecord("001234", "新股测试", "主板", None, False, "active", "tushare"),
     ]
     stock_daily = [
         StockDailyRecord("000001", date(2026, 7, 6), 10, 11, 10, 11, 10, 1, 10.0, 100, 1000, None, "tushare"),
         StockDailyRecord("300001", date(2026, 7, 6), 10, 12, 10, 12, 10, 2, 20.0, 100, 1000, None, "tushare"),
         StockDailyRecord("600001", date(2026, 7, 6), 10, 10, 9, 9, 10, -1, -10.0, 100, 1000, None, "tushare"),
+        StockDailyRecord("000002", date(2026, 7, 6), 10, 10.5, 10, 10.5, 10, 0.5, 5.0, 100, 1000, None, "tushare"),
+        StockDailyRecord("001234", date(2026, 7, 6), 10, 18, 10, 18, 10, 8, 80.0, 100, 1000, None, "tushare"),
     ]
 
     records = infer_limit_snapshot_from_daily(stock_daily, stock_basic)
@@ -99,6 +103,7 @@ def test_infers_limit_snapshot_from_full_market_daily_when_limit_pool_fails() ->
         ("000001", "平安银行", "limit_up"),
         ("300001", "特锐德", "limit_up"),
         ("600001", "邯郸钢铁", "limit_down"),
+        ("000002", "ST测试", "limit_up"),
     ]
 
 

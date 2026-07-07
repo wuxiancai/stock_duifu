@@ -174,17 +174,18 @@ def infer_limit_snapshot_from_daily(
     stock_basic: Iterable[StockBasicRecord],
     source: str = "inferred_from_stock_daily",
 ) -> list[LimitSnapshotRecord]:
-    name_by_code = {record.stock_code: record.stock_name for record in stock_basic}
+    basic_by_code = {record.stock_code: record for record in stock_basic}
     records: list[LimitSnapshotRecord] = []
     for daily in stock_daily:
-        status = _inferred_limit_status(daily)
+        basic = basic_by_code.get(daily.stock_code)
+        status = _inferred_limit_status(daily, basic)
         if not status:
             continue
         records.append(
             LimitSnapshotRecord(
                 trade_date=daily.trade_date,
                 stock_code=daily.stock_code,
-                stock_name=name_by_code.get(daily.stock_code, daily.stock_code),
+                stock_name=basic.stock_name if basic else daily.stock_code,
                 close_price=daily.close,
                 pct_chg=daily.pct_chg,
                 limit_status=status,
@@ -195,15 +196,20 @@ def infer_limit_snapshot_from_daily(
     return records
 
 
-def _inferred_limit_status(record: StockDailyRecord) -> Optional[str]:
-    if record.pct_chg >= _limit_threshold(record.stock_code) - 0.2:
+def _inferred_limit_status(record: StockDailyRecord, basic: Optional[StockBasicRecord]) -> Optional[str]:
+    threshold = _limit_threshold(record.stock_code, basic)
+    tolerance = 0.25
+    upper_slippage = 0.8
+    if threshold - tolerance <= record.pct_chg <= threshold + upper_slippage:
         return "limit_up"
-    if record.pct_chg <= -(_limit_threshold(record.stock_code) - 0.2):
+    if -(threshold + upper_slippage) <= record.pct_chg <= -(threshold - tolerance):
         return "limit_down"
     return None
 
 
-def _limit_threshold(stock_code: str) -> float:
+def _limit_threshold(stock_code: str, basic: Optional[StockBasicRecord] = None) -> float:
+    if basic and basic.is_st:
+        return 5.0
     if stock_code.startswith(("30", "68")):
         return 20.0
     if stock_code.startswith(("4", "8", "9")):
