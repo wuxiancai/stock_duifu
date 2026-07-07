@@ -169,6 +169,48 @@ def _eastmoney_limit_record(row, trade_date: date, limit_status: str, source: st
     )
 
 
+def infer_limit_snapshot_from_daily(
+    stock_daily: Iterable[StockDailyRecord],
+    stock_basic: Iterable[StockBasicRecord],
+    source: str = "inferred_from_stock_daily",
+) -> list[LimitSnapshotRecord]:
+    name_by_code = {record.stock_code: record.stock_name for record in stock_basic}
+    records: list[LimitSnapshotRecord] = []
+    for daily in stock_daily:
+        status = _inferred_limit_status(daily)
+        if not status:
+            continue
+        records.append(
+            LimitSnapshotRecord(
+                trade_date=daily.trade_date,
+                stock_code=daily.stock_code,
+                stock_name=name_by_code.get(daily.stock_code, daily.stock_code),
+                close_price=daily.close,
+                pct_chg=daily.pct_chg,
+                limit_status=status,
+                amount=daily.amount,
+                source=source,
+            )
+        )
+    return records
+
+
+def _inferred_limit_status(record: StockDailyRecord) -> Optional[str]:
+    if record.pct_chg >= _limit_threshold(record.stock_code) - 0.2:
+        return "limit_up"
+    if record.pct_chg <= -(_limit_threshold(record.stock_code) - 0.2):
+        return "limit_down"
+    return None
+
+
+def _limit_threshold(stock_code: str) -> float:
+    if stock_code.startswith(("30", "68")):
+        return 20.0
+    if stock_code.startswith(("4", "8", "9")):
+        return 30.0
+    return 10.0
+
+
 class AkShareSinaMarketDataProvider:
     name = "akshare_sina"
 
@@ -787,6 +829,8 @@ class TushareMarketDataProvider:
             else self._fetch_stock_daily(pro, selected_ts_codes, trade_date_text)
         )
 
+        limit_snapshot = self._fetch_limit_snapshot(pro, trade_date_text, stock_daily, stock_basic)
+
         return MarketDataSnapshot(
             provider=self.name,
             trade_date=actual_trade_date,
@@ -794,7 +838,7 @@ class TushareMarketDataProvider:
             stock_basic=stock_basic,
             index_daily=self._fetch_index_daily(pro, trade_date_text),
             stock_daily=stock_daily,
-            limit_snapshot=self._fetch_limit_snapshot(pro, trade_date_text),
+            limit_snapshot=limit_snapshot,
         )
 
     def _latest_open_trade_date(self, pro) -> date:
@@ -912,11 +956,23 @@ class TushareMarketDataProvider:
             source=self.name,
         )
 
-    def _fetch_limit_snapshot(self, pro, trade_date_text: str) -> list[LimitSnapshotRecord]:
+    def _fetch_limit_snapshot(
+        self,
+        pro,
+        trade_date_text: str,
+        stock_daily: Iterable[StockDailyRecord],
+        stock_basic: Iterable[StockBasicRecord],
+    ) -> list[LimitSnapshotRecord]:
         # TuShare limit_list_d may require higher privileges than a 3200-point account.
         # Keep TuShare for low-threshold core OHLC/calendar data, but source
-        # limit-up/limit-down pools from free Eastmoney via AkShare.
-        return self._limit_snapshot_fetcher(pd.to_datetime(trade_date_text).date())
+        # limit-up/limit-down pools from free Eastmoney via AkShare. If the free
+        # Eastmoney endpoint is temporarily unreachable, infer the pool from the
+        # already fetched full-market daily pct_chg so startup data completion is
+        # not blocked by a non-critical auxiliary endpoint.
+        try:
+            return self._limit_snapshot_fetcher(pd.to_datetime(trade_date_text).date())
+        except Exception:
+            return infer_limit_snapshot_from_daily(stock_daily, stock_basic)
 
     def _to_ts_code(self, stock_code: str) -> str:
         market = infer_market(stock_code)
