@@ -35,5 +35,5 @@ def test_sector_cli_generates_json_summary(monkeypatch, capsys) -> None:
 
     cli_main()
 
-    assert calls == [("engine", date(2026, 6, 18), "akshare_eastmoney_industry")]
+    assert calls == [("engine", date(2026, 6, 18), "fallback_sector_data")]
     assert '"sector_name": "机器人"' in capsys.readouterr().out

@@ -4,7 +4,7 @@ from datetime import date
 from typing import Optional
 
 from backend.app.db.session import create_database_engine
-from backend.app.sector.providers import EastmoneyIndustrySectorDataProvider
+from backend.app.sector.providers import FallbackSectorDataProvider
 from backend.app.sector.service import generate_sector_rankings
 
 
@@ -28,7 +28,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "generate":
-        provider = EastmoneyIndustrySectorDataProvider(member_fetch_limit=args.member_fetch_limit)
+        provider = FallbackSectorDataProvider(member_fetch_limit=args.member_fetch_limit)
         rankings = generate_sector_rankings(
             create_database_engine(),
             parse_date(args.trade_date),

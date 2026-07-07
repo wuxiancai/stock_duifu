@@ -6,11 +6,42 @@ import pandas as pd
 import tushare as ts
 
 from backend.app.data.providers import normalize_stock_code, without_proxy_env
-from backend.app.sector.providers import _filter_industry_sector_universe
+from backend.app.sector.providers import ThsIndustryMemberFetcher, _filter_industry_sector_universe
 
 
 class MissingCandidateDataTokenError(RuntimeError):
     pass
+
+
+class FallbackIndustrySectorMembershipProvider:
+    source = "fallback_industry_membership"
+
+    def __init__(self, trade_date: date, providers: Optional[list] = None):
+        self.trade_date = trade_date
+        self.providers = providers or [
+            EastmoneyIndustrySectorMembershipProvider(trade_date=trade_date),
+            ThsIndustrySectorMembershipProvider(trade_date=trade_date),
+        ]
+
+    def sector_members(self, sector_names: list[str]) -> dict[str, list[str]]:
+        result: dict[str, list[str]] = {name: [] for name in sector_names}
+        remaining = list(sector_names)
+        errors: list[str] = []
+        for provider in self.providers:
+            if not remaining:
+                break
+            try:
+                provider_result = provider.sector_members(remaining)
+            except Exception as exc:
+                errors.append(f"{provider.source}: {exc.__class__.__name__}: {exc}")
+                continue
+            for sector_name, codes in provider_result.items():
+                if codes:
+                    result[sector_name] = codes
+            remaining = [name for name in sector_names if not result.get(name)]
+        if sector_names and all(not codes for codes in result.values()):
+            raise RuntimeError("所有免费行业成分股数据源均失败：" + "；".join(errors))
+        return result
 
 
 class EastmoneyIndustrySectorMembershipProvider:
@@ -42,6 +73,31 @@ class EastmoneyIndustrySectorMembershipProvider:
             ]
         if sector_names and len(failures) == len(sector_names):
             raise RuntimeError("东方财富行业成分股接口全部失败：" + "；".join(failures[:5]))
+        return result
+
+
+class ThsIndustrySectorMembershipProvider:
+    source = "akshare_ths_industry_membership"
+
+    def __init__(
+        self,
+        trade_date: date,
+        member_fetcher: Optional[Callable[[str], list[str]]] = None,
+    ):
+        self.trade_date = trade_date
+        self._member_fetcher = member_fetcher or ThsIndustryMemberFetcher().fetch_member_codes
+
+    def sector_members(self, sector_names: list[str]) -> dict[str, list[str]]:
+        result: dict[str, list[str]] = {}
+        failures: list[str] = []
+        for sector_name in sector_names:
+            try:
+                result[sector_name] = self._member_fetcher(sector_name)
+            except Exception as exc:
+                failures.append(f"{sector_name}: {exc.__class__.__name__}: {exc}")
+                result[sector_name] = []
+        if sector_names and len(failures) == len(sector_names):
+            raise RuntimeError("同花顺行业成分股接口全部失败：" + "；".join(failures[:5]))
         return result
 
 

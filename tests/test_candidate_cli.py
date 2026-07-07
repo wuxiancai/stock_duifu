@@ -35,5 +35,5 @@ def test_candidate_cli_generates_json_summary(monkeypatch, capsys) -> None:
 
     cli_main()
 
-    assert calls == [("engine", date(2026, 6, 18), "EastmoneyIndustrySectorMembershipProvider", 20)]
+    assert calls == [("engine", date(2026, 6, 18), "FallbackIndustrySectorMembershipProvider", 20)]
     assert '"stock_code": "000001"' in capsys.readouterr().out

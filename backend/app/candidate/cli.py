@@ -3,7 +3,7 @@ import json
 from datetime import date
 from typing import Optional
 
-from backend.app.candidate.providers import EastmoneyIndustrySectorMembershipProvider
+from backend.app.candidate.providers import FallbackIndustrySectorMembershipProvider
 from backend.app.candidate.service import generate_candidate_stocks
 from backend.app.db.session import create_database_engine
 
@@ -29,7 +29,7 @@ def main() -> None:
 
     if args.command == "generate":
         trade_date = parse_date(args.trade_date)
-        provider = EastmoneyIndustrySectorMembershipProvider(trade_date=trade_date)
+        provider = FallbackIndustrySectorMembershipProvider(trade_date=trade_date)
         candidates = generate_candidate_stocks(
             create_database_engine(),
             trade_date,

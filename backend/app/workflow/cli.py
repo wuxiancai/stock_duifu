@@ -4,11 +4,11 @@ from dataclasses import asdict
 from datetime import date
 from typing import Optional
 
-from backend.app.candidate.providers import EastmoneyIndustrySectorMembershipProvider
+from backend.app.candidate.providers import FallbackIndustrySectorMembershipProvider
 from backend.app.data.cli import load_provider
 from backend.app.data.providers import MissingTushareTokenError
 from backend.app.db.session import create_database_engine
-from backend.app.sector.providers import EastmoneyIndustrySectorDataProvider
+from backend.app.sector.providers import FallbackSectorDataProvider
 from backend.app.workflow.service import run_after_close_workflow
 
 
@@ -37,8 +37,8 @@ def main() -> None:
 
     if args.command == "after-close":
         trade_date = parse_date(args.trade_date)
-        sector_provider = EastmoneyIndustrySectorDataProvider(member_fetch_limit=args.member_fetch_limit)
-        candidate_provider = EastmoneyIndustrySectorMembershipProvider(trade_date=trade_date)
+        sector_provider = FallbackSectorDataProvider(member_fetch_limit=args.member_fetch_limit)
+        candidate_provider = FallbackIndustrySectorMembershipProvider(trade_date=trade_date)
         try:
             result = run_after_close_workflow(
                 create_database_engine(),

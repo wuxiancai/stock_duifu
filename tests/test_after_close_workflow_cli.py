@@ -71,8 +71,8 @@ def test_after_close_workflow_cli_outputs_json_summary(monkeypatch, capsys) -> N
             "engine",
             date(2026, 6, 18),
             "auto",
-            "akshare_eastmoney_industry",
-            "akshare_eastmoney_industry_membership",
+            "fallback_sector_data",
+            "fallback_industry_membership",
             50,
             2,
         )

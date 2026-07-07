@@ -3,9 +3,9 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from backend.app.candidate.providers import EastmoneyIndustrySectorMembershipProvider
+from backend.app.candidate.providers import EastmoneyIndustrySectorMembershipProvider, FallbackIndustrySectorMembershipProvider
 from backend.app.data.providers import TushareMarketDataProvider, infer_limit_snapshot_from_daily
-from backend.app.sector.providers import EastmoneyIndustrySectorDataProvider
+from backend.app.sector.providers import EastmoneyIndustrySectorDataProvider, FallbackSectorDataProvider, ThsIndustrySectorDataProvider
 
 
 def test_tushare_market_provider_uses_injected_free_limit_pool_fetcher() -> None:
@@ -202,3 +202,56 @@ def test_eastmoney_industry_membership_provider_raises_when_all_members_fail() -
 
     with pytest.raises(RuntimeError, match="东方财富行业成分股接口全部失败"):
         provider.sector_members(["半导体", "机器人"])
+
+
+def test_fallback_sector_provider_uses_ths_when_eastmoney_fails() -> None:
+    class BrokenProvider:
+        source = "broken_eastmoney"
+
+        def fetch_sector_window(self, trade_date, lookback_days=5):
+            raise ConnectionError("eastmoney timeout")
+
+    ths_provider = ThsIndustrySectorDataProvider(
+        summary_fetcher=lambda: pd.DataFrame(
+            [
+                {"板块": "半导体", "涨跌幅": 3.5, "总成交额": 1200000000, "上涨家数": 20, "下跌家数": 5},
+            ]
+        ),
+        history_fetcher=lambda **kwargs: pd.DataFrame(
+            [
+                {"日期": "2026-07-03", "收盘价": 100, "成交额": 1000000000},
+                {"日期": "2026-07-06", "收盘价": 103.5, "成交额": 1200000000},
+            ]
+        ),
+        member_fetcher=lambda sector_name: ["000001", "600519"],
+        member_fetch_limit=1,
+    )
+    provider = FallbackSectorDataProvider(providers=[BrokenProvider(), ths_provider])
+
+    records = provider.fetch_sector_window(date(2026, 7, 6))
+
+    assert records[-1].sector_name == "半导体"
+    assert records[-1].source == "akshare_ths_industry"
+    assert records[-1].member_codes == ["000001", "600519"]
+    assert round(records[-1].daily_return, 2) == 3.5
+
+
+def test_fallback_membership_provider_uses_ths_when_eastmoney_fails() -> None:
+    class BrokenMembershipProvider:
+        source = "broken_eastmoney_membership"
+
+        def sector_members(self, sector_names):
+            raise ConnectionError("eastmoney member timeout")
+
+    class ThsMembershipProvider:
+        source = "akshare_ths_industry_membership"
+
+        def sector_members(self, sector_names):
+            return {name: ["000001", "600519"] for name in sector_names}
+
+    provider = FallbackIndustrySectorMembershipProvider(
+        trade_date=date(2026, 7, 6),
+        providers=[BrokenMembershipProvider(), ThsMembershipProvider()],
+    )
+
+    assert provider.sector_members(["半导体"]) == {"半导体": ["000001", "600519"]}
