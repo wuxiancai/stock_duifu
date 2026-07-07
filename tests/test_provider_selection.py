@@ -104,31 +104,11 @@ def test_tushare_provider_maps_real_api_frames_to_snapshot_records() -> None:
                 ]
             )
 
-        def limit_list_d(self, **kwargs):
-            return pd.DataFrame(
-                [
-                    {
-                        "trade_date": "20260618",
-                        "ts_code": "000001.SZ",
-                        "name": "平安银行",
-                        "close": 10.52,
-                        "pct_chg": 9.99,
-                        "amount": 1000,
-                        "limit": "U",
-                    },
-                    {
-                        "trade_date": "20260618",
-                        "ts_code": "600519.SH",
-                        "name": "贵州茅台",
-                        "close": 1215,
-                        "pct_chg": -9.99,
-                        "amount": 2000,
-                        "limit": "D",
-                    },
-                ]
-            )
-
-    provider = TushareMarketDataProvider(token="token-value", pro_client=FakeTushareClient())
+    provider = TushareMarketDataProvider(
+        token="token-value",
+        pro_client=FakeTushareClient(),
+        limit_snapshot_fetcher=lambda trade_date: [],
+    )
 
     snapshot = provider.fetch_snapshot(
         trade_date=date(2026, 6, 18),
@@ -143,10 +123,7 @@ def test_tushare_provider_maps_real_api_frames_to_snapshot_records() -> None:
     assert snapshot.index_daily[0].index_code == "000001.SH"
     assert snapshot.index_daily[0].amount == 1560473972700.0
     assert snapshot.stock_daily[0].amount == 1511009564.95
-    assert {record.limit_status for record in snapshot.limit_snapshot} == {
-        "limit_up",
-        "limit_down",
-    }
+    assert snapshot.limit_snapshot == []
 
 
 def test_tushare_provider_uses_trade_date_daily_for_all_stocks() -> None:
@@ -179,11 +156,12 @@ def test_tushare_provider_uses_trade_date_daily_for_all_stocks() -> None:
                 ]
             )
 
-        def limit_list_d(self, **kwargs):
-            return pd.DataFrame([])
-
     client = FakeTushareClient()
-    provider = TushareMarketDataProvider(token="token-value", pro_client=client)
+    provider = TushareMarketDataProvider(
+        token="token-value",
+        pro_client=client,
+        limit_snapshot_fetcher=lambda trade_date: [],
+    )
 
     snapshot = provider.fetch_snapshot(trade_date=date(2026, 6, 18), sample_size=0)
 
@@ -219,11 +197,12 @@ def test_tushare_provider_fetches_index_history_for_ma20() -> None:
                 [{"ts_code": "000001.SZ", "trade_date": "20260618", "open": 10, "high": 11, "low": 9, "close": 10.5, "pre_close": 10, "change": 0.5, "pct_chg": 5, "vol": 100, "amount": 1000}]
             )
 
-        def limit_list_d(self, **kwargs):
-            return pd.DataFrame([])
-
     client = FakeTushareClient()
-    provider = TushareMarketDataProvider(token="token-value", pro_client=client)
+    provider = TushareMarketDataProvider(
+        token="token-value",
+        pro_client=client,
+        limit_snapshot_fetcher=lambda trade_date: [],
+    )
 
     snapshot = provider.fetch_snapshot(trade_date=date(2026, 6, 18), sample_size=0)
 

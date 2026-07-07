@@ -4,12 +4,11 @@ from dataclasses import asdict
 from datetime import date
 from typing import Optional
 
-from backend.app.candidate.providers import MissingCandidateDataTokenError, TushareDCSectorMembershipProvider
-from backend.app.core.config import get_settings
+from backend.app.candidate.providers import EastmoneyIndustrySectorMembershipProvider
 from backend.app.data.cli import load_provider
 from backend.app.data.providers import MissingTushareTokenError
 from backend.app.db.session import create_database_engine
-from backend.app.sector.providers import MissingSectorDataTokenError, TushareDCSectorDataProvider
+from backend.app.sector.providers import EastmoneyIndustrySectorDataProvider
 from backend.app.workflow.service import run_after_close_workflow
 
 
@@ -38,16 +37,8 @@ def main() -> None:
 
     if args.command == "after-close":
         trade_date = parse_date(args.trade_date)
-        settings = get_settings()
-        sector_provider = TushareDCSectorDataProvider(
-            token=settings.tushare_token,
-            member_fetch_limit=args.member_fetch_limit,
-        )
-        candidate_provider = TushareDCSectorMembershipProvider(
-            token=settings.tushare_token,
-            trade_date=trade_date,
-        )
-        candidate_provider.source = "tushare_dc_membership"
+        sector_provider = EastmoneyIndustrySectorDataProvider(member_fetch_limit=args.member_fetch_limit)
+        candidate_provider = EastmoneyIndustrySectorMembershipProvider(trade_date=trade_date)
         try:
             result = run_after_close_workflow(
                 create_database_engine(),
@@ -58,7 +49,7 @@ def main() -> None:
                 candidate_limit=args.candidate_limit,
                 trade_plan_limit=args.trade_plan_limit,
             )
-        except (MissingTushareTokenError, MissingSectorDataTokenError, MissingCandidateDataTokenError) as exc:
+        except MissingTushareTokenError as exc:
             parser.error(str(exc))
         print(json.dumps(asdict(result), ensure_ascii=False, default=str, sort_keys=True))
         return

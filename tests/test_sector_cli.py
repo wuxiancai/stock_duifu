@@ -24,7 +24,6 @@ def test_sector_cli_generates_json_summary(monkeypatch, capsys) -> None:
         ]
 
     monkeypatch.setattr("backend.app.sector.cli.create_database_engine", lambda: "engine")
-    monkeypatch.setattr("backend.app.sector.cli.get_settings", lambda: SimpleNamespace(tushare_token="token"))
     monkeypatch.setattr(
         "backend.app.sector.cli.generate_sector_rankings",
         fake_generate_sector_rankings,
@@ -36,5 +35,5 @@ def test_sector_cli_generates_json_summary(monkeypatch, capsys) -> None:
 
     cli_main()
 
-    assert calls == [("engine", date(2026, 6, 18), "tushare_dc")]
+    assert calls == [("engine", date(2026, 6, 18), "akshare_eastmoney_industry")]
     assert '"sector_name": "机器人"' in capsys.readouterr().out

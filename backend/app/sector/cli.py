@@ -3,9 +3,8 @@ import json
 from datetime import date
 from typing import Optional
 
-from backend.app.core.config import get_settings
 from backend.app.db.session import create_database_engine
-from backend.app.sector.providers import MissingSectorDataTokenError, TushareDCSectorDataProvider
+from backend.app.sector.providers import EastmoneyIndustrySectorDataProvider
 from backend.app.sector.service import generate_sector_rankings
 
 
@@ -29,19 +28,12 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "generate":
-        settings = get_settings()
-        provider = TushareDCSectorDataProvider(
-            token=settings.tushare_token,
-            member_fetch_limit=args.member_fetch_limit,
+        provider = EastmoneyIndustrySectorDataProvider(member_fetch_limit=args.member_fetch_limit)
+        rankings = generate_sector_rankings(
+            create_database_engine(),
+            parse_date(args.trade_date),
+            provider,
         )
-        try:
-            rankings = generate_sector_rankings(
-                create_database_engine(),
-                parse_date(args.trade_date),
-                provider,
-            )
-        except MissingSectorDataTokenError as exc:
-            parser.error(str(exc))
         print(json.dumps([ranking.__dict__ for ranking in rankings], ensure_ascii=False, default=str, sort_keys=True))
         return
 

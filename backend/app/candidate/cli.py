@@ -3,9 +3,8 @@ import json
 from datetime import date
 from typing import Optional
 
-from backend.app.candidate.providers import MissingCandidateDataTokenError, TushareDCSectorMembershipProvider
+from backend.app.candidate.providers import EastmoneyIndustrySectorMembershipProvider
 from backend.app.candidate.service import generate_candidate_stocks
-from backend.app.core.config import get_settings
 from backend.app.db.session import create_database_engine
 
 
@@ -30,20 +29,13 @@ def main() -> None:
 
     if args.command == "generate":
         trade_date = parse_date(args.trade_date)
-        settings = get_settings()
-        provider = TushareDCSectorMembershipProvider(
-            token=settings.tushare_token,
-            trade_date=trade_date,
+        provider = EastmoneyIndustrySectorMembershipProvider(trade_date=trade_date)
+        candidates = generate_candidate_stocks(
+            create_database_engine(),
+            trade_date,
+            provider,
+            limit=args.limit,
         )
-        try:
-            candidates = generate_candidate_stocks(
-                create_database_engine(),
-                trade_date,
-                provider,
-                limit=args.limit,
-            )
-        except MissingCandidateDataTokenError as exc:
-            parser.error(str(exc))
         print(json.dumps([candidate.__dict__ for candidate in candidates], ensure_ascii=False, default=str, sort_keys=True))
         return
 

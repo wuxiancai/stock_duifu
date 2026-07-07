@@ -142,6 +142,33 @@ def valid_realtime_daily(record: Optional[StockDailyRecord]) -> Optional[StockDa
     return record if is_plausible_realtime_daily(record) else None
 
 
+def fetch_eastmoney_limit_snapshot(trade_date: date, source: str = "akshare_eastmoney_limit_pool") -> list[LimitSnapshotRecord]:
+    date_text = trade_date.strftime("%Y%m%d")
+    records: list[LimitSnapshotRecord] = []
+    with without_proxy_env():
+        up_frame = ak.stock_zt_pool_em(date=date_text)
+        down_frame = ak.stock_zt_pool_dtgc_em(date=date_text)
+
+    for _, row in up_frame.iterrows():
+        records.append(_eastmoney_limit_record(row, trade_date, "limit_up", source))
+    for _, row in down_frame.iterrows():
+        records.append(_eastmoney_limit_record(row, trade_date, "limit_down", source))
+    return records
+
+
+def _eastmoney_limit_record(row, trade_date: date, limit_status: str, source: str) -> LimitSnapshotRecord:
+    return LimitSnapshotRecord(
+        trade_date=trade_date,
+        stock_code=normalize_stock_code(_row_value(row, "代码", "code")),
+        stock_name=str(_row_value(row, "名称", "name") or ""),
+        close_price=as_float(_row_value(row, "最新价", "close")),
+        pct_chg=as_float(_row_value(row, "涨跌幅", "pct_chg")),
+        limit_status=limit_status,
+        amount=as_float(_row_value(row, "成交额", "amount")),
+        source=source,
+    )
+
+
 class AkShareSinaMarketDataProvider:
     name = "akshare_sina"
 
@@ -266,29 +293,7 @@ class AkShareSinaMarketDataProvider:
         return records
 
     def _fetch_limit_snapshot(self, trade_date: date) -> list[LimitSnapshotRecord]:
-        date_text = trade_date.strftime("%Y%m%d")
-        records: list[LimitSnapshotRecord] = []
-        with without_proxy_env():
-            up_frame = ak.stock_zt_pool_em(date=date_text)
-            down_frame = ak.stock_zt_pool_dtgc_em(date=date_text)
-
-        for _, row in up_frame.iterrows():
-            records.append(self._limit_record(row, trade_date, "limit_up"))
-        for _, row in down_frame.iterrows():
-            records.append(self._limit_record(row, trade_date, "limit_down"))
-        return records
-
-    def _limit_record(self, row, trade_date: date, limit_status: str) -> LimitSnapshotRecord:
-        return LimitSnapshotRecord(
-            trade_date=trade_date,
-            stock_code=str(row["代码"]).zfill(6),
-            stock_name=str(row["名称"]),
-            close_price=as_float(row["最新价"]),
-            pct_chg=as_float(row["涨跌幅"]),
-            limit_status=limit_status,
-            amount=as_float(row["成交额"]),
-            source="akshare_eastmoney_limit_pool",
-        )
+        return fetch_eastmoney_limit_snapshot(trade_date)
 
     def _last_row_on_or_before(self, frame, trade_date: Optional[date]):
         index = self._last_index_on_or_before(frame, trade_date)
@@ -758,9 +763,10 @@ class MissingTushareTokenError(RuntimeError):
 class TushareMarketDataProvider:
     name = "tushare"
 
-    def __init__(self, token: str, pro_client=None):
+    def __init__(self, token: str, pro_client=None, limit_snapshot_fetcher=None):
         self.token = token.strip()
         self._pro_client = pro_client
+        self._limit_snapshot_fetcher = limit_snapshot_fetcher or fetch_eastmoney_limit_snapshot
 
     def fetch_snapshot(
         self,
@@ -907,25 +913,10 @@ class TushareMarketDataProvider:
         )
 
     def _fetch_limit_snapshot(self, pro, trade_date_text: str) -> list[LimitSnapshotRecord]:
-        frame = pro.limit_list_d(trade_date=trade_date_text)
-        records: list[LimitSnapshotRecord] = []
-        for _, row in frame.iterrows():
-            status = self._limit_status(row.get("limit"))
-            if not status:
-                continue
-            records.append(
-                LimitSnapshotRecord(
-                    trade_date=pd.to_datetime(row["trade_date"]).date(),
-                    stock_code=str(row["ts_code"]).split(".")[0],
-                    stock_name=str(row["name"]),
-                    close_price=as_float(row["close"]),
-                    pct_chg=as_float(row["pct_chg"]),
-                    limit_status=status,
-                    amount=as_float(row["amount"]),
-                    source=self.name,
-                )
-            )
-        return records
+        # TuShare limit_list_d may require higher privileges than a 3200-point account.
+        # Keep TuShare for low-threshold core OHLC/calendar data, but source
+        # limit-up/limit-down pools from free Eastmoney via AkShare.
+        return self._limit_snapshot_fetcher(pd.to_datetime(trade_date_text).date())
 
     def _to_ts_code(self, stock_code: str) -> str:
         market = infer_market(stock_code)

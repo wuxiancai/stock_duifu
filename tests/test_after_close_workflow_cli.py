@@ -47,7 +47,6 @@ def test_after_close_workflow_cli_outputs_json_summary(monkeypatch, capsys) -> N
 
     monkeypatch.setattr("backend.app.workflow.cli.create_database_engine", lambda: "engine")
     monkeypatch.setattr("backend.app.workflow.cli.load_provider", lambda provider: SimpleNamespace(source=provider))
-    monkeypatch.setattr("backend.app.workflow.cli.get_settings", lambda: SimpleNamespace(tushare_token="token"))
     monkeypatch.setattr("backend.app.workflow.cli.run_after_close_workflow", fake_run_after_close_workflow)
     monkeypatch.setattr(
         "sys.argv",
@@ -72,8 +71,8 @@ def test_after_close_workflow_cli_outputs_json_summary(monkeypatch, capsys) -> N
             "engine",
             date(2026, 6, 18),
             "auto",
-            "tushare_dc",
-            "tushare_dc_membership",
+            "akshare_eastmoney_industry",
+            "akshare_eastmoney_industry_membership",
             50,
             2,
         )

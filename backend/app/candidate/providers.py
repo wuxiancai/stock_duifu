@@ -1,13 +1,44 @@
 from datetime import date
+from typing import Callable, Optional
 
+import akshare as ak
 import pandas as pd
 import tushare as ts
 
+from backend.app.data.providers import normalize_stock_code, without_proxy_env
 from backend.app.sector.providers import _filter_industry_sector_universe
 
 
 class MissingCandidateDataTokenError(RuntimeError):
     pass
+
+
+class EastmoneyIndustrySectorMembershipProvider:
+    source = "akshare_eastmoney_industry_membership"
+
+    def __init__(
+        self,
+        trade_date: date,
+        member_fetcher: Optional[Callable[..., pd.DataFrame]] = None,
+    ):
+        self.trade_date = trade_date
+        self._member_fetcher = member_fetcher or ak.stock_board_industry_cons_em
+
+    def sector_members(self, sector_names: list[str]) -> dict[str, list[str]]:
+        result: dict[str, list[str]] = {}
+        for sector_name in sector_names:
+            try:
+                with without_proxy_env():
+                    member_frame = self._member_fetcher(symbol=sector_name)
+            except Exception:
+                result[sector_name] = []
+                continue
+            result[sector_name] = [
+                normalize_stock_code(code)
+                for code in member_frame.get("代码", pd.Series(dtype=str)).dropna().tolist()
+                if normalize_stock_code(code)
+            ]
+        return result
 
 
 class TushareDCSectorMembershipProvider:

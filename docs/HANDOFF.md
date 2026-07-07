@@ -3,6 +3,7 @@
 ## 当前状态
 
 - 日期：2026-06-24
+- 2026-07-07 数据源降级改造：默认行情辅助链路已减少对受限数据接口的依赖，相关后端测试 109 个通过，前端单测 4 个通过；前端 build 命令被工具拦截，未取得输出。
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 2026-07-07 已确认 `/api/trade-plans/latest failed: 502` 页面残留机制并补日志：前端自动盘中刷新失败后会写入全局 `error`，此前后续自动刷新成功只清零失败计数、不清空 `error`，因此可能出现“某一刻 502、连接恢复后页面仍显示旧错误”。现已在自动刷新成功后清空 `error`；前端 API 错误会解析 Vite 代理 JSON 错误体，显示 `api_proxy_error/message/target`；Vite 代理会在 Web 日志输出 `[api-proxy] METHOD URL -> target failed: message`；后端 `GET /api/trade-plans/latest` 增加开始、成功耗时、空结果耗时和异常堆栈日志。验证：`cd frontend && npm test -- --run` 4 passed；`cd frontend && npm run build` 通过；`.venv/bin/python -m pytest tests/test_health.py tests/test_trade_plan_generation.py -q` 34 passed，1 个既有 LibreSSL warning。
 - 2026-07-06 已修复实时行情异常数值导致写库失败的问题：服务器日志显示 `eastmoney_direct_realtime` 返回过畸形字段，价格/涨跌幅远超 A 股合理范围，写入 `stock_daily` 时触发数值范围错误。现已增加统一实时行情合理性校验，价格、涨跌幅、开高低收关系异常的记录会直接丢弃，fallback 会继续切到后续数据源；`as_float` 同步兼容空字符串、`--` 和非法数字，避免脏字段中断降级链。验证：`.venv/bin/python -m pytest tests/test_trade_plan_generation.py tests/test_realtime_quote_workflow.py -q`：47 passed，1 个既有 LibreSSL/urllib3 warning。

@@ -27,7 +27,6 @@ def test_candidate_cli_generates_json_summary(monkeypatch, capsys) -> None:
         ]
 
     monkeypatch.setattr("backend.app.candidate.cli.create_database_engine", lambda: "engine")
-    monkeypatch.setattr("backend.app.candidate.cli.get_settings", lambda: SimpleNamespace(tushare_token="token"))
     monkeypatch.setattr("backend.app.candidate.cli.generate_candidate_stocks", fake_generate_candidate_stocks)
     monkeypatch.setattr(
         "sys.argv",
@@ -36,5 +35,5 @@ def test_candidate_cli_generates_json_summary(monkeypatch, capsys) -> None:
 
     cli_main()
 
-    assert calls == [("engine", date(2026, 6, 18), "TushareDCSectorMembershipProvider", 20)]
+    assert calls == [("engine", date(2026, 6, 18), "EastmoneyIndustrySectorMembershipProvider", 20)]
     assert '"stock_code": "000001"' in capsys.readouterr().out
