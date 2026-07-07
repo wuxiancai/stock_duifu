@@ -26,11 +26,13 @@ class EastmoneyIndustrySectorMembershipProvider:
 
     def sector_members(self, sector_names: list[str]) -> dict[str, list[str]]:
         result: dict[str, list[str]] = {}
+        failures: list[str] = []
         for sector_name in sector_names:
             try:
                 with without_proxy_env():
                     member_frame = self._member_fetcher(symbol=sector_name)
-            except Exception:
+            except Exception as exc:
+                failures.append(f"{sector_name}: {exc.__class__.__name__}: {exc}")
                 result[sector_name] = []
                 continue
             result[sector_name] = [
@@ -38,6 +40,8 @@ class EastmoneyIndustrySectorMembershipProvider:
                 for code in member_frame.get("代码", pd.Series(dtype=str)).dropna().tolist()
                 if normalize_stock_code(code)
             ]
+        if sector_names and len(failures) == len(sector_names):
+            raise RuntimeError("东方财富行业成分股接口全部失败：" + "；".join(failures[:5]))
         return result
 
 

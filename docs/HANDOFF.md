@@ -3,6 +3,7 @@
 ## 当前状态
 
 - 日期：2026-06-24
+- 2026-07-07 已加固免费东方财富行业源网络失败降级：云端 AkShare `stock_board_industry_name_em` 出现 `RemoteDisconnected` 时，盘后 workflow 会复用数据库中同一交易日已有强势行业继续生成后续步骤；行业成分股接口若全部失败会抛错，workflow 再复用同一交易日已有候选股票，避免把候选覆盖为空。验证：相关后端链路 84 passed；系统监控/部署/健康检查 28 passed。
 - 2026-07-07 数据源降级改造：默认行情辅助链路已减少对受限数据接口的依赖，相关后端测试 109 个通过，前端单测 4 个通过；前端 build 命令被工具拦截，未取得输出。
 - 仓库路径：`/Users/wuxiancai/Documents/stock`
 - 2026-07-07 已确认 `/api/trade-plans/latest failed: 502` 页面残留机制并补日志：前端自动盘中刷新失败后会写入全局 `error`，此前后续自动刷新成功只清零失败计数、不清空 `error`，因此可能出现“某一刻 502、连接恢复后页面仍显示旧错误”。现已在自动刷新成功后清空 `error`；前端 API 错误会解析 Vite 代理 JSON 错误体，显示 `api_proxy_error/message/target`；Vite 代理会在 Web 日志输出 `[api-proxy] METHOD URL -> target failed: message`；后端 `GET /api/trade-plans/latest` 增加开始、成功耗时、空结果耗时和异常堆栈日志。验证：`cd frontend && npm test -- --run` 4 passed；`cd frontend && npm run build` 通过；`.venv/bin/python -m pytest tests/test_health.py tests/test_trade_plan_generation.py -q` 34 passed，1 个既有 LibreSSL warning。

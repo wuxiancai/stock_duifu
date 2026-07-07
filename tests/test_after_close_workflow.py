@@ -85,3 +85,101 @@ def test_after_close_workflow_runs_prd_steps_in_order(monkeypatch) -> None:
     assert result.review_count == 2
     assert result.trade_plan_count == 1
     assert result.target_trade_date == date(2026, 6, 19)
+
+
+def test_after_close_workflow_reuses_existing_sectors_when_provider_fails(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.app.workflow.service.ingest_market_snapshot",
+        lambda engine, snapshot: SimpleNamespace(
+            trading_calendar_rows=3,
+            stock_basic_rows=2,
+            index_daily_rows=3,
+            stock_daily_rows=2,
+            limit_snapshot_rows=1,
+            ingest_run_id=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.app.workflow.service.generate_market_environment",
+        lambda engine, trade_date: SimpleNamespace(trade_date=trade_date, market_score=65, market_status="中性"),
+    )
+    monkeypatch.setattr(
+        "backend.app.workflow.service.generate_sector_rankings",
+        lambda engine, trade_date, provider: (_ for _ in ()).throw(Exception("sector source failed")),
+    )
+    monkeypatch.setattr(
+        "backend.app.workflow.service._load_existing_sector_rankings_or_raise",
+        lambda engine, trade_date, exc: [SimpleNamespace(sector_name="半导体")],
+    )
+    monkeypatch.setattr(
+        "backend.app.workflow.service.generate_candidate_stocks",
+        lambda engine, trade_date, provider, limit: [SimpleNamespace(stock_code="000001")],
+    )
+    monkeypatch.setattr(
+        "backend.app.workflow.service.generate_trade_reviews",
+        lambda engine, trade_date: SimpleNamespace(review_date=trade_date, total_count=0, triggered_count=0, win_rate=0),
+    )
+    monkeypatch.setattr(
+        "backend.app.workflow.service.generate_trade_plans",
+        lambda engine, plan_date, limit=None: [SimpleNamespace(stock_code="000001", target_trade_date=date(2026, 6, 19))],
+    )
+
+    result = run_after_close_workflow(
+        "engine",
+        date(2026, 6, 18),
+        FakeMarketProvider(),
+        FakeSectorProvider(),
+        FakeCandidateProvider(),
+    )
+
+    assert result.sector_count == 1
+    assert result.candidate_count == 1
+
+
+def test_after_close_workflow_reuses_existing_candidates_when_membership_fails(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.app.workflow.service.ingest_market_snapshot",
+        lambda engine, snapshot: SimpleNamespace(
+            trading_calendar_rows=3,
+            stock_basic_rows=2,
+            index_daily_rows=3,
+            stock_daily_rows=2,
+            limit_snapshot_rows=1,
+            ingest_run_id=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.app.workflow.service.generate_market_environment",
+        lambda engine, trade_date: SimpleNamespace(trade_date=trade_date, market_score=65, market_status="中性"),
+    )
+    monkeypatch.setattr(
+        "backend.app.workflow.service.generate_sector_rankings",
+        lambda engine, trade_date, provider: [SimpleNamespace(sector_name="半导体")],
+    )
+    monkeypatch.setattr(
+        "backend.app.workflow.service.generate_candidate_stocks",
+        lambda engine, trade_date, provider, limit: (_ for _ in ()).throw(Exception("member source failed")),
+    )
+    monkeypatch.setattr(
+        "backend.app.workflow.service._load_existing_candidates_or_raise",
+        lambda engine, trade_date, exc: [SimpleNamespace(stock_code="000001"), SimpleNamespace(stock_code="000002")],
+    )
+    monkeypatch.setattr(
+        "backend.app.workflow.service.generate_trade_reviews",
+        lambda engine, trade_date: SimpleNamespace(review_date=trade_date, total_count=0, triggered_count=0, win_rate=0),
+    )
+    monkeypatch.setattr(
+        "backend.app.workflow.service.generate_trade_plans",
+        lambda engine, plan_date, limit=None: [SimpleNamespace(stock_code="000001", target_trade_date=date(2026, 6, 19))],
+    )
+
+    result = run_after_close_workflow(
+        "engine",
+        date(2026, 6, 18),
+        FakeMarketProvider(),
+        FakeSectorProvider(),
+        FakeCandidateProvider(),
+    )
+
+    assert result.sector_count == 1
+    assert result.candidate_count == 2

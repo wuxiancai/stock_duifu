@@ -2,12 +2,15 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
+from sqlalchemy import desc, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
 
-from backend.app.candidate.service import generate_candidate_stocks
+from backend.app.candidate.service import CandidateResult, generate_candidate_stocks
 from backend.app.data.ingest import ingest_market_snapshot
 from backend.app.market.service import generate_market_environment
-from backend.app.sector.service import generate_sector_rankings
+from backend.app.db.models import CandidateStock
+from backend.app.sector.service import SectorRankingResult, generate_sector_rankings, load_sector_rankings_by_date
 from backend.app.trade.service import generate_trade_plans, generate_trade_reviews
 from backend.app.system.monitoring import (
     audit_step_status,
@@ -93,22 +96,28 @@ def run_after_close_workflow(
                 lambda item: {"market_score": item.market_score, "market_status": item.market_status},
                 lambda item: 1,
             )
-            sectors = record_data_job_step(
-                engine,
-                run_id,
-                "生成强势板块",
-                lambda: generate_sector_rankings(engine, trade_date, sector_provider),
-                lambda items: {"sector_count": len(items), "top_sector": items[0].sector_name if items else ""},
-                lambda items: len(items),
-            )
-            candidates = record_data_job_step(
-                engine,
-                run_id,
-                "生成候选股票",
-                lambda: generate_candidate_stocks(engine, trade_date, candidate_provider, limit=candidate_limit),
-                lambda items: {"candidate_count": len(items)},
-                lambda items: len(items),
-            )
+            try:
+                sectors = record_data_job_step(
+                    engine,
+                    run_id,
+                    "生成强势板块",
+                    lambda: generate_sector_rankings(engine, trade_date, sector_provider),
+                    lambda items: {"sector_count": len(items), "top_sector": items[0].sector_name if items else ""},
+                    lambda items: len(items),
+                )
+            except Exception as exc:
+                sectors = _load_existing_sector_rankings_or_raise(engine, trade_date, exc)
+            try:
+                candidates = record_data_job_step(
+                    engine,
+                    run_id,
+                    "生成候选股票",
+                    lambda: generate_candidate_stocks(engine, trade_date, candidate_provider, limit=candidate_limit),
+                    lambda items: {"candidate_count": len(items)},
+                    lambda items: len(items),
+                )
+            except Exception as exc:
+                candidates = _load_existing_candidates_or_raise(engine, trade_date, exc)
             reviews = record_data_job_step(
                 engine,
                 run_id,
@@ -144,8 +153,14 @@ def run_after_close_workflow(
             )
             ingest_summary = ingest_market_snapshot(engine, snapshot)
             market = generate_market_environment(engine, trade_date)
-            sectors = generate_sector_rankings(engine, trade_date, sector_provider)
-            candidates = generate_candidate_stocks(engine, trade_date, candidate_provider, limit=candidate_limit)
+            try:
+                sectors = generate_sector_rankings(engine, trade_date, sector_provider)
+            except Exception as exc:
+                sectors = _load_existing_sector_rankings_or_raise(engine, trade_date, exc)
+            try:
+                candidates = generate_candidate_stocks(engine, trade_date, candidate_provider, limit=candidate_limit)
+            except Exception as exc:
+                candidates = _load_existing_candidates_or_raise(engine, trade_date, exc)
             reviews = generate_trade_reviews(engine, trade_date)
             plans = generate_trade_plans(engine, trade_date, limit=trade_plan_limit)
     except Exception as exc:
@@ -171,3 +186,51 @@ def run_after_close_workflow(
         trade_plan_count=len(plans),
         target_trade_date=target_trade_date,
     )
+
+
+def _load_existing_sector_rankings_or_raise(
+    engine: Engine,
+    trade_date: date,
+    original_exc: Exception,
+) -> list[SectorRankingResult]:
+    existing = load_sector_rankings_by_date(engine, trade_date)
+    if existing is None or not existing[1]:
+        raise original_exc
+    return existing[1]
+
+
+def _load_existing_candidates_or_raise(
+    engine: Engine,
+    trade_date: date,
+    original_exc: Exception,
+) -> list[CandidateResult]:
+    with Session(engine) as session:
+        records = session.scalars(
+            select(CandidateStock)
+            .where(CandidateStock.trade_date == trade_date)
+            .order_by(desc(CandidateStock.stock_score), CandidateStock.stock_code)
+        ).all()
+    if not records:
+        raise original_exc
+    return [
+        CandidateResult(
+            trade_date=record.trade_date,
+            stock_code=record.stock_code,
+            stock_name=record.stock_name,
+            sector_name=record.sector_name,
+            sector_rank=record.sector_rank,
+            sector_category=record.sector_category,
+            stock_pool_rank=record.stock_pool_rank,
+            strategy_type=record.strategy_type,
+            stock_score=record.stock_score,
+            sector_score=record.sector_score,
+            nine_turn_signal=record.nine_turn_signal,
+            nine_turn_count=record.nine_turn_count,
+            nine_turn_score=record.nine_turn_score,
+            close_price=float(record.close_price or 0),
+            amount=float(record.amount or 0),
+            reason=record.reason,
+            risk_note=record.risk_note,
+        )
+        for record in records
+    ]

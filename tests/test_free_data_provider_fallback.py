@@ -1,6 +1,7 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from backend.app.candidate.providers import EastmoneyIndustrySectorMembershipProvider
 from backend.app.data.providers import TushareMarketDataProvider
@@ -122,3 +123,16 @@ def test_eastmoney_industry_membership_provider_maps_free_members() -> None:
     )
 
     assert provider.sector_members(["半导体"]) == {"半导体": ["000001", "600519"]}
+
+
+def test_eastmoney_industry_membership_provider_raises_when_all_members_fail() -> None:
+    def member_fetcher(**kwargs):
+        raise ConnectionError("remote closed")
+
+    provider = EastmoneyIndustrySectorMembershipProvider(
+        trade_date=date(2026, 6, 18),
+        member_fetcher=member_fetcher,
+    )
+
+    with pytest.raises(RuntimeError, match="东方财富行业成分股接口全部失败"):
+        provider.sector_members(["半导体", "机器人"])
